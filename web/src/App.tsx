@@ -1,0 +1,548 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  api,
+  type Category,
+  type DashboardState,
+  type DefaultSettings,
+  type Preset,
+  type PresetInput,
+  type StreamInfo,
+  type TokenStatus,
+} from "./api.js";
+import { StatusRail } from "./components/StatusRail.js";
+import { PresetForm } from "./components/PresetForm.js";
+import { AdHocModal } from "./components/AdHocModal.js";
+import { CategorySelect } from "./components/CategorySelect.js";
+
+type Toast = { message: string; kind: "ok" | "err" } | null;
+
+const PRIVACY_PILL: Record<string, string> = {
+  public: "pill--pub",
+  unlisted: "pill--unl",
+  private: "pill--priv",
+};
+
+export function App() {
+  const [state, setState] = useState<DashboardState | null>(null);
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [settings, setSettings] = useState<DefaultSettings>({
+    defaultCategory: null,
+    defaultStreamBoundId: null,
+  });
+  const [token, setToken] = useState<TokenStatus>({
+    configured: false,
+    createdAt: null,
+  });
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [streams, setStreams] = useState<StreamInfo[]>([]);
+  const [newToken, setNewToken] = useState<string | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState<string>("");
+  const [editing, setEditing] = useState<Preset | "new" | null>(null);
+  const [adHoc, setAdHoc] = useState(false);
+  const [toast, setToast] = useState<Toast>(null);
+  const importInput = useRef<HTMLInputElement>(null);
+
+  const flash = useCallback((message: string, kind: "ok" | "err" = "ok") => {
+    setToast({ message, kind });
+    window.setTimeout(() => setToast(null), 3200);
+  }, []);
+
+  const loadPresets = useCallback(
+    () => api.presets.list().then(setPresets),
+    [],
+  );
+
+  useEffect(() => {
+    void loadPresets();
+    void api.settings.get().then(setSettings);
+    void api.token.status().then(setToken);
+    void api.webhook.get().then((w) => setWebhookUrl(w.url ?? ""));
+    void api.categories
+      .list()
+      .then(setCategories)
+      .catch(() => {});
+    void api.streams
+      .list()
+      .then(setStreams)
+      .catch(() => {});
+  }, [loadPresets]);
+
+  // Live state via SSE; fall back to 5s polling if the stream drops.
+  useEffect(() => {
+    let active = true;
+    let pollId: number | null = null;
+    const apply = (s: DashboardState) => active && setState(s);
+
+    const startPolling = () => {
+      if (pollId !== null) return;
+      const tick = () => api.state().then(apply).catch(() => {});
+      void tick();
+      pollId = window.setInterval(tick, 5000);
+    };
+
+    // Seed immediately so the rail isn't blank while the stream connects.
+    void api.state().then(apply).catch(() => {});
+    const close = api.streamState(apply, startPolling);
+
+    return () => {
+      active = false;
+      close();
+      if (pollId !== null) window.clearInterval(pollId);
+    };
+  }, []);
+
+  const savePreset = async (input: PresetInput) => {
+    try {
+      if (editing === "new") await api.presets.create(input);
+      else if (editing) await api.presets.update(editing.id, input);
+      setEditing(null);
+      await loadPresets();
+      flash("Preset saved");
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
+  const exportPresets = async () => {
+    try {
+      const data = await api.presets.export();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `presets-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      flash(`Exported ${data.presets.length} preset${data.presets.length === 1 ? "" : "s"}`);
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
+  const importPresets = async (file: File) => {
+    try {
+      const parsed = JSON.parse(await file.text());
+      // Accept either a full export ({ presets: [...] }) or a bare array.
+      const list: unknown[] = Array.isArray(parsed) ? parsed : parsed?.presets;
+      if (!Array.isArray(list)) throw new Error("File has no presets array");
+      const mode =
+        presets.length > 0 &&
+        confirm(
+          `Replace all ${presets.length} existing presets?\n\nOK = replace (restore backup, keeps IDs)\nCancel = merge (append copies with new IDs)`,
+        )
+          ? "replace"
+          : "merge";
+      const r = await api.presets.import(list, mode);
+      await loadPresets();
+      flash(`Imported ${r.count} preset${r.count === 1 ? "" : "s"} (${mode})`);
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
+  const deletePreset = async (p: Preset) => {
+    if (!confirm(`Delete preset “${p.title}”?`)) return;
+    try {
+      await api.presets.remove(p.id);
+      await loadPresets();
+      flash("Preset deleted");
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
+  const testPreset = async (p: Preset) => {
+    try {
+      const r = await api.action.preset(p.id);
+      if (r.success) flash(`Applied “${p.title}” to YouTube`);
+      else
+        flash(
+          (r as { error?: { message: string } }).error?.message ??
+            "Action failed",
+          "err",
+        );
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
+  const saveSettings = async (next: DefaultSettings) => {
+    try {
+      const saved = await api.settings.save(next);
+      setSettings(saved);
+      flash("Defaults saved");
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
+  const regenerate = async () => {
+    if (
+      token.configured &&
+      !confirm(
+        "Regenerate the API token? The current token stops working immediately.",
+      )
+    )
+      return;
+    try {
+      const r = await api.token.regenerate();
+      setNewToken(r.token);
+      setToken({ configured: r.configured, createdAt: r.createdAt });
+      flash("New token generated — copy it now");
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
+  const copy = (value: string, label: string) => {
+    void navigator.clipboard
+      .writeText(value)
+      .then(() => flash(`${label} copied`));
+  };
+
+  const togglePrivacy = async () => {
+    try {
+      const r = await api.action.privacy();
+      if (r.success) flash("Privacy toggled");
+      else flash(r.error?.message ?? "Toggle failed", "err");
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
+  const saveWebhook = async (url: string) => {
+    const trimmed = url.trim();
+    try {
+      const saved = await api.webhook.save(trimmed || null);
+      setWebhookUrl(saved.url ?? "");
+      flash(saved.url ? "Webhook saved" : "Webhook cleared");
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
+  const undo = async () => {
+    try {
+      const r = await api.action.undo();
+      if (r.success) flash("Reverted to previous state");
+      else flash(r.error?.message ?? "Undo failed", "err");
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
+  const pushAdHoc = async (
+    payload: Parameters<typeof api.action.update>[0],
+  ) => {
+    try {
+      const r = await api.action.update(payload);
+      if (r.success) {
+        setAdHoc(false);
+        flash("Ad-hoc update pushed");
+      } else {
+        flash(r.error?.message ?? "Update failed", "err");
+      }
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
+  return (
+    <div className="shell">
+      <StatusRail state={state} />
+
+      <main className="main">
+        {/* Presets */}
+        <section className="panel">
+          <div className="panel__head">
+            <h2>Presets</h2>
+            <div className="panel__head-actions">
+              <button
+                className="btn btn--sm"
+                onClick={exportPresets}
+                disabled={presets.length === 0}
+                title="Download all presets as a JSON backup"
+              >
+                Export
+              </button>
+              <button
+                className="btn btn--sm"
+                onClick={() => importInput.current?.click()}
+                title="Restore or clone presets from a JSON file"
+              >
+                Import
+              </button>
+              <input
+                ref={importInput}
+                type="file"
+                accept="application/json,.json"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void importPresets(file);
+                  e.target.value = "";
+                }}
+              />
+              <button
+                className="btn btn--primary btn--sm"
+                onClick={() => setEditing("new")}
+              >
+                + New preset
+              </button>
+            </div>
+          </div>
+          <div className="panel__body">
+            {presets.length === 0 ? (
+              <p className="empty">
+                No presets yet. Create one to map it to a Stream Deck button.
+              </p>
+            ) : (
+              <div className="preset-grid">
+                {presets.map((p) => (
+                  <article className="card" key={p.id}>
+                    <div className="card__title">{p.title}</div>
+                    {p.description ? (
+                      <div className="card__desc">{p.description}</div>
+                    ) : null}
+                    <div className="card__meta">
+                      <span className={`pill ${PRIVACY_PILL[p.privacyStatus]}`}>
+                        {p.privacyStatus}
+                      </span>
+                      <span className="pill">
+                        {p.category ? `cat ${p.category}` : "cat · default"}
+                      </span>
+                      <span className="pill">
+                        {p.streamBoundId
+                          ? "stream · override"
+                          : "stream · default"}
+                      </span>
+                    </div>
+                    <div
+                      className="mapping"
+                      title="Copy for the Companion JSON payload"
+                    >
+                      <code>{`{ "presetId": "${p.id}" }`}</code>
+                      <button
+                        className="btn btn--ghost btn--sm"
+                        onClick={() =>
+                          copy(`{ "presetId": "${p.id}" }`, "Payload")
+                        }
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <div className="card__actions">
+                      <button
+                        className="btn btn--sm"
+                        onClick={() => testPreset(p)}
+                        disabled={state?.busy ?? false}
+                      >
+                        Apply now
+                      </button>
+                      <button
+                        className="btn btn--sm"
+                        onClick={() => setEditing(p)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="btn btn--sm btn--danger"
+                        onClick={() => deletePreset(p)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Defaults + Ad-hoc */}
+        <section className="panel">
+          <div className="panel__head">
+            <h2>Default settings</h2>
+            <div className="panel__head-actions">
+              <button
+                className="btn btn--sm"
+                onClick={undo}
+                disabled={(state?.busy ?? false) || !state?.undo}
+                title={
+                  state?.undo
+                    ? `Revert the last change${state.undo.label ? ` (was “${state.undo.label}”)` : ""}`
+                    : "Nothing to undo yet"
+                }
+              >
+                Undo
+              </button>
+              <button
+                className="btn btn--sm"
+                onClick={togglePrivacy}
+                disabled={(state?.busy ?? false) || (state?.status.noTarget ?? false)}
+                title="Flip the live target between private and public"
+              >
+                Toggle privacy
+              </button>
+              <button className="btn btn--sm" onClick={() => setAdHoc(true)}>
+                Ad-hoc update…
+              </button>
+            </div>
+          </div>
+          <div className="panel__body">
+            <p className="empty" style={{ marginTop: 0 }}>
+              Baseline used whenever a preset or ad-hoc update leaves category
+              or stream binding blank.
+            </p>
+            <div className="field--row" style={{ marginTop: 12 }}>
+              <div className="field">
+                <label htmlFor="def-cat">Default category</label>
+                <CategorySelect
+                  id="def-cat"
+                  value={settings.defaultCategory}
+                  categories={categories}
+                  blankLabel="— none (leave untouched) —"
+                  onChange={(value) =>
+                    saveSettings({ ...settings, defaultCategory: value })
+                  }
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="def-stream">Default stream binding</label>
+                <input
+                  id="def-stream"
+                  list="def-stream-list"
+                  defaultValue={settings.defaultStreamBoundId ?? ""}
+                  placeholder="stream id / key"
+                  aria-invalid={
+                    settings.defaultStreamBoundId != null &&
+                    streams.length > 0 &&
+                    !streams.some((s) => s.id === settings.defaultStreamBoundId)
+                  }
+                  onBlur={(e) =>
+                    saveSettings({
+                      ...settings,
+                      defaultStreamBoundId: e.target.value.trim() || null,
+                    })
+                  }
+                />
+                <datalist id="def-stream-list">
+                  {streams.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title}
+                      {s.streamName ? ` · ${s.streamName}` : ""}
+                    </option>
+                  ))}
+                </datalist>
+                {settings.defaultStreamBoundId != null &&
+                streams.length > 0 &&
+                !streams.some((s) => s.id === settings.defaultStreamBoundId) ? (
+                  <p className="field-warn">
+                    ⚠ No live stream on this channel has that ID — updates that rely on the
+                    default binding will fail.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <p className="empty">Changes save when you leave a field.</p>
+          </div>
+        </section>
+
+        {/* Token */}
+        <section className="panel">
+          <div className="panel__head">
+            <h2>API token</h2>
+          </div>
+          <div className="panel__body">
+            {newToken ? (
+              <div className="token-value">
+                <code>{newToken}</code>
+                <button
+                  className="btn btn--sm"
+                  onClick={() => copy(newToken, "Token")}
+                >
+                  Copy
+                </button>
+                <button
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => setNewToken(null)}
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <p className="empty" style={{ marginTop: 0 }}>
+                {token.configured
+                  ? `Token active${token.createdAt ? ` since ${new Date(token.createdAt).toLocaleString()}` : ""}. Value is hidden — regenerate to reveal a new one.`
+                  : "No token set. Companion endpoints are currently open. Generate a token to lock them down."}
+              </p>
+            )}
+            <button className="btn" onClick={regenerate}>
+              {token.configured ? "Regenerate token" : "Generate token"}
+            </button>
+            <p className="empty">
+              Paste as{" "}
+              <span className="mono">Authorization: Bearer &lt;token&gt;</span>{" "}
+              in Companion’s HTTP connection.
+            </p>
+          </div>
+        </section>
+
+        {/* Webhook */}
+        <section className="panel">
+          <div className="panel__head">
+            <h2>State webhook</h2>
+          </div>
+          <div className="panel__body">
+            <p className="empty" style={{ marginTop: 0 }}>
+              Optional. When set, every meaningful state change (live/idle, privacy,
+              health, busy) is POSTed here as{" "}
+              <span className="mono">{`{ "event": "state", "state": {…} }`}</span> — so
+              Companion reacts instantly instead of polling.
+            </p>
+            <div className="field">
+              <label htmlFor="webhook-url">Webhook URL</label>
+              <input
+                id="webhook-url"
+                type="url"
+                value={webhookUrl}
+                placeholder="https://…"
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                onBlur={(e) => saveWebhook(e.target.value)}
+              />
+            </div>
+            <p className="empty">
+              Saves when you leave the field. Clear it to disable.
+            </p>
+          </div>
+        </section>
+      </main>
+
+      {editing ? (
+        <PresetForm
+          title={editing === "new" ? "New preset" : "Edit preset"}
+          initial={editing === "new" ? undefined : editing}
+          categories={categories}
+          streams={streams}
+          onCancel={() => setEditing(null)}
+          onSubmit={savePreset}
+        />
+      ) : null}
+
+      {adHoc ? (
+        <AdHocModal
+          state={state}
+          categories={categories}
+          onCancel={() => setAdHoc(false)}
+          onSubmit={pushAdHoc}
+        />
+      ) : null}
+
+      {toast ? (
+        <div className={`toast ${toast.kind === "err" ? "toast--err" : ""}`}>
+          {toast.message}
+        </div>
+      ) : null}
+    </div>
+  );
+}

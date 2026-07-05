@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Control Surface · YouTube Live Middleware API</title>
+<style>
+  :root {
+    /* Console graphite — warm, not pure black, like silkscreened broadcast gear */
+    --rack:      #14171c;
+    --rack-2:    #1b1f27;
+    --rack-3:    #222833;
+    --edge:      #30363f;
+    --edge-2:    #3d4550;
+    --ink:       #e9e6df;
+    --ink-2:     #b9bec6;
+    --dim:       #7c848f;
+    --dim-2:     #59606b;
+    /* Signal coding — a broadcast tally triad, method carries meaning */
+    --read:      #37d0c2;  /* GET  — phosphor teal, "return/monitor" */
+    --write:     #ff4438;  /* POST — tally red, "on air / take" */
+    --mutate:    #ffb020;  /* PUT  — cue amber, "standby" */
+    --drop:      #8b7bff;  /* DELETE — patch violet */
+    --ok:        #37d0c2;
+    --warn:      #ffb020;
+    --err:       #ff4438;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Roboto Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(120% 80% at 50% -10%, #1a1f28 0%, var(--rack) 60%) fixed;
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    letter-spacing: 0.01em;
+  }
+  a { color: var(--read); }
+
+  .micro {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  /* ---- Master section (sticky console head) ---- */
+  .master {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: linear-gradient(180deg, #171b22 0%, #141821 100%);
+    border-bottom: 1px solid var(--edge);
+    box-shadow: 0 1px 0 #0c0e13, 0 10px 30px -18px #000;
+  }
+  .master__bar {
+    max-width: 1160px;
+    margin: 0 auto;
+    padding: 14px 22px 0;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand b { color: var(--read); font-weight: 700; }
+  .brand__sub { color: var(--dim); font-weight: 400; }
+
+  /* Tally strip — live broadcast state, the signature element */
+  .tally {
+    max-width: 1160px;
+    margin: 12px auto 0;
+    padding: 0 22px 14px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+  .lamp {
+    flex: 1 1 130px;
+    min-width: 118px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--rack-2);
+    border: 1px solid var(--edge);
+    border-radius: 3px;
+  }
+  .lamp__led {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: #2a2f38;
+    box-shadow: inset 0 0 0 1px #0009;
+    flex: none;
+    transition: background .2s, box-shadow .2s;
+  }
+  .lamp__txt { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+  .lamp__k { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
+  .lamp__v { font-family: var(--mono); font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lamp.is-on   .lamp__led { background: var(--write);  box-shadow: 0 0 10px 1px #ff443899, inset 0 0 0 1px #0006; }
+  .lamp.is-off  .lamp__led { background: #39404a; }
+  .lamp.is-ok   .lamp__led { background: var(--ok);     box-shadow: 0 0 9px 0 #37d0c288; }
+  .lamp.is-warn .lamp__led { background: var(--warn);   box-shadow: 0 0 9px 0 #ffb02088; }
+  .lamp.is-err  .lamp__led { background: var(--err);    box-shadow: 0 0 9px 0 #ff443888; }
+  .lamp.is-busy .lamp__led { background: var(--mutate); box-shadow: 0 0 9px 0 #ffb02088; animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .lamp.is-on .lamp__v  { color: var(--write); }
+
+  /* Connection patch (base url + token) */
+  .patch {
+    max-width: 1160px;
+    margin: 0 auto;
+    padding: 0 22px 16px;
+    display: grid;
+    grid-template-columns: 1.4fr 1.6fr auto;
+    gap: 10px;
+    align-items: end;
+  }
+  .patch .field { display: flex; flex-direction: column; gap: 5px; }
+  .patch label { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
+
+  input, textarea, select {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink);
+    background: #0f1319;
+    border: 1px solid var(--edge);
+    border-radius: 3px;
+    padding: 9px 10px;
+    width: 100%;
+  }
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: var(--read);
+    box-shadow: 0 0 0 1px var(--read), 0 0 12px -2px #37d0c266;
+  }
+  textarea { resize: vertical; min-height: 78px; line-height: 1.45; }
+  select { appearance: none; cursor: pointer; }
+  ::placeholder { color: var(--dim-2); }
+
+  .btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: var(--rack-3);
+    border: 1px solid var(--edge-2);
+    border-radius: 3px;
+    padding: 10px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: transform .05s, background .15s, border-color .15s;
+  }
+  .btn:hover { background: #2a323d; }
+  .btn:active { transform: translateY(1px); }
+  .btn:focus-visible { outline: 2px solid var(--read); outline-offset: 2px; }
+
+  /* ---- Layout ---- */
+  .wrap {
+    max-width: 1160px;
+    margin: 0 auto;
+    padding: 26px 22px 80px;
+    display: grid;
+    grid-template-columns: 210px 1fr;
+    gap: 30px;
+    align-items: start;
+  }
+
+  /* Rack rail index */
+  .rail { position: sticky; top: 220px; }
+  .rail__grp { margin-bottom: 18px; }
+  .rail__grp > .micro { display: block; padding: 0 0 7px; border-bottom: 1px solid var(--edge); margin-bottom: 7px; }
+  .rail a {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 12px; color: var(--ink-2);
+    text-decoration: none; padding: 3px 0; line-height: 1.3;
+  }
+  .rail a:hover { color: var(--ink); }
+  .rail .v { font-size: 9px; width: 30px; flex: none; letter-spacing: .05em; }
+
+  /* Bus group heading */
+  .bus { margin-bottom: 40px; scroll-margin-top: 230px; }
+  .bus__head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 4px; }
+  .bus__head h2 { font-family: var(--mono); font-size: 17px; letter-spacing: .02em; margin: 0; }
+  .bus__auth {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 2px; border: 1px solid var(--edge-2); color: var(--dim);
+  }
+  .bus__auth.is-token { color: var(--mutate); border-color: #6b5417; background: #2a2312; }
+  .bus__auth.is-open  { color: var(--read);   border-color: #1c5a54; background: #103a37; }
+  .bus__desc { color: var(--dim); margin: 0 0 18px; font-size: 13px; max-width: 62ch; }
+
+  /* Channel strip = one endpoint */
+  .strip {
+    background: linear-gradient(180deg, var(--rack-2), #171b22);
+    border: 1px solid var(--edge);
+    border-left: 2px solid var(--edge-2);
+    border-radius: 4px;
+    margin-bottom: 14px;
+    scroll-margin-top: 230px;
+    overflow: hidden;
+  }
+  .strip--read   { border-left-color: var(--read); }
+  .strip--write  { border-left-color: var(--write); }
+  .strip--mutate { border-left-color: var(--mutate); }
+  .strip--drop   { border-left-color: var(--drop); }
+
+  .strip__head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 13px 16px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .jack {
+    font-family: var(--mono); font-weight: 700; font-size: 11px; letter-spacing: .08em;
+    padding: 4px 8px; border-radius: 2px; flex: none; min-width: 58px; text-align: center;
+    color: #0d1013;
+  }
+  .jack--read   { background: var(--read); }
+  .jack--write  { background: var(--write); color: #fff; }
+  .jack--mutate { background: var(--mutate); }
+  .jack--drop   { background: var(--drop); color: #fff; }
+  .path { font-family: var(--mono); font-size: 13.5px; color: var(--ink); word-break: break-all; }
+  .path b { color: var(--dim); font-weight: 400; }
+  .strip__spacer { flex: 1; }
+  .cost {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--dim); border: 1px solid var(--edge); border-radius: 2px; padding: 2px 6px; flex: none;
+  }
+  .cost--live   { color: var(--warn); border-color: #5c4a1a; }
+  .cost--cached { color: var(--read); border-color: #1c5a54; }
+  .caret { color: var(--dim); font-family: var(--mono); transition: transform .2s; flex: none; }
+  .strip.is-open .caret { transform: rotate(90deg); }
+
+  .strip__body { display: none; padding: 0 16px 16px; border-top: 1px solid var(--edge); }
+  .strip.is-open .strip__body { display: block; }
+  .strip__desc { color: var(--ink-2); font-size: 13px; margin: 14px 0 16px; max-width: 66ch; }
+  .strip__desc code { font-family: var(--mono); font-size: 12px; color: var(--read); background: #0f1319; padding: 1px 5px; border-radius: 2px; }
+
+  .params { display: grid; gap: 12px; margin-bottom: 16px; }
+  .param { display: flex; flex-direction: column; gap: 5px; }
+  .param__label { display: flex; align-items: baseline; gap: 8px; }
+  .param__label label { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+  .param__req  { font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--write); }
+  .param__opt  { font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  .param__hint { color: var(--dim); font-size: 12px; }
+
+  .strip__actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  /* TAKE button — the vision-mixer cut */
+  .take {
+    font-family: var(--mono); font-weight: 700; font-size: 12px; letter-spacing: .2em;
+    text-transform: uppercase; color: #fff;
+    background: linear-gradient(180deg, #ff5548, #e0342a);
+    border: 1px solid #ff6a5f; border-bottom-color: #b02219;
+    border-radius: 3px; padding: 11px 22px; cursor: pointer;
+    box-shadow: 0 0 0 1px #0006, 0 6px 18px -8px #ff443877;
+    transition: transform .05s, box-shadow .15s, filter .15s;
+  }
+  .take:hover { filter: brightness(1.06); }
+  .take:active { transform: translateY(1px); box-shadow: 0 0 0 1px #0006; }
+  .take:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .take--read   { background: linear-gradient(180deg, #45ddce, #23b3a6); border-color: #5fe7d9; border-bottom-color: #178578; color: #06201d; box-shadow: 0 0 0 1px #0006, 0 6px 18px -8px #37d0c277; }
+  .take[disabled] { opacity: .5; cursor: progress; }
+  .take__eta { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+
+  /* Return monitor — the response */
+  .monitor { margin-top: 14px; display: none; }
+  .monitor.is-live { display: block; }
+  .monitor__bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 11px; border-radius: 3px 3px 0 0;
+    background: #0f1319; border: 1px solid var(--edge); border-bottom: none;
+  }
+  .status {
+    font-family: var(--mono); font-weight: 700; font-size: 12px; letter-spacing: .05em;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .status::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+  .status--ok   { color: var(--ok); }
+  .status--warn { color: var(--warn); }
+  .status--err  { color: var(--err); }
+  .meta { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .meta b { color: var(--ink-2); font-weight: 400; }
+  .monitor pre {
+    margin: 0; padding: 14px; max-height: 380px; overflow: auto;
+    background: #0c0f14; border: 1px solid var(--edge); border-radius: 0 0 3px 3px;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55; color: var(--ink-2);
+    white-space: pre; tab-size: 2;
+  }
+  .tok-key { color: var(--read); }
+  .tok-str { color: #e8c98a; }
+  .tok-num { color: #c58bff; }
+  .tok-bool{ color: var(--write); }
+  .tok-null{ color: var(--dim); }
+
+  .foot {
+    max-width: 1160px; margin: 0 auto; padding: 0 22px 60px;
+    color: var(--dim); font-size: 12.5px; font-family: var(--mono);
+  }
+  .foot code { color: var(--ink-2); }
+
+  @media (max-width: 820px) {
+    .wrap { grid-template-columns: 1fr; }
+    .rail { display: none; }
+    .patch { grid-template-columns: 1fr; }
+    .patch .btn { width: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <header class="master">
+    <div class="master__bar">
+      <div class="brand"><b>◉</b> LIVE&nbsp;METADATA&nbsp;CONTROL <span class="brand__sub">/ control surface</span></div>
+    </div>
+
+    <div class="tally" id="tally" aria-label="Live stream state">
+      <div class="lamp" id="lamp-air"><span class="lamp__led"></span><span class="lamp__txt"><span class="lamp__k">Broadcast</span><span class="lamp__v" id="v-air">—</span></span></div>
+      <div class="lamp" id="lamp-health"><span class="lamp__led"></span><span class="lamp__txt"><span class="lamp__k">Health</span><span class="lamp__v" id="v-health">unknown</span></span></div>
+      <div class="lamp" id="lamp-busy"><span class="lamp__led"></span><span class="lamp__txt"><span class="lamp__k">Runner</span><span class="lamp__v" id="v-busy">—</span></span></div>
+      <div class="lamp" id="lamp-title"><span class="lamp__led is-off"></span><span class="lamp__txt"><span class="lamp__k">On&nbsp;screen</span><span class="lamp__v" id="v-title">—</span></span></div>
+      <div class="lamp" id="lamp-quota"><span class="lamp__led"></span><span class="lamp__txt"><span class="lamp__k">Quota</span><span class="lamp__v" id="v-quota">—</span></span></div>
+    </div>
+
+    <div class="patch">
+      <div class="field">
+        <label for="base">Base URL</label>
+        <input id="base" spellcheck="false" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="token">Bearer token <span style="color:var(--dim-2)">— for action &amp; feedback bus</span></label>
+        <input id="token" type="password" placeholder="paste API token (dashboard → API token)" spellcheck="false" autocomplete="off" />
+      </div>
+      <button class="btn" id="ping">Ping health</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <nav class="rail" id="rail" aria-label="Endpoint index"></nav>
+    <div id="buses"></div>
+  </main>
+
+  <footer class="foot">
+    All action endpoints return <code>HTTP 200</code> with <code>success</code>/<code>error</code> in the body (PRD §7).
+    The tally strip and this tester talk to whatever <code>Base URL</code> is set above — by default, this server.
+    Feedback reads are served from cache (zero YouTube quota); “live” strips spend quota on a real API call.
+  </footer>
+
+<script>
+(function () {
+  "use strict";
+
+  // --- Field types ---------------------------------------------------------
+  // t: "path" | "text" | "textarea" | "select" | "json"
+  const M = {
+    read: "read", write: "write", mutate: "mutate", drop: "drop"
+  };
+
+  const BUSES = [
+    {
+      id: "feedback", name: "Feedback bus", auth: "token",
+      desc: "Cached state for Companion to poll every ~5s. Served from the in-app cache, never a live YouTube call, so polling costs zero quota. Needs the Bearer token.",
+      endpoints: [
+        { m:"GET", path:"/api/feedback/health", cost:"cached", auth:true, open:true,
+          desc:"Liveness + auth + quota budget. This exact path is also reachable <em>without</em> a token (used as a plain liveness probe).",
+          resp:'{ status, authenticated, message, quotaUsed, quotaLimit, quotaRemaining }' },
+        { m:"GET", path:"/api/feedback/status", cost:"cached", auth:true,
+          desc:"Current broadcast title, privacy, and whether it is live.",
+          resp:'{ title, privacyStatus, isLive }' },
+        { m:"GET", path:"/api/feedback/busy", cost:"cached", auth:true,
+          desc:"Whether an action is in flight — drive a Stream Deck button color from this.",
+          resp:'{ busy }' },
+        { m:"GET", path:"/api/feedback/active-preset", cost:"cached", auth:true,
+          desc:"Id of the preset last applied, or null.",
+          resp:'{ activePresetId }' },
+        { m:"SSE", path:"/api/feedback/stream", cost:"cached", auth:true, sse:true,
+          desc:"Server-Sent Events push of full dashboard state on every change — an alternative to polling. Lower latency for the go-live transition." },
+      ]
+    },
+    {
+      id: "action", name: "Action bus", auth: "token",
+      desc: "One-shot control actions. Each performs YouTube's read-modify-write dance internally. The same routes are mirrored under /api/dashboard/action with no token — the tester uses that mirror automatically when you leave the token blank.",
+      endpoints: [
+        { m:"POST", path:"/api/action/preset", cost:"live", auth:true,
+          desc:"Apply a saved preset to the active broadcast. Get an id from <code>GET /api/dashboard/presets</code>.",
+          body:[ {k:"presetId", t:"text", req:true, hint:"preset id"} ] },
+        { m:"POST", path:"/api/action/update", cost:"live", auth:true,
+          desc:"Ad-hoc metadata override. Only <code>title</code> is required; blank optional fields inherit app defaults.",
+          body:[
+            {k:"title", t:"text", req:true},
+            {k:"description", t:"textarea"},
+            {k:"privacyStatus", t:"select", opts:["","public","unlisted","private"]},
+            {k:"category", t:"text", hint:"category id — blank inherits default"},
+            {k:"streamBoundId", t:"text", hint:"stream id — blank inherits default"},
+          ] },
+        { m:"POST", path:"/api/action/privacy", cost:"live", auth:true,
+          desc:"Flip visibility mid-stream. Choose an explicit status, or leave it as <code>toggle</code> to swap private↔public. Does not re-apply the default category or re-bind the stream.",
+          body:[ {k:"status", t:"select", opts:["(toggle)","public","unlisted","private"], hint:"(toggle) flips private↔public"} ] },
+        { m:"POST", path:"/api/action/undo", cost:"live", auth:true,
+          desc:"Restore the title / description / privacy / stream binding captured before the last change. Returns <code>NO_UNDO_AVAILABLE</code> if nothing has changed yet.",
+          body:[] },
+        { m:"POST", path:"/api/action/refresh", cost:"live", auth:true,
+          desc:"Force an immediate cache refresh from YouTube instead of waiting for the poll interval.",
+          body:[] },
+      ]
+    },
+    {
+      id: "presets", name: "Preset store", auth: "open",
+      desc: "Preset CRUD plus bulk import/export, used by the dashboard. LAN-trust: no token required.",
+      endpoints: [
+        { m:"GET", path:"/api/dashboard/presets", cost:"local", auth:false,
+          desc:"List every saved preset." },
+        { m:"POST", path:"/api/dashboard/presets", cost:"local", auth:false,
+          desc:"Create a preset. Returns the stored preset with its new id.",
+          body:[
+            {k:"title", t:"text", req:true},
+            {k:"description", t:"textarea"},
+            {k:"privacyStatus", t:"select", opts:["public","unlisted","private"], req:true},
+            {k:"category", t:"text", hint:"category id — blank = default"},
+            {k:"streamBoundId", t:"text", hint:"stream id — blank = default"},
+          ] },
+        { m:"PUT", path:"/api/dashboard/presets/:id", cost:"local", auth:false,
+          desc:"Replace a preset by id.",
+          pathParams:[ {k:"id", req:true} ],
+          body:[
+            {k:"title", t:"text", req:true},
+            {k:"description", t:"textarea"},
+            {k:"privacyStatus", t:"select", opts:["public","unlisted","private"], req:true},
+            {k:"category", t:"text"},
+            {k:"streamBoundId", t:"text"},
+          ] },
+        { m:"DELETE", path:"/api/dashboard/presets/:id", cost:"local", auth:false,
+          desc:"Delete a preset by id.",
+          pathParams:[ {k:"id", req:true} ] },
+        { m:"GET", path:"/api/dashboard/presets/export", cost:"local", auth:false,
+          desc:"Download all presets as a portable, versioned backup." },
+        { m:"POST", path:"/api/dashboard/presets/import", cost:"local", auth:false,
+          desc:"Restore or clone presets. <code>replace</code> swaps the whole set and keeps ids; <code>merge</code> appends copies with fresh ids. Invalid items are rejected without touching the existing set.",
+          raw:{ hint:"Paste an exported backup's presets array, or hand-write one.",
+            sample:'{\n  "mode": "merge",\n  "presets": [\n    { "title": "Sunday Service", "description": "", "privacyStatus": "public", "category": null, "streamBoundId": null }\n  ]\n}' } },
+      ]
+    },
+    {
+      id: "config", name: "Config bus", auth: "open",
+      desc: "App-level defaults, the outbound webhook, the API token, and YouTube lookups (categories / streams). Dashboard-only, no token.",
+      endpoints: [
+        { m:"GET", path:"/api/dashboard/state", cost:"local", auth:false,
+          desc:"Full dashboard snapshot: status, active preset, health, quota, and the pending undo label." },
+        { m:"GET", path:"/api/dashboard/settings", cost:"local", auth:false,
+          desc:"Current default category and default stream binding." },
+        { m:"PUT", path:"/api/dashboard/settings", cost:"local", auth:false,
+          desc:"Set the app-level defaults that presets inherit when a field is blank.",
+          body:[
+            {k:"defaultCategory", t:"text", hint:"category id, or blank to clear"},
+            {k:"defaultStreamBoundId", t:"text", hint:"stream id, or blank to clear"},
+          ] },
+        { m:"GET", path:"/api/dashboard/webhook", cost:"local", auth:false,
+          desc:"The configured outbound state-change webhook URL, or null." },
+        { m:"PUT", path:"/api/dashboard/webhook", cost:"local", auth:false,
+          desc:"Set (or clear) the URL that receives <code>POST { event, state }</code> on every state change. Send an empty string to clear.",
+          body:[ {k:"url", t:"text", hint:"https://… — empty string clears it"} ] },
+        { m:"GET", path:"/api/dashboard/token", cost:"local", auth:false,
+          desc:"Whether an API token is configured, and when it was created. Never returns the token itself." },
+        { m:"POST", path:"/api/dashboard/token/regenerate", cost:"local", auth:false,
+          desc:"Mint a new token and invalidate the old one. Returns the plaintext token exactly once — copy it into Companion.",
+          body:[] },
+        { m:"GET", path:"/api/dashboard/categories", cost:"live", auth:false,
+          desc:"Assignable YouTube video categories for the configured region. Cached for the process lifetime." },
+        { m:"GET", path:"/api/dashboard/streams", cost:"live", auth:false,
+          desc:"The channel's live streams (ingestion keys), used to validate a preset's stream binding. 30s cache." },
+        { m:"SSE", path:"/api/dashboard/stream", cost:"local", auth:false, sse:true,
+          desc:"Unauthenticated SSE push of dashboard state — what the web dashboard itself consumes." },
+      ]
+    },
+  ];
+
+  const $ = (s, r) => (r || document).querySelector(s);
+  const el = (tag, cls, txt) => { const n = document.createElement(tag); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
+  const methodClass = (m) => m === "GET" ? M.read : m === "DELETE" ? M.drop : m === "PUT" ? M.mutate : m === "SSE" ? M.read : M.write;
+
+  const baseInput = $("#base"), tokenInput = $("#token");
+  const savedBase = localStorage.getItem("api.base");
+  const savedTok  = localStorage.getItem("api.token");
+  baseInput.value = savedBase || window.location.origin;
+  if (savedTok) tokenInput.value = savedTok;
+  baseInput.addEventListener("change", () => localStorage.setItem("api.base", baseInput.value.trim()));
+  tokenInput.addEventListener("change", () => localStorage.setItem("api.token", tokenInput.value.trim()));
+
+  const baseURL = () => baseInput.value.trim().replace(/\/+$/, "");
+  const token = () => tokenInput.value.trim();
+
+  // --- JSON syntax highlight ----------------------------------------------
+  function highlight(obj) {
+    const json = JSON.stringify(obj, null, 2);
+    return json.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/("(\\.|[^"\\])*")(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+(\.\d+)?([eE][+-]?\d+)?/g,
+        (mtch, str, _e, colon, bool) => {
+          if (str) return colon ? '<span class="tok-key">' + str + '</span>' + colon : '<span class="tok-str">' + str + '</span>';
+          if (bool) return '<span class="tok-bool">' + mtch + '</span>';
+          if (mtch === "null") return '<span class="tok-null">null</span>';
+          return '<span class="tok-num">' + mtch + '</span>';
+        });
+  }
+
+  // --- Build request from an endpoint's inputs -----------------------------
+  function buildBody(ep, strip) {
+    if (ep.raw) {
+      const raw = $(".raw-body", strip).value.trim();
+      if (!raw) return { ok: true, body: undefined };
+      try { return { ok: true, body: JSON.parse(raw) }; }
+      catch (e) { return { ok: false, err: "Body is not valid JSON: " + e.message }; }
+    }
+    if (!ep.body) return { ok: true, body: undefined };
+    const out = {};
+    for (const f of ep.body) {
+      const node = $('[data-k="' + f.k + '"]', strip);
+      let v = node.value;
+      if (f.t === "select") {
+        // Sentinel option values ("", "(toggle)") mean "omit this field".
+        if (v === "" || v === "(toggle)") continue;
+      }
+      v = v.trim ? v.trim() : v;
+      if (v === "") { if (f.req) return { ok: false, err: f.k + " is required" }; continue; }
+      out[f.k] = v;
+    }
+    return { ok: true, body: out };
+  }
+
+  function resolvePath(ep, strip) {
+    let p = ep.path;
+    if (ep.pathParams) {
+      for (const pp of ep.pathParams) {
+        const v = $('[data-p="' + pp.k + '"]', strip).value.trim();
+        if (!v) return { ok: false, err: ":" + pp.k + " is required" };
+        p = p.replace(":" + pp.k, encodeURIComponent(v));
+      }
+    }
+    return { ok: true, path: p };
+  }
+
+  function needsToken(ep) { return ep.auth && token(); }
+  // Action bus without a token → fall back to the unauthenticated dashboard mirror.
+  function effectivePath(ep, path) {
+    if (ep.auth && !token() && path.startsWith("/api/action/")) {
+      return path.replace("/api/action/", "/api/dashboard/action/");
+    }
+    return path;
+  }
+
+  // --- Fire one request ----------------------------------------------------
+  async function fire(ep, strip) {
+    const mon = $(".monitor", strip);
+    const take = $(".take", strip);
+    const pr = resolvePath(ep, strip);
+    if (!pr.ok) return showLocalError(mon, pr.err);
+    const bb = buildBody(ep, strip);
+    if (!bb.ok) return showLocalError(mon, bb.err);
+
+    const path = effectivePath(ep, pr.path);
+    const method = ep.m === "SSE" ? "GET" : ep.m;
+    const headers = {};
+    if (bb.body !== undefined) headers["Content-Type"] = "application/json";
+    if (needsToken(ep)) headers["Authorization"] = "Bearer " + token();
+
+    take.disabled = true;
+    const eta = $(".take__eta", strip); eta.textContent = "sending…";
+    const t0 = performance.now();
+    try {
+      const res = await fetch(baseURL() + path, {
+        method, headers,
+        body: bb.body !== undefined ? JSON.stringify(bb.body) : undefined,
+      });
+      const ms = Math.round(performance.now() - t0);
+      const text = await res.text();
+      let parsed; try { parsed = text ? JSON.parse(text) : null; } catch { parsed = text; }
+      showResponse(mon, res.status, res.statusText, ms, parsed, path, method);
+    } catch (e) {
+      const ms = Math.round(performance.now() - t0);
+      showResponse(mon, 0, "network error", ms, { error: String(e && e.message || e),
+        hint: "Is the server reachable at " + baseURL() + "? A cross-origin base URL will be blocked by CORS." }, path, method);
+    } finally {
+      take.disabled = false; eta.textContent = "";
+      refreshTally();
+    }
+  }
+
+  function statusKind(code) { return code >= 200 && code < 300 ? "ok" : code >= 400 && code < 500 ? "warn" : "err"; }
+
+  function showResponse(mon, code, statusText, ms, body, path, method) {
+    mon.classList.add("is-live");
+    const kind = code === 0 ? "err" : statusKind(code);
+    const label = code === 0 ? "NO RESPONSE" : code + " " + statusText.toUpperCase();
+    mon.querySelector(".status").className = "status status--" + kind;
+    mon.querySelector(".status").textContent = label;
+    mon.querySelector(".meta").innerHTML =
+      '<b>' + method + '</b> ' + path + ' &nbsp;·&nbsp; <b>' + ms + '</b> ms';
+    mon.querySelector("pre").innerHTML = typeof body === "string" ? escapeHtml(body) : highlight(body);
+  }
+  function showLocalError(mon, msg) {
+    mon.classList.add("is-live");
+    mon.querySelector(".status").className = "status status--warn";
+    mon.querySelector(".status").textContent = "NOT SENT";
+    mon.querySelector(".meta").innerHTML = "fix the request below";
+    mon.querySelector("pre").innerHTML = escapeHtml(msg);
+  }
+  function escapeHtml(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+  // --- SSE connect/disconnect ---------------------------------------------
+  function toggleSSE(ep, strip, btn) {
+    const mon = $(".monitor", strip);
+    if (strip._es) { strip._es.close(); strip._es = null; btn.textContent = "Connect"; btn.classList.add("take--read");
+      const st = mon.querySelector(".status"); st.className = "status status--warn"; st.textContent = "DISCONNECTED"; return; }
+    const path = effectivePath(ep, ep.path);
+    // EventSource can't set headers; the authed feedback stream needs the token on the query
+    // string only if the server accepts it. The dashboard stream is open, so prefer it here.
+    const url = baseURL() + path;
+    mon.classList.add("is-live");
+    const frames = [];
+    const st = mon.querySelector(".status"); st.className = "status status--ok"; st.textContent = "CONNECTED";
+    mon.querySelector(".meta").innerHTML = '<b>SSE</b> ' + path;
+    mon.querySelector("pre").textContent = "waiting for frames…";
+    let es;
+    try { es = new EventSource(url); } catch (e) { return showLocalError(mon, String(e)); }
+    strip._es = es;
+    btn.textContent = "Disconnect"; btn.classList.remove("take--read");
+    es.addEventListener("state", (e) => {
+      let d; try { d = JSON.parse(e.data); } catch { d = e.data; }
+      frames.unshift(d); if (frames.length > 8) frames.pop();
+      mon.querySelector(".meta").innerHTML = '<b>SSE</b> ' + path + ' &nbsp;·&nbsp; <b>' + frames.length + '</b> frame(s), newest first';
+      mon.querySelector("pre").innerHTML = frames.map(highlight).join("\n\n");
+    });
+    es.addEventListener("error", () => {
+      st.className = "status status--err"; st.textContent = "STREAM ERROR";
+    });
+  }
+
+  // --- Render --------------------------------------------------------------
+  const rail = $("#rail"), buses = $("#buses");
+
+  for (const bus of BUSES) {
+    // rail group
+    const rg = el("div", "rail__grp");
+    rg.appendChild(el("span", "micro", bus.name));
+    for (const ep of bus.endpoints) {
+      const a = el("a"); a.href = "#" + slug(ep);
+      const v = el("span", "v " + "j-" + methodClass(ep.m)); v.textContent = ep.m;
+      v.style.color = "var(--" + methodClass(ep.m) + ")";
+      a.appendChild(v); a.appendChild(el("span", null, ep.path.replace("/api/","").replace(/^dashboard\//,"…/")));
+      rg.appendChild(a);
+    }
+    rail.appendChild(rg);
+
+    // bus section
+    const sec = el("section", "bus"); sec.id = bus.id;
+    const head = el("div", "bus__head");
+    head.appendChild(el("h2", null, bus.name));
+    const authBadge = el("span", "bus__auth " + (bus.auth === "token" ? "is-token" : "is-open"),
+      bus.auth === "token" ? "Bearer token" : "No auth · LAN");
+    head.appendChild(authBadge);
+    sec.appendChild(head);
+    sec.appendChild(el("p", "bus__desc", bus.desc));
+
+    for (const ep of bus.endpoints) sec.appendChild(renderStrip(ep));
+    buses.appendChild(sec);
+  }
+
+  function slug(ep) { return (ep.m + ep.path).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g,""); }
+
+  function renderStrip(ep) {
+    const mc = methodClass(ep.m);
+    const strip = el("div", "strip strip--" + mc); strip.id = slug(ep);
+
+    const head = el("div", "strip__head");
+    head.appendChild(el("span", "jack jack--" + mc, ep.m));
+    const path = el("span", "path");
+    path.innerHTML = ep.path.replace(/:(\w+)/g, '<b>:$1</b>');
+    head.appendChild(path);
+    head.appendChild(el("span", "strip__spacer"));
+    const costLabel = ep.cost === "live" ? "quota · live" : ep.cost === "cached" ? "cached · free" : "local · free";
+    head.appendChild(el("span", "cost cost--" + ep.cost, costLabel));
+    head.appendChild(el("span", "caret", "▸"));
+    head.addEventListener("click", () => strip.classList.toggle("is-open"));
+    strip.appendChild(head);
+
+    const body = el("div", "strip__body");
+    const desc = el("p", "strip__desc"); desc.innerHTML = ep.desc || ""; body.appendChild(desc);
+
+    // path params
+    if (ep.pathParams || ep.body || ep.raw) {
+      const params = el("div", "params");
+      if (ep.pathParams) for (const pp of ep.pathParams) params.appendChild(paramField(pp, true));
+      if (ep.body) for (const f of ep.body) params.appendChild(paramField(f, false));
+      if (ep.raw) {
+        const wrap = el("div", "param");
+        const lab = el("div", "param__label");
+        lab.appendChild(mkLabel("request body"));
+        lab.appendChild(el("span", "param__opt", "json"));
+        wrap.appendChild(lab);
+        if (ep.raw.hint) wrap.appendChild(el("span", "param__hint", ep.raw.hint));
+        const ta = el("textarea", "raw-body"); ta.value = ep.raw.sample || ""; ta.spellcheck = false;
+        wrap.appendChild(ta);
+        params.appendChild(wrap);
+      }
+      body.appendChild(params);
+    }
+
+    // actions
+    const actions = el("div", "strip__actions");
+    const take = el("button", "take" + (mc === "read" ? " take--read" : ""));
+    take.appendChild(document.createTextNode(ep.sse ? "Connect" : "Take"));
+    actions.appendChild(take);
+    actions.appendChild(el("span", "take__eta"));
+    body.appendChild(actions);
+
+    // monitor
+    const mon = el("div", "monitor");
+    const bar = el("div", "monitor__bar");
+    bar.appendChild(el("span", "status", ""));
+    bar.appendChild(el("span", "meta", ""));
+    mon.appendChild(bar);
+    mon.appendChild(el("pre"));
+    body.appendChild(mon);
+
+    strip.appendChild(body);
+    if (ep.open) strip.classList.add("is-open");
+
+    if (ep.sse) take.addEventListener("click", () => toggleSSE(ep, strip, take));
+    else take.addEventListener("click", () => fire(ep, strip));
+    return strip;
+  }
+
+  function mkLabel(text) { const l = el("label"); l.textContent = text; return l; }
+  function paramField(f, isPath) {
+    const wrap = el("div", "param");
+    const lab = el("div", "param__label");
+    lab.appendChild(mkLabel(isPath ? ":" + f.k : f.k));
+    lab.appendChild(el("span", f.req ? "param__req" : "param__opt", f.req ? "required" : "optional"));
+    wrap.appendChild(lab);
+    if (f.hint) wrap.appendChild(el("span", "param__hint", f.hint));
+    let input;
+    if (!isPath && f.t === "select") {
+      input = el("select");
+      for (const o of f.opts) { const opt = el("option", null, o === "" ? "(omit)" : o); opt.value = o; input.appendChild(opt); }
+    } else if (!isPath && f.t === "textarea") {
+      input = el("textarea"); input.spellcheck = false;
+    } else {
+      input = el("input"); input.spellcheck = false; input.autocomplete = "off";
+      if (f.hint) input.placeholder = f.hint;
+    }
+    if (isPath) input.setAttribute("data-p", f.k); else input.setAttribute("data-k", f.k);
+    wrap.appendChild(input);
+    return wrap;
+  }
+
+  // --- Live tally ----------------------------------------------------------
+  function setLamp(id, state, value) {
+    const lamp = $("#" + id);
+    lamp.className = "lamp" + (state ? " is-" + state : "");
+    if (value != null) $("#v-" + id.replace("lamp-","")).textContent = value;
+  }
+
+  async function refreshTally() {
+    try {
+      const headers = token() ? { Authorization: "Bearer " + token() } : {};
+      const res = await fetch(baseURL() + "/api/dashboard/state", { headers });
+      if (!res.ok) throw new Error(String(res.status));
+      const s = await res.json();
+      const live = s.status && s.status.isLive;
+      setLamp("lamp-air", live ? "on" : "off", live ? "ON AIR" : "off air");
+      const h = s.health;
+      setLamp("lamp-health", h === "ok" ? "ok" : h === "auth_error" ? "err" : "warn", h || "unknown");
+      setLamp("lamp-busy", s.busy ? "busy" : "off", s.busy ? "working" : "idle");
+      const title = s.status && s.status.title;
+      setLamp("lamp-title", title ? "ok" : "off", title || "—");
+      if (s.quota) {
+        const pct = s.quota.limit ? Math.round((s.quota.used / s.quota.limit) * 100) : 0;
+        setLamp("lamp-quota", pct >= 90 ? "err" : pct >= 75 ? "warn" : "ok",
+          s.quota.used + " / " + s.quota.limit);
+      }
+    } catch (e) {
+      setLamp("lamp-health", "err", "unreachable");
+      $("#v-air").textContent = "—";
+    }
+  }
+
+  $("#ping").addEventListener("click", refreshTally);
+  baseInput.addEventListener("change", refreshTally);
+  tokenInput.addEventListener("change", refreshTally);
+  refreshTally();
+  setInterval(refreshTally, 5000);
+})();
+</script>
+</body>
+</html>

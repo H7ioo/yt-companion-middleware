@@ -1,0 +1,13 @@
+services:
+  yt-companion:
+    build: .
+    container_name: yt-companion-middleware
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    env_file: .env
+    environment:
+      # Force the store into the mounted volume regardless of what .env says.
+      - DATA_DIR=/app/data
+    volumes:
+      - ./data:/app/data
