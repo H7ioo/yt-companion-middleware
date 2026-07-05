@@ -86,6 +86,10 @@ async function main(): Promise<void> {
   const docsPage = path.resolve(here, "../public/docs.html");
   app.get("/docs", (_req, res) => res.sendFile(docsPage));
 
+  // Operator manual — API + web UI + Bitfocus Companion setup, including the redirect flow.
+  const guidePage = path.resolve(here, "../public/guide.html");
+  app.get("/guide", (_req, res) => res.sendFile(guidePage));
+
   // Serve the built React dashboard, if present.
   const webDist = path.resolve(here, "../web/dist");
   if (fs.existsSync(webDist)) {

@@ -38,6 +38,9 @@ export function StatusRail({ state }: { state: DashboardState | null }) {
       <div className="rail__brand">
         <span className="eyebrow">Companion &rarr; YouTube Live</span>
         <h1>Broadcast Control</h1>
+        <a className="rail__manual" href="/guide" target="_blank" rel="noreferrer">
+          Operator manual &amp; Companion setup &rarr;
+        </a>
       </div>
 
       <div className="tally">

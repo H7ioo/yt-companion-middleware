@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Operator Manual · YouTube Live Middleware</title>
+<style>
+  :root{
+    --rack:#0E1116; --panel:#151A21; --raised:#1C232C; --hair:#28323E;
+    --ink:#E7ECF3; --muted:#8895A6; --faint:#5C6979;
+    --amber:#F5A623; --amber-dim:#8a6524; --tally:#FF4D4D; --green:#46D39A; --blue:#5AA9FF; --violet:#B98BFF;
+    --mono:ui-monospace,"Cascadia Code","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--rack);color:var(--ink);font-family:var(--sans);
+    font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased;
+    background-image:radial-gradient(circle at 15% -10%,rgba(245,166,35,.06),transparent 45%),
+                     radial-gradient(circle at 100% 0%,rgba(90,169,255,.05),transparent 40%);}
+  a{color:var(--amber);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{font-family:var(--mono);font-size:.9em}
+
+  /* ---- shell ---- */
+  .wrap{max-width:1200px;margin:0 auto;padding:0 28px;
+    display:grid;grid-template-columns:230px minmax(0,1fr);gap:56px}
+  @media(max-width:900px){.wrap{grid-template-columns:1fr;gap:0}}
+
+  /* ---- masthead ---- */
+  header.top{border-bottom:1px solid var(--hair);
+    background:linear-gradient(180deg,#10151b,#0E1116);position:relative;overflow:hidden}
+  header.top .wrap{grid-template-columns:1fr;gap:0;padding-top:38px;padding-bottom:38px}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.32em;text-transform:uppercase;
+    color:var(--amber);margin:0 0 14px}
+  header.top h1{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;
+    font-size:clamp(30px,5vw,46px);line-height:1.05;margin:0 0 14px}
+  header.top p{max-width:60ch;color:var(--muted);margin:0;font-size:17px}
+  .tally{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:26px;
+    border:1px solid var(--hair);border-radius:999px;padding:6px 14px;background:#0c1015}
+  .led{width:9px;height:9px;border-radius:50%;background:var(--tally);
+    box-shadow:0 0 10px var(--tally);animation:blink 2.4s steps(1,end) infinite}
+  @keyframes blink{0%,60%{opacity:1}61%,100%{opacity:.28}}
+  @media(prefers-reduced-motion:reduce){.led{animation:none}}
+
+  /* ---- side nav ---- */
+  nav.toc{position:sticky;top:0;align-self:start;padding:44px 0 40px;max-height:100vh;overflow:auto}
+  @media(max-width:900px){nav.toc{position:static;max-height:none;padding:24px 0 0;
+    border-bottom:1px solid var(--hair)}}
+  nav.toc .grp{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--faint);margin:22px 0 8px;padding-left:14px}
+  nav.toc a{display:block;color:var(--muted);font-size:14px;padding:5px 0 5px 14px;
+    border-left:2px solid transparent;line-height:1.35}
+  nav.toc a:hover{color:var(--ink);text-decoration:none;border-left-color:var(--amber-dim)}
+  nav.toc a.on{color:var(--amber);border-left-color:var(--amber)}
+
+  /* ---- content ---- */
+  main{padding:44px 0 120px;min-width:0}
+  section{scroll-margin-top:20px;margin-bottom:64px}
+  section > h2{font-family:var(--mono);font-weight:600;font-size:26px;letter-spacing:-.01em;
+    margin:0 0 6px;display:flex;align-items:baseline;gap:12px}
+  section > h2 .no{font-size:13px;color:var(--amber);letter-spacing:.1em}
+  section .lede{color:var(--muted);margin:0 0 26px;max-width:66ch}
+  h3{font-family:var(--mono);font-weight:600;font-size:17px;margin:34px 0 10px;color:var(--ink)}
+  h4{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.02em;margin:22px 0 8px;color:var(--muted)}
+  p{max-width:70ch}
+  ul,ol{max-width:70ch;padding-left:22px}
+  li{margin:5px 0}
+  strong{color:#fff;font-weight:600}
+  hr.rule{border:0;border-top:1px solid var(--hair);margin:40px 0}
+
+  /* ---- endpoint block ---- */
+  .ep{border:1px solid var(--hair);border-radius:10px;background:var(--panel);
+    margin:16px 0;overflow:hidden}
+  .ep__bar{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--hair);
+    background:#12171d}
+  .m{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;
+    padding:3px 8px;border-radius:5px;color:#0b0e12;flex:none}
+  .m.get{background:var(--green)} .m.post{background:var(--amber)}
+  .m.put{background:var(--blue)} .m.del{background:var(--tally)}
+  .path{font-family:var(--mono);font-size:14px;color:var(--ink);word-break:break-all}
+  .ep__body{padding:14px 16px}
+  .ep__body p:first-child{margin-top:0}
+  .ep__body p{color:var(--muted);font-size:14.5px}
+
+  /* ---- code / pre ---- */
+  pre{background:#0b0e12;border:1px solid var(--hair);border-radius:8px;padding:14px 16px;
+    overflow:auto;font-family:var(--mono);font-size:13px;line-height:1.6;margin:12px 0;color:#cdd6e2}
+  pre .k{color:var(--amber)} pre .s{color:var(--green)} pre .c{color:var(--faint)}
+  pre .n{color:var(--blue)} pre .p{color:var(--muted)}
+  :not(pre)>code{background:#0b0e12;border:1px solid var(--hair);border-radius:4px;
+    padding:1px 6px;color:var(--amber)}
+
+  .callout{border:1px solid var(--hair);border-left:3px solid var(--amber);border-radius:8px;
+    background:#13161b;padding:14px 18px;margin:18px 0}
+  .callout.warn{border-left-color:var(--tally)}
+  .callout.tip{border-left-color:var(--green)}
+  .callout p{margin:0;color:var(--muted);font-size:14.5px}
+  .callout strong{color:var(--ink)}
+
+  /* ---- table ---- */
+  .tw{overflow-x:auto;margin:16px 0;border:1px solid var(--hair);border-radius:8px}
+  table{border-collapse:collapse;width:100%;font-size:14px;min-width:520px}
+  th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--hair);vertical-align:top}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--faint);background:#12171d}
+  tr:last-child td{border-bottom:0}
+  td code{white-space:nowrap}
+
+  /* ---- signal-flow diagram ---- */
+  .flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;margin:22px 0;
+    border:1px solid var(--hair);border-radius:10px;background:var(--panel);padding:20px;
+    counter-reset:step}
+  .node{flex:1 1 150px;min-width:140px;border:1px solid var(--hair);border-radius:8px;
+    background:var(--raised);padding:14px;position:relative}
+  .node .tag{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--amber);display:block;margin-bottom:6px}
+  .node b{display:block;font-size:14px;margin-bottom:4px}
+  .node span.d{font-size:12.5px;color:var(--muted);line-height:1.5}
+  .arrow{display:flex;align-items:center;justify-content:center;color:var(--faint);
+    font-family:var(--mono);font-size:20px;padding:0 6px;flex:none}
+  @media(max-width:640px){.arrow{transform:rotate(90deg);width:100%;padding:6px 0}
+    .node{flex-basis:100%}}
+  .node.ok{border-color:var(--amber-dim)}
+  .node.back{border-style:dashed}
+
+  /* ---- stream deck keys ---- */
+  .deck{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:20px 0;max-width:420px}
+  .key{aspect-ratio:1;border-radius:12px;background:linear-gradient(180deg,#222b35,#161c24);
+    border:1px solid #333f4d;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:8px;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 2px 6px rgba(0,0,0,.4)}
+  .key .ico{font-size:20px;line-height:1;margin-bottom:6px}
+  .key .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.04em;color:var(--muted);line-height:1.2}
+  .key.live{border-color:var(--tally);box-shadow:inset 0 0 0 1px rgba(255,77,77,.4),0 0 14px rgba(255,77,77,.25)}
+  .key.live .lbl{color:var(--tally)}
+  .key.on{border-color:var(--amber-dim)} .key.on .ico{color:var(--amber)}
+  .key.busy{border-color:var(--blue)} .key.busy .ico{color:var(--blue)}
+
+  .pill{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:5px;
+    border:1px solid var(--hair);color:var(--muted);background:#12171d;margin:2px 4px 2px 0}
+  footer{border-top:1px solid var(--hair);color:var(--faint);font-family:var(--mono);font-size:12px;
+    padding:26px 0;max-width:70ch}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div>
+      <div class="tally"><span class="led"></span> On Air · Operator Manual</div>
+      <p class="kicker">YouTube Live Middleware · v2</p>
+      <h1>Wiring the Stream Deck to<br>your YouTube broadcast.</h1>
+      <p>A LAN-only gateway that turns YouTube's multi-step live-metadata dance into single
+         button presses on Bitfocus Companion — with cached state feedback, templated presets,
+         and a browser round-trip for buttons that can't pop a dialog. This is the operator's
+         guide to running it and patching it into Companion.</p>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <nav class="toc" aria-label="Contents">
+    <div class="grp">Ground</div>
+    <a href="#overview">How it works</a>
+    <a href="#setup">Install &amp; run</a>
+    <a href="#auth">No login (LAN-trust)</a>
+    <div class="grp">Dashboard</div>
+    <a href="#web">The web interface</a>
+    <a href="#templates">Templates &amp; fallback</a>
+    <div class="grp">API</div>
+    <a href="#action">Action endpoints</a>
+    <a href="#feedback">Feedback endpoints</a>
+    <a href="#dashboard-api">Dashboard endpoints</a>
+    <a href="#errors">Error codes</a>
+    <div class="grp">Companion</div>
+    <a href="#companion-conn">Connection</a>
+    <a href="#companion-trigger">Trigger buttons</a>
+    <a href="#companion-feedback">State on the keys</a>
+    <a href="#companion-redirect">The redirect flow</a>
+  </nav>
+
+  <main>
+
+  <!-- ===================== OVERVIEW ===================== -->
+  <section id="overview">
+    <h2><span class="no">01</span> How it works</h2>
+    <p class="lede">One broadcast target at a time, edited safely, mirrored into a cache that
+       Companion can poll for free.</p>
+
+    <h3>Two states, one target</h3>
+    <p>The app always points at a single broadcast and figures out which one on every trigger:</p>
+    <ul>
+      <li><strong>Idle</strong> — no live stream. Edits land on your channel's persistent
+          broadcast container (the default "upcoming" broadcast).</li>
+      <li><strong>Live</strong> — a stream is active. Edits land on the currently active
+          broadcast. If more than one is active, the app picks the most recent
+          <code>actualStartTime</code> and logs a warning.</li>
+    </ul>
+    <p>Brand-new channel with no container at all? The action fails cleanly with
+       <code>NO_TARGET_FOUND</code> rather than inventing one.</p>
+
+    <div class="callout tip">
+      <p><strong>Read-modify-write, always.</strong> The app never blind-overwrites metadata.
+         Every trigger does <code>GET</code> → merge your changes over the live object → <code>PUT</code>
+         the whole thing back. Fields it doesn't manage — thumbnail, game ID, everything else —
+         pass through untouched, so nothing you set in YouTube Studio gets wiped mid-stream.</p>
+    </div>
+
+    <h3>What a trigger resolves</h3>
+    <ol>
+      <li><code>title</code>, <code>description</code>, <code>privacyStatus</code> — from the preset or ad-hoc payload.</li>
+      <li><code>category</code> — preset override → else app default → else left as-is.</li>
+      <li><code>streamBoundId</code> (stream key binding) — same order: preset override → app default → as-is.</li>
+      <li>Everything else — copied straight from the live object.</li>
+    </ol>
+
+    <h3>The state cache</h3>
+    <p>Every feedback endpoint is served from an in-memory cache, <em>never</em> a live YouTube
+       call. The cache refreshes after every successful action and on a background timer
+       (<code>REFRESH_INTERVAL_SECONDS</code>, default 60s) to catch out-of-band changes like a
+       stream you ended from YouTube Studio. Companion can poll every 5 seconds and spend zero
+       YouTube quota.</p>
+  </section>
+
+  <!-- ===================== SETUP ===================== -->
+  <section id="setup">
+    <h2><span class="no">02</span> Install &amp; run</h2>
+    <p class="lede">Node 20+, one OAuth refresh token, a JSON file on disk. That's the whole
+       footprint.</p>
+
+    <h3>Configure the environment</h3>
+    <p>Copy <code>.env.example</code> to <code>.env</code> and fill it in. The YouTube refresh
+       token is obtained once through Google's OAuth consent flow and stays server-side — it is
+       never exposed to Companion or any browser.</p>
+    <pre><span class="c"># YouTube OAuth 2.0 (Google Cloud Console → OAuth client)</span>
+<span class="k">YT_CLIENT_ID</span>=<span class="s">your-client-id.apps.googleusercontent.com</span>
+<span class="k">YT_CLIENT_SECRET</span>=<span class="s">your-client-secret</span>
+<span class="k">YT_REFRESH_TOKEN</span>=<span class="s">your-refresh-token</span>
+
+<span class="k">PORT</span>=<span class="n">8080</span>
+<span class="k">DATA_DIR</span>=<span class="s">./data</span>            <span class="c"># JSON store; mount as a Docker volume</span>
+<span class="k">REFRESH_INTERVAL_SECONDS</span>=<span class="n">60</span>
+<span class="k">HEALTH_FAILURE_THRESHOLD</span>=<span class="n">3</span>   <span class="c"># fails in a row before health escalates</span>
+<span class="k">YT_REGION_CODE</span>=<span class="s">US</span>            <span class="c"># drives the assignable category list</span>
+<span class="k">YT_QUOTA_LIMIT</span>=<span class="n">10000</span>          <span class="c"># daily quota budget, shown on the dashboard</span></pre>
+
+    <h3>Run it</h3>
+    <pre><span class="c"># development — API + hot-reloading dashboard</span>
+npm install
+npm run dev
+
+<span class="c"># production — build the SPA, build the server, start</span>
+npm run build:all
+npm start</pre>
+    <p>Open <code>http://&lt;host&gt;:8080</code> for the dashboard, <code>/docs</code> for the
+       interactive API console, and this page at <code>/guide</code>. The API lives under
+       <code>/api</code>.</p>
+
+    <div class="callout">
+      <p><strong>Storage.</strong> Presets, default settings, the webhook URL, and cached state
+         all live in a single JSON file under <code>DATA_DIR</code>. Writes are atomic
+         (temp file, then rename) so a crash mid-write can't corrupt it. Mount that directory as a
+         Docker volume and your config survives redeploys.</p>
+    </div>
+  </section>
+
+  <!-- ===================== AUTH ===================== -->
+  <section id="auth">
+    <h2><span class="no">03</span> No login (LAN-trust)</h2>
+    <p class="lede">There is no token, no header, no login screen. Anything on your LAN can
+       trigger the app — and that is the intended design.</p>
+    <p>The threat model is a personal tool on a private network: the worry is a random device on
+       the same LAN casually hitting an endpoint, not a determined attacker. If someone already
+       has access to this host, API auth wouldn't have saved you anyway. So the Bearer token from
+       earlier versions is <strong>gone</strong> — no <code>Authorization</code> header to set in
+       Companion, nothing to regenerate.</p>
+    <div class="callout warn">
+      <p><strong>Do not port-forward this to the internet.</strong> Every action and feedback
+         endpoint is unauthenticated. Keep it on the LAN (or behind a VPN) and you're within the
+         model; expose it publicly and anyone can rewrite your broadcast.</p>
+    </div>
+    <p>Because Companion buttons may have been wired to either path historically,
+       <code>/api/action/*</code> and <code>/api/dashboard/action/*</code> are the
+       <strong>same handler</strong>. Use whichever you like; both work.</p>
+  </section>
+
+  <!-- ===================== WEB ===================== -->
+  <section id="web">
+    <h2><span class="no">04</span> The web interface</h2>
+    <p class="lede">Everything you configure lives in the dashboard. Companion only ever fires
+       what you set up here.</p>
+
+    <h3>Presets</h3>
+    <p>A preset is a named bundle of broadcast metadata you can fire in one press. Full
+       create / edit / delete from the grid. Each preset carries:</p>
+    <ul>
+      <li><strong>Title, description, privacy</strong> — always set.</li>
+      <li><strong>Category</strong> and <strong>stream binding</strong> — optional overrides.
+          Leave blank and the preset shows "inherits default"; the app-level default fills in at
+          trigger time.</li>
+    </ul>
+    <p>Every preset displays its <code>id</code> for copy-paste into a Companion button payload.
+       Delete one and any Companion button still pointing at it simply gets
+       <code>INVALID_PRESET</code> on its next press — no cascade, no cleanup.</p>
+
+    <h3>App-level defaults</h3>
+    <p>The Settings panel sets <code>defaultCategory</code> and <code>defaultStreamBoundId</code>.
+       These are the baseline used whenever a preset or ad-hoc update doesn't override them.</p>
+
+    <h3>Ad-hoc update</h3>
+    <p>Need to push a one-off change without making a preset? The ad-hoc modal takes title,
+       description, privacy, and optional category / stream-binding overrides, and shows a badge
+       telling you whether the change will hit the idle container or a live broadcast.</p>
+
+    <h3>State rail</h3>
+    <p>A live readout of what the app currently sees: on-air state, the on-screen title, health,
+       whether the runner is busy, and remaining YouTube quota — the same signals Companion binds
+       to its keys.</p>
+
+    <h3>Change webhook (optional)</h3>
+    <p>Set an outbound URL and the app POSTs to it whenever state changes — handy for pushing to a
+       chat channel or another automation. Clear the field to disable it.</p>
+  </section>
+
+  <!-- ===================== TEMPLATES ===================== -->
+  <section id="templates">
+    <h2><span class="no">05</span> Templates &amp; fallback</h2>
+    <p class="lede">Put <code>{variables}</code> in a preset's title or description and reuse one
+       preset with different specifics every stream — with a graceful answer for when a value is
+       missing.</p>
+
+    <h3>Writing variables</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Syntax</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>{lesson}</code></td><td>A fill-in variable, auto-detected from the text. No separate declaration.</td></tr>
+        <tr><td><code>{lesson|1}</code></td><td>Inline default — <code>1</code> is substituted in place when you don't supply a value, keeping the sentence intact.</td></tr>
+        <tr><td><code>{{</code> / <code>}}</code></td><td>Escape for a literal <code>{</code> or <code>}</code>.</td></tr>
+      </tbody>
+    </table></div>
+    <p>Variables are allowed <strong>only</strong> in <code>title</code> and <code>description</code>.
+       A preset with no <code>{…}</code> behaves exactly as it always did and fires immediately.</p>
+
+    <h3>Per-field fallback</h3>
+    <p>Each of title and description can carry an optional <strong>fallback</strong>: a complete
+       alternate string used when that field has any unresolved variable. It replaces the whole
+       sentence, not just the gap — so the line still reads naturally.</p>
+    <pre><span class="p">title</span>    <span class="s">"أنوار الصحيح الدرس {lesson} - عبد الوهاب"</span>
+<span class="p">fallback</span> <span class="s">"أنوار الصحيح - عبد الوهاب"</span></pre>
+    <p>When <code>lesson</code> is unresolved, the literal <code>الدرس</code> disappears along with
+       it — you get the clean fallback rather than a dangling label.</p>
+
+    <h3>Resolution order (per field, independent)</h3>
+    <ol>
+      <li>Every variable resolves (supplied value → last-used → inline default) → render the
+          <strong>primary</strong> text.</li>
+      <li>Something unresolved <em>and</em> the field has a fallback → render the
+          <strong>fallback</strong>; those variables report <code>source: "fallback"</code>.</li>
+      <li>Something unresolved <em>and</em> no fallback → reject with
+          <code>MISSING_TEMPLATE_VARS</code>, listing the missing names.</li>
+    </ol>
+    <p>Title and description are evaluated separately — one falling back never drags the other
+       with it.</p>
+
+    <h3>The fill popup</h3>
+    <p>Selecting a templated preset in the dashboard opens a fill popup instead of firing:
+       one input per detected variable, the inline default / fallback shown as greyed placeholder,
+       last-used values prefilled per preset, and a live read-only preview of the resolved title
+       and description that updates as you type. Submit fires the action; a variable-less preset
+       skips all of this and fires on click.</p>
+  </section>
+
+  <!-- ===================== ACTION API ===================== -->
+  <section id="action">
+    <h2><span class="no">06</span> Action endpoints</h2>
+    <p class="lede">These change your broadcast. Mounted at both <code>/api/action</code> and
+       <code>/api/dashboard/action</code> — same handler, either path.</p>
+
+    <div class="callout">
+      <p><strong>Everything returns HTTP&nbsp;200.</strong> Success or failure is in the body
+         (<code>success: true|false</code>), so Companion's HTTP module never has to branch on
+         status codes. On failure the body carries <code>error.code</code> and
+         <code>error.message</code> — bind the message to a variable to flash it on a key.</p>
+    </div>
+
+    <div class="ep">
+      <div class="ep__bar"><span class="m post">POST</span><span class="path">/api/action/preset</span></div>
+      <div class="ep__body">
+        <p>Fire a preset. Pass optional <code>vars</code> to fill template variables.</p>
+        <h4>Request</h4>
+        <pre>{ <span class="p">"presetId"</span>: <span class="s">"gaming_main"</span>, <span class="p">"vars"</span>: { <span class="p">"lesson"</span>: <span class="s">"41"</span> } }</pre>
+        <h4>Response</h4>
+        <pre>{
+  <span class="p">"success"</span>: <span class="k">true</span>,
+  <span class="p">"resolvedVars"</span>: [
+    { <span class="p">"name"</span>: <span class="s">"lesson"</span>, <span class="p">"value"</span>: <span class="s">"41"</span>, <span class="p">"source"</span>: <span class="s">"provided"</span> }
+  ]
+}</pre>
+        <p><code>source</code> is one of <span class="pill">provided</span>
+           <span class="pill">default</span> <span class="pill">fallback</span>. A variable in a
+           field that fell back reports <code>fallback</code>. If a required variable is unresolved
+           and its field has no fallback, you get <code>success:false</code> with
+           <code>MISSING_TEMPLATE_VARS</code>.</p>
+      </div>
+    </div>
+
+    <div class="ep">
+      <div class="ep__bar"><span class="m post">POST</span><span class="path">/api/action/update</span></div>
+      <div class="ep__body">
+        <p>Ad-hoc override, bypassing presets. All fields except <code>title</code> optional;
+           omitted category / stream binding fall back to app defaults.</p>
+        <pre>{
+  <span class="p">"title"</span>: <span class="s">"Custom Input Title"</span>,
+  <span class="p">"description"</span>: <span class="s">"Custom description text"</span>,
+  <span class="p">"privacyStatus"</span>: <span class="s">"public"</span>,
+  <span class="p">"category"</span>: <span class="s">"20"</span>,
+  <span class="p">"streamBoundId"</span>: <span class="s">"abcd-1234-streamkey"</span>
+}</pre>
+      </div>
+    </div>
+
+    <div class="ep">
+      <div class="ep__bar"><span class="m post">POST</span><span class="path">/api/action/privacy</span></div>
+      <div class="ep__body"><p>Flip privacy only, leaving everything else untouched.</p>
+        <pre>{ <span class="p">"status"</span>: <span class="s">"private"</span> }  <span class="c">// public | unlisted | private</span></pre>
+      </div>
+    </div>
+
+    <div class="ep">
+      <div class="ep__bar"><span class="m post">POST</span><span class="path">/api/action/undo</span></div>
+      <div class="ep__body"><p>Revert the last action. Empty body. Returns
+        <code>NO_UNDO_AVAILABLE</code> when there's nothing to undo.</p></div>
+    </div>
+
+    <div class="ep">
+      <div class="ep__bar"><span class="m post">POST</span><span class="path">/api/action/refresh</span></div>
+      <div class="ep__body"><p>Force an immediate live GET from YouTube and repopulate the cache,
+        bypassing the TTL. Bind this to a manual "Refresh" key for on-demand confirmation right
+        after you change something in YouTube Studio.</p></div>
+    </div>
+
+    <h3>Concurrency</h3>
+    <p>A single global <code>busy</code> flag serializes actions. A request that arrives while
+       busy is queued (depth 1) and runs next; a second one that arrives while the slot is full is
+       rejected with <code>BUSY_TRY_AGAIN</code>. This covers the realistic "click, then a
+       catch-up click" without a full queue.</p>
+  </section>
+
+  <!-- ===================== FEEDBACK API ===================== -->
+  <section id="feedback">
+    <h2><span class="no">07</span> Feedback endpoints</h2>
+    <p class="lede">Read-only, cache-served, zero YouTube quota. Poll these from Companion as
+       often as you like.</p>
+
+    <div class="ep">
+      <div class="ep__bar"><span class="m get">GET</span><span class="path">/api/feedback/status</span></div>
+      <div class="ep__body">
+        <pre>{ <span class="p">"title"</span>: <span class="s">"Late Night Gaming Live!"</span>, <span class="p">"privacyStatus"</span>: <span class="s">"public"</span>, <span class="p">"isLive"</span>: <span class="k">true</span> }</pre>
+        <p>The core state for on-screen key text and an on-air indicator.</p>
+      </div>
+    </div>
+    <div class="ep">
+      <div class="ep__bar"><span class="m get">GET</span><span class="path">/api/feedback/busy</span></div>
+      <div class="ep__body"><pre>{ <span class="p">"busy"</span>: <span class="k">true</span> }</pre>
+        <p>Drives a "processing" color or blink while an action is in flight.</p></div>
+    </div>
+    <div class="ep">
+      <div class="ep__bar"><span class="m get">GET</span><span class="path">/api/feedback/active-preset</span></div>
+      <div class="ep__body"><pre>{ <span class="p">"activePresetId"</span>: <span class="s">"gaming_main"</span> }</pre>
+        <p>Highlight the key whose preset is currently applied.</p></div>
+    </div>
+    <div class="ep">
+      <div class="ep__bar"><span class="m get">GET</span><span class="path">/api/feedback/health</span></div>
+      <div class="ep__body">
+        <pre>{
+  <span class="p">"status"</span>: <span class="s">"ok"</span>,          <span class="c">// ok | degraded | auth_error</span>
+  <span class="p">"authenticated"</span>: <span class="k">true</span>,
+  <span class="p">"message"</span>: <span class="k">null</span>,
+  <span class="p">"quotaUsed"</span>: <span class="n">1240</span>, <span class="p">"quotaLimit"</span>: <span class="n">10000</span>, <span class="p">"quotaRemaining"</span>: <span class="n">8760</span>
+}</pre>
+        <div class="tw"><table>
+          <thead><tr><th>status</th><th>Meaning</th><th>Key color</th></tr></thead>
+          <tbody>
+            <tr><td><code>ok</code></td><td>Healthy.</td><td>Green</td></tr>
+            <tr><td><code>degraded</code></td><td>A transient failure, still retrying.</td><td>Yellow</td></tr>
+            <tr><td><code>auth_error</code></td><td>Refresh token dead — needs manual reauth.</td><td>Red</td></tr>
+          </tbody>
+        </table></div>
+        <p>Health only escalates after <code>HEALTH_FAILURE_THRESHOLD</code> consecutive failures,
+           so a single network blip won't flash your key red. This endpoint is also served
+           unauthenticated at the top level as a liveness check.</p>
+      </div>
+    </div>
+    <div class="ep">
+      <div class="ep__bar"><span class="m get">GET</span><span class="path">/api/feedback/stream</span></div>
+      <div class="ep__body"><p>Server-Sent Events stream of state changes — an alternative to
+        polling for any custom integration that prefers push.</p></div>
+    </div>
+  </section>
+
+  <!-- ===================== DASHBOARD API ===================== -->
+  <section id="dashboard-api">
+    <h2><span class="no">08</span> Dashboard endpoints</h2>
+    <p class="lede">What the web UI talks to. You can script these directly too.</p>
+    <div class="tw"><table>
+      <thead><tr><th>Method</th><th>Path</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><span class="m get">GET</span></td><td><code>/api/dashboard/presets</code></td><td>List presets.</td></tr>
+        <tr><td><span class="m post">POST</span></td><td><code>/api/dashboard/presets</code></td><td>Create a preset.</td></tr>
+        <tr><td><span class="m put">PUT</span></td><td><code>/api/dashboard/presets/:id</code></td><td>Update a preset.</td></tr>
+        <tr><td><span class="m del">DEL</span></td><td><code>/api/dashboard/presets/:id</code></td><td>Delete a preset.</td></tr>
+        <tr><td><span class="m get">GET</span></td><td><code>/api/dashboard/presets/export</code></td><td>Export all presets (backward-compatible JSON).</td></tr>
+        <tr><td><span class="m post">POST</span></td><td><code>/api/dashboard/presets/import</code></td><td>Import presets from a backup.</td></tr>
+        <tr><td><span class="m get">GET</span> / <span class="m put">PUT</span></td><td><code>/api/dashboard/settings</code></td><td>Read / write app-level defaults.</td></tr>
+        <tr><td><span class="m get">GET</span></td><td><code>/api/dashboard/state</code></td><td>Full current state snapshot.</td></tr>
+        <tr><td><span class="m get">GET</span></td><td><code>/api/dashboard/categories</code></td><td>Assignable YouTube categories for the region.</td></tr>
+        <tr><td><span class="m get">GET</span></td><td><code>/api/dashboard/streams</code></td><td>Available stream bindings (keys).</td></tr>
+        <tr><td><span class="m get">GET</span> / <span class="m put">PUT</span></td><td><code>/api/dashboard/webhook</code></td><td>Read / set the change webhook URL.</td></tr>
+        <tr><td><span class="m post">POST</span></td><td><code>/api/dashboard/action/*</code></td><td>Alias of the action endpoints above.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout tip">
+      <p><strong>Import / export stays backward compatible.</strong> The template fields
+         (<code>titleFallback</code>, <code>descriptionFallback</code>) are optional and nullable —
+         old backups and old presets parse and behave identically.</p>
+    </div>
+  </section>
+
+  <!-- ===================== ERRORS ===================== -->
+  <section id="errors">
+    <h2><span class="no">09</span> Error codes</h2>
+    <p class="lede">Delivered in the body with HTTP 200. Shape:
+       <code>{ success:false, error:{ code, message } }</code>.</p>
+    <div class="tw"><table>
+      <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>NO_TARGET_FOUND</code></td><td>No active broadcast and no persistent container.</td></tr>
+        <tr><td><code>INVALID_PRESET</code></td><td><code>presetId</code> not found.</td></tr>
+        <tr><td><code>MISSING_TEMPLATE_VARS</code></td><td>A required variable is unresolved and its field has no fallback. Lists the names.</td></tr>
+        <tr><td><code>BUSY_TRY_AGAIN</code></td><td>An action is in flight and the queue slot is full.</td></tr>
+        <tr><td><code>NO_UNDO_AVAILABLE</code></td><td>Nothing to undo.</td></tr>
+        <tr><td><code>YOUTUBE_AUTH_ERROR</code></td><td>YouTube rejected the request over token issues.</td></tr>
+        <tr><td><code>YOUTUBE_QUOTA_EXCEEDED</code></td><td>Daily API quota exhausted.</td></tr>
+        <tr><td><code>YOUTUBE_ERROR</code></td><td>Any other YouTube API failure.</td></tr>
+        <tr><td><code>INVALID_REQUEST</code></td><td>Malformed body — the message names the first bad field.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ===================== COMPANION CONNECTION ===================== -->
+  <section id="companion-conn">
+    <h2><span class="no">10</span> Companion · connection</h2>
+    <p class="lede">Use Companion's built-in <strong>Generic HTTP</strong> module. No custom
+       module, no auth header.</p>
+    <ol>
+      <li>In Companion → <strong>Connections</strong>, add <strong>Generic: HTTP Requests</strong>.</li>
+      <li>Set the base URL to <code>http://&lt;APP_IP&gt;:8080</code>.</li>
+      <li>Leave any authorization header <strong>empty</strong> — the app is unauthenticated on the LAN.</li>
+    </ol>
+    <div class="callout">
+      <p>Every action button below is a <strong>POST</strong> with a JSON body and
+         <code>Content-Type: application/json</code>. Every feedback binding is a
+         <strong>GET</strong> polled on the buttons page.</p>
+    </div>
+  </section>
+
+  <!-- ===================== COMPANION TRIGGER ===================== -->
+  <section id="companion-trigger">
+    <h2><span class="no">11</span> Companion · trigger buttons</h2>
+    <p class="lede">One key, one preset. Press fires the metadata change on whatever broadcast is
+       current.</p>
+
+    <h3>A plain preset key</h3>
+    <p>Add a button, give it a <strong>HTTP POST</strong> action:</p>
+    <pre><span class="p">URL</span>   http://&lt;APP_IP&gt;:8080/api/dashboard/action/preset
+<span class="p">Body</span>  { <span class="p">"presetId"</span>: <span class="s">"gaming_main"</span> }</pre>
+
+    <h3>Passing template variables</h3>
+    <p>Fill variables straight from the button using Companion variables or static values:</p>
+    <pre><span class="p">Body</span>  { <span class="p">"presetId"</span>: <span class="s">"lesson_stream"</span>, <span class="p">"vars"</span>: { <span class="p">"lesson"</span>: <span class="s">"41"</span> } }</pre>
+    <p>If a variable is missing and its field has a fallback, the action still succeeds and the
+       response's <code>resolvedVars</code> tells you the fallback fired. If there's no fallback,
+       you get <code>MISSING_TEMPLATE_VARS</code> — a good case for the redirect flow below, where
+       the operator types the value in a browser first.</p>
+
+    <div class="deck" role="img" aria-label="Example Stream Deck layout">
+      <div class="key on"><span class="ico">▶</span><span class="lbl">Gaming</span></div>
+      <div class="key"><span class="ico">📚</span><span class="lbl">Lesson</span></div>
+      <div class="key busy"><span class="ico">↻</span><span class="lbl">Refresh</span></div>
+      <div class="key"><span class="ico">↶</span><span class="lbl">Undo</span></div>
+    </div>
+  </section>
+
+  <!-- ===================== COMPANION FEEDBACK ===================== -->
+  <section id="companion-feedback">
+    <h2><span class="no">12</span> Companion · state on the keys</h2>
+    <p class="lede">Poll the feedback endpoints and bind their fields to key text and colors.
+       All cached — polling costs no YouTube quota.</p>
+    <ol>
+      <li>Add a second <strong>HTTP GET</strong> connection instance (or per-button feedback) hitting
+          <code>/api/feedback/status</code>, polled every <strong>5&nbsp;seconds</strong>.</li>
+      <li>Companion parses the JSON into variables. Bind them to buttons:</li>
+    </ol>
+    <div class="tw"><table>
+      <thead><tr><th>Endpoint field</th><th>Bind to</th></tr></thead>
+      <tbody>
+        <tr><td><code>status.title</code></td><td>Key text — the on-screen title.</td></tr>
+        <tr><td><code>status.isLive</code></td><td>Key color — red ring when live, dim when idle.</td></tr>
+        <tr><td><code>busy.busy</code></td><td>Blink / blue while an action runs.</td></tr>
+        <tr><td><code>health.status</code></td><td>Green / yellow / red health lamp.</td></tr>
+        <tr><td><code>active-preset.activePresetId</code></td><td>Highlight the currently applied preset key.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="deck" role="img" aria-label="Keys showing live state">
+      <div class="key live"><span class="ico">●</span><span class="lbl">ON AIR</span></div>
+      <div class="key on"><span class="ico">✓</span><span class="lbl">Gaming</span></div>
+      <div class="key busy"><span class="ico">◐</span><span class="lbl">Working…</span></div>
+      <div class="key"><span class="ico">◍</span><span class="lbl">Health OK</span></div>
+    </div>
+    <p><code>GET /api/feedback/status</code> is served from cache with zero quota — Companion
+       formats and binds these itself; there's no server-side wiring to do.</p>
+  </section>
+
+  <!-- ===================== REDIRECT FLOW ===================== -->
+  <section id="companion-redirect">
+    <h2><span class="no">13</span> Companion · the redirect flow</h2>
+    <p class="lede">Companion buttons can't show a popup — so for presets that need the operator to
+       type a value, the button opens a browser page instead, and bounces back to Companion when
+       it's done.</p>
+
+    <h3>How it flows</h3>
+    <div class="flow">
+      <div class="node">
+        <span class="tag">Companion</span>
+        <b>Press key</b>
+        <span class="d">Button's action is "open URL", not an HTTP call.</span>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node">
+        <span class="tag">Browser</span>
+        <b>Fill page</b>
+        <span class="d">Opens <code>/fill?preset=…&amp;redirect=…</code> with the preset preselected.</span>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node ok">
+        <span class="tag">POST</span>
+        <b>Apply</b>
+        <span class="d">Submit fires <code>/api/dashboard/action/preset</code>.</span>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node back">
+        <span class="tag">Return</span>
+        <b>Bounce back</b>
+        <span class="d">On success <code>window.location = redirect</code> → back to Companion.</span>
+      </div>
+    </div>
+
+    <h3>Wire the button</h3>
+    <p>Give the key an <strong>Open URL</strong> action pointing at the app's fill route, with a
+       <code>redirect</code> back to Companion's own URL (its web control, or a
+       <code>companion://</code> deep link — any <code>http(s)</code> URL is accepted, no
+       allowlist):</p>
+    <pre><span class="p">Open URL</span>
+http://&lt;APP_IP&gt;:8080/fill?preset=<span class="s">lesson_stream</span>&amp;redirect=<span class="s">http://&lt;COMPANION_IP&gt;:8000/</span></pre>
+
+    <h4>What the operator sees</h4>
+    <ul>
+      <li>The fill popup opens with the preset already selected, last-used values prefilled, and a
+          live preview.</li>
+      <li><strong>On success</strong> the page navigates straight to the <code>redirect</code> URL —
+          the operator lands back in Companion.</li>
+      <li><strong>On failure</strong> the page stays put and shows the error, so nothing bounces
+          until the action actually went through.</li>
+      <li>A preset with <strong>no variables</strong> opened this way fires and bounces
+          immediately — no popup at all.</li>
+    </ul>
+
+    <div class="callout tip">
+      <p><strong>When to use which.</strong> Fixed metadata → a plain HTTP POST key (§11). Needs a
+         value typed each time and has no fallback → the redirect flow. Needs a value but has a
+         sensible fallback → either works; the POST key just uses the fallback when you don't pass
+         <code>vars</code>.</p>
+    </div>
+  </section>
+
+  <footer>
+    YouTube Live Metadata Control Middleware · v2 · LAN-only operator tool.<br>
+    Interactive API console at <code>/docs</code> · dashboard at <code>/</code>.
+  </footer>
+
+  </main>
+</div>
+
+<script>
+  // Highlight the current section in the side nav.
+  const links = [...document.querySelectorAll('nav.toc a')];
+  const map = new Map(links.map(a => [a.getAttribute('href').slice(1), a]));
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(a => a.classList.remove('on'));
+        map.get(e.target.id)?.classList.add('on');
+      }
+    });
+  }, { rootMargin: '-10% 0px -80% 0px', threshold: 0 });
+  document.querySelectorAll('main section[id]').forEach(s => obs.observe(s));
+</script>
+</body>
+</html>
