@@ -609,6 +609,50 @@ textarea {
   padding: 8px 0;
 }
 
+/* ---- Companion deep-link landing (/fill) --------------------------------- */
+
+.fill-stage {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.console {
+  width: 100%;
+  max-width: 460px;
+  background: var(--bg-rack);
+  border: var(--seam-line);
+  border-radius: var(--radius);
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+.console__line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.console__head {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+  line-height: 1.2;
+}
+.console__detail {
+  color: var(--ink-dim);
+  font-size: 13px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.console .btn {
+  align-self: flex-start;
+  text-decoration: none;
+}
+
 .toast {
   position: fixed;
   bottom: 20px;
