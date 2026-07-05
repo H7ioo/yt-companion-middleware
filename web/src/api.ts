@@ -7,6 +7,27 @@ export interface Preset {
   privacyStatus: PrivacyStatus;
   category: string | null;
   streamBoundId: string | null;
+  /**
+   * Whole-sentence fallback used when the field has any unresolved variable (PRD §1).
+   * Optional in the client view: presets authored before templating omit them, and the
+   * preset form does not yet edit them.
+   */
+  titleFallback?: string | null;
+  descriptionFallback?: string | null;
+}
+
+export type VarSource = "provided" | "default" | "fallback";
+
+export interface ResolvedVar {
+  name: string;
+  value: string | null;
+  source: VarSource;
+}
+
+export interface PresetActionResult {
+  success: boolean;
+  resolvedVars?: ResolvedVar[];
+  error?: { code: string; message: string };
 }
 
 export interface DefaultSettings {
@@ -138,10 +159,10 @@ export const api = {
     return () => es.close();
   },
   action: {
-    preset: (presetId: string) =>
-      req<{ success: boolean }>("/api/dashboard/action/preset", {
+    preset: (presetId: string, vars?: Record<string, string>) =>
+      req<PresetActionResult>("/api/dashboard/action/preset", {
         method: "POST",
-        body: JSON.stringify({ presetId }),
+        body: JSON.stringify(vars && Object.keys(vars).length > 0 ? { presetId, vars } : { presetId }),
       }),
     update: (payload: {
       title: string;

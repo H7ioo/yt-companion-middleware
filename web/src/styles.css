@@ -491,6 +491,80 @@ textarea {
   border-top: var(--seam-line);
 }
 
+/* ---- Fill popup: live resolved-output readout (the signature element) ----- */
+
+.fill-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--seam);
+  border: var(--seam-line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-top: 4px;
+}
+.fill-preview__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  background: var(--bg-inset);
+}
+.fill-preview__label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.fill-preview__text {
+  font-size: 14px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.fill-preview__empty {
+  color: var(--ink-faint);
+}
+
+/* Resolution chip beside each variable label: how a blank value would fill. */
+.vchip {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  margin-left: 8px;
+  border-radius: 100px;
+  border: 1px solid var(--seam-bright);
+  color: var(--ink-dim);
+  vertical-align: middle;
+}
+.vchip--provided {
+  color: var(--accent);
+  border-color: rgba(76, 141, 255, 0.4);
+}
+.vchip--default {
+  color: var(--ready);
+  border-color: rgba(41, 211, 152, 0.4);
+}
+.vchip--fallback {
+  color: var(--warn);
+  border-color: rgba(255, 176, 32, 0.4);
+}
+
+.fill-result {
+  margin: 14px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.fill-result--ok {
+  color: var(--ready);
+}
+.fill-result--err {
+  color: var(--live);
+}
+
 .target-badge {
   display: inline-flex;
   align-items: center;

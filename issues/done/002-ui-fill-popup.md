@@ -1,0 +1,56 @@
+# 002 — UI fill popup for templated presets
+
+## Parent PRD
+
+`issues/prd.md`
+
+## What to build
+
+The dashboard fill experience for templated presets (PRD §5). Selecting a preset that
+contains variables opens a popup with one input per detected variable; a preset with no
+variables fires immediately with no extra click. Inline defaults and field fallbacks show
+as greyed placeholder text, last-used values prefill per preset (stored client-side), and a
+read-only live preview shows the resolved title and description as the user types (applying
+fallback when a field is left blank). Submitting fires
+`POST /api/dashboard/action/preset` with the collected `vars` and shows success/error
+inline, surfacing `resolvedVars`/`MISSING_TEMPLATE_VARS` from slice 001.
+
+This is HITL: it needs design review (invoke the `frontend-design` skill) since it adds a
+new interactive surface to the dashboard.
+
+## Acceptance criteria
+
+- [x] Selecting a variabled preset opens the fill popup; a variable-less preset fires
+      immediately (no popup), matching current behavior.
+- [x] The popup renders one input per variable detected in the preset's title/description.
+- [x] Each input shows its inline default / field fallback as greyed placeholder text;
+      leaving it blank uses that fallback path.
+- [x] Last-used values for a preset prefill the inputs on reopen (persisted client-side).
+- [x] A read-only live preview of the resolved title and description updates as the user
+      types and reflects fallback when a field is left empty.
+- [x] Submitting sends the `vars` map, fires the action, and shows success or the error
+      (including `MISSING_TEMPLATE_VARS`) inline.
+- [x] Design reviewed via the `frontend-design` skill; visual style matches the existing
+      dashboard.
+
+## Done
+
+Built `web/src/components/PresetFillModal.tsx` plus a client-side mirror of the template
+engine (`web/src/lib/template.ts`, unit-tested) so the popup detects variables and renders
+a live preview without a round-trip. "Apply now" branches on `extractVars`. Preset fallback
+fields are now surfaced on the client `Preset` type. Verified: 79 unit tests, both
+typechecks, `build:web`, and a served-bundle smoke check all pass.
+
+Note for next iteration: `PresetForm` still can't author `titleFallback`/`descriptionFallback`
+— they only arrive via import/API. Adding those two inputs to the preset form is the natural
+follow-up so the fallback path is reachable end-to-end from the dashboard. Live apply-to-
+YouTube was not exercised (no channel creds in this environment).
+
+## Blocked by
+
+- Blocked by `issues/001-template-engine-and-endpoint.md`
+
+## User stories addressed
+
+- User story 5
+- User story 6

@@ -11,8 +11,10 @@ import {
 } from "./api.js";
 import { StatusRail } from "./components/StatusRail.js";
 import { PresetForm } from "./components/PresetForm.js";
+import { PresetFillModal } from "./components/PresetFillModal.js";
 import { AdHocModal } from "./components/AdHocModal.js";
 import { CategorySelect } from "./components/CategorySelect.js";
+import { extractVars } from "./lib/template.js";
 
 type Toast = { message: string; kind: "ok" | "err" } | null;
 
@@ -38,6 +40,7 @@ export function App() {
   const [newToken, setNewToken] = useState<string | null>(null);
   const [webhookUrl, setWebhookUrl] = useState<string>("");
   const [editing, setEditing] = useState<Preset | "new" | null>(null);
+  const [filling, setFilling] = useState<Preset | null>(null);
   const [adHoc, setAdHoc] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
   const importInput = useRef<HTMLInputElement>(null);
@@ -151,19 +154,26 @@ export function App() {
     }
   };
 
-  const testPreset = async (p: Preset) => {
+  // Apply now: a templated preset opens the fill popup; a plain one fires immediately.
+  const applyPreset = async (p: Preset) => {
+    if (extractVars(p).length > 0) {
+      setFilling(p);
+      return;
+    }
     try {
       const r = await api.action.preset(p.id);
       if (r.success) flash(`Applied “${p.title}” to YouTube`);
-      else
-        flash(
-          (r as { error?: { message: string } }).error?.message ??
-            "Action failed",
-          "err",
-        );
+      else flash(r.error?.message ?? "Action failed", "err");
     } catch (e) {
       flash((e as Error).message, "err");
     }
+  };
+
+  // The fill popup fires the action itself and surfaces the result inline; toast on success.
+  const fireFilledPreset = async (presetId: string, vars: Record<string, string>) => {
+    const r = await api.action.preset(presetId, vars);
+    if (r.success) flash("Preset applied to YouTube");
+    return r;
   };
 
   const saveSettings = async (next: DefaultSettings) => {
@@ -334,7 +344,7 @@ export function App() {
                     <div className="card__actions">
                       <button
                         className="btn btn--sm"
-                        onClick={() => testPreset(p)}
+                        onClick={() => applyPreset(p)}
                         disabled={state?.busy ?? false}
                       >
                         Apply now
@@ -526,6 +536,14 @@ export function App() {
           streams={streams}
           onCancel={() => setEditing(null)}
           onSubmit={savePreset}
+        />
+      ) : null}
+
+      {filling ? (
+        <PresetFillModal
+          preset={filling}
+          fire={fireFilledPreset}
+          onClose={() => setFilling(null)}
         />
       ) : null}
 
