@@ -179,6 +179,16 @@ export function App() {
     }
   };
 
+  // Human labels for the app defaults, so "inherit default" shows what it inherits.
+  const defaultCategoryLabel = settings.defaultCategory
+    ? (categories.find((c) => c.id === settings.defaultCategory)?.title ??
+      `id ${settings.defaultCategory}`)
+    : null;
+  const defaultStreamLabel = settings.defaultStreamBoundId
+    ? (streams.find((s) => s.id === settings.defaultStreamBoundId)?.title ??
+      settings.defaultStreamBoundId)
+    : null;
+
   const copy = (value: string, label: string) => {
     void navigator.clipboard
       .writeText(value)
@@ -293,13 +303,29 @@ export function App() {
                       <span className={`pill ${PRIVACY_PILL[p.privacyStatus]}`}>
                         {p.privacyStatus}
                       </span>
-                      <span className="pill">
-                        {p.category ? `cat ${p.category}` : "cat · default"}
+                      <span
+                        className="pill"
+                        title={
+                          p.category
+                            ? `Category override: ${p.category}`
+                            : `Inherits default category: ${defaultCategoryLabel ?? "none (leave untouched)"}`
+                        }
+                      >
+                        {p.category
+                          ? `cat ${p.category}`
+                          : `cat · default: ${defaultCategoryLabel ?? "none"}`}
                       </span>
-                      <span className="pill">
+                      <span
+                        className="pill"
+                        title={
+                          p.streamBoundId
+                            ? `Stream override: ${p.streamBoundId}`
+                            : `Inherits default binding: ${defaultStreamLabel ?? "none (leave untouched)"}`
+                        }
+                      >
                         {p.streamBoundId
                           ? "stream · override"
-                          : "stream · default"}
+                          : `stream · default: ${defaultStreamLabel ?? "none"}`}
                       </span>
                     </div>
                     <div
@@ -469,6 +495,8 @@ export function App() {
           initial={editing === "new" ? undefined : editing}
           categories={categories}
           streams={streams}
+          defaultCategoryLabel={defaultCategoryLabel}
+          defaultStreamLabel={defaultStreamLabel}
           onCancel={() => setEditing(null)}
           onSubmit={savePreset}
         />

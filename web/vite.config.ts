@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Dev server proxies /api and /docs to the Express backend on :8080.
+// Dev server proxies /api, /docs and /guide to the Express backend on :8080.
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -9,6 +9,7 @@ export default defineConfig({
     proxy: {
       "/api": "http://localhost:8080",
       "/docs": "http://localhost:8080",
+      "/guide": "http://localhost:8080",
     },
   },
   build: {

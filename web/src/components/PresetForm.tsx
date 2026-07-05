@@ -9,11 +9,23 @@ interface Props {
   title: string;
   categories: Category[];
   streams: StreamInfo[];
+  /** Human label of the app default category/stream, so "inherit default" shows its value. */
+  defaultCategoryLabel: string | null;
+  defaultStreamLabel: string | null;
   onCancel: () => void;
   onSubmit: (input: PresetInput) => Promise<void>;
 }
 
-export function PresetForm({ initial, title, categories, streams, onCancel, onSubmit }: Props) {
+export function PresetForm({
+  initial,
+  title,
+  categories,
+  streams,
+  defaultCategoryLabel,
+  defaultStreamLabel,
+  onCancel,
+  onSubmit,
+}: Props) {
   const [form, setForm] = useState<PresetInput>({
     title: initial?.title ?? "",
     description: initial?.description ?? "",
@@ -85,24 +97,31 @@ export function PresetForm({ initial, title, categories, streams, onCancel, onSu
           <div className="field--row">
             <div className="field">
               <label htmlFor="pf-cat">
-                Category <span className="hint">— blank inherits default</span>
+                Category{" "}
+                <span className="hint">
+                  — blank inherits default: {defaultCategoryLabel ?? "none"}
+                </span>
               </label>
               <CategorySelect
                 id="pf-cat"
                 value={form.category}
                 categories={categories}
+                blankLabel={`— inherit default: ${defaultCategoryLabel ?? "none"} —`}
                 onChange={(value) => set("category", value)}
               />
             </div>
             <div className="field">
               <label htmlFor="pf-stream">
-                Stream binding <span className="hint">— blank inherits default</span>
+                Stream binding{" "}
+                <span className="hint">
+                  — blank inherits default: {defaultStreamLabel ?? "none"}
+                </span>
               </label>
               <input
                 id="pf-stream"
                 list="pf-stream-list"
                 value={form.streamBoundId ?? ""}
-                placeholder="inherits default"
+                placeholder={`inherits default: ${defaultStreamLabel ?? "none"}`}
                 aria-invalid={staleBinding}
                 onChange={(e) => set("streamBoundId", e.target.value.trim() || null)}
               />
