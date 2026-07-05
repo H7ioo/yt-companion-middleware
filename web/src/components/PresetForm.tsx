@@ -29,6 +29,8 @@ export function PresetForm({
   const [form, setForm] = useState<PresetInput>({
     title: initial?.title ?? "",
     description: initial?.description ?? "",
+    titleFallback: initial?.titleFallback ?? null,
+    descriptionFallback: initial?.descriptionFallback ?? null,
     privacyStatus: initial?.privacyStatus ?? "public",
     category: initial?.category ?? null,
     streamBoundId: initial?.streamBoundId ?? null,
@@ -66,6 +68,7 @@ export function PresetForm({
             <label htmlFor="pf-title">Title</label>
             <input
               id="pf-title"
+              dir="auto"
               value={form.title}
               onChange={(e) => set("title", e.target.value)}
               required
@@ -73,11 +76,38 @@ export function PresetForm({
             />
           </div>
           <div className="field">
+            <label htmlFor="pf-title-fb">
+              Title fallback{" "}
+              <span className="hint">— used whole if any title variable is unresolved</span>
+            </label>
+            <input
+              id="pf-title-fb"
+              dir="auto"
+              value={form.titleFallback ?? ""}
+              placeholder="blank = variable is required"
+              onChange={(e) => set("titleFallback", e.target.value || null)}
+            />
+          </div>
+          <div className="field">
             <label htmlFor="pf-desc">Description</label>
             <textarea
               id="pf-desc"
+              dir="auto"
               value={form.description}
               onChange={(e) => set("description", e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="pf-desc-fb">
+              Description fallback{" "}
+              <span className="hint">— used whole if any description variable is unresolved</span>
+            </label>
+            <textarea
+              id="pf-desc-fb"
+              dir="auto"
+              value={form.descriptionFallback ?? ""}
+              placeholder="blank = variable is required"
+              onChange={(e) => set("descriptionFallback", e.target.value || null)}
             />
           </div>
           <div className="field">
@@ -119,6 +149,7 @@ export function PresetForm({
               </label>
               <input
                 id="pf-stream"
+                dir="auto"
                 list="pf-stream-list"
                 value={form.streamBoundId ?? ""}
                 placeholder={`inherits default: ${defaultStreamLabel ?? "none"}`}

@@ -27,7 +27,15 @@ function QuotaReadout({ quota }: { quota: QuotaSnapshot | undefined }) {
   );
 }
 
-export function StatusRail({ state }: { state: DashboardState | null }) {
+export function StatusRail({
+  state,
+  onRefresh,
+  refreshing,
+}: {
+  state: DashboardState | null;
+  onRefresh: () => void;
+  refreshing: boolean;
+}) {
   const isLive = state?.status.isLive ?? false;
   const noTarget = state?.status.noTarget ?? false;
   const health = state?.health ?? "ok";
@@ -99,9 +107,19 @@ export function StatusRail({ state }: { state: DashboardState | null }) {
       </div>
 
       <div className="rail__foot">
-        {state?.lastRefreshedAt
-          ? `Cache updated ${new Date(state.lastRefreshedAt).toLocaleTimeString()}`
-          : "Awaiting first refresh…"}
+        <button
+          className="btn btn--sm"
+          onClick={onRefresh}
+          disabled={refreshing}
+          title="Re-fetch the current title, status and privacy live from YouTube"
+        >
+          {refreshing ? "Refreshing…" : "Refresh from YouTube"}
+        </button>
+        <div style={{ marginTop: 8 }}>
+          {state?.lastRefreshedAt
+            ? `Cache updated ${new Date(state.lastRefreshedAt).toLocaleTimeString()}`
+            : "Awaiting first refresh…"}
+        </div>
         {state?.healthMessage ? (
           <div style={{ marginTop: 6 }}>{state.healthMessage}</div>
         ) : null}

@@ -174,5 +174,11 @@ export const api = {
       req<{ success: boolean; error?: { message: string } }>("/api/dashboard/action/undo", {
         method: "POST",
       }),
+    /** Force a live re-fetch of the YouTube session (title/status/etc.) into the cache. */
+    refresh: () =>
+      req<DashboardState & { success: boolean; error?: { message: string } }>(
+        "/api/dashboard/action/refresh",
+        { method: "POST" },
+      ),
   },
 };

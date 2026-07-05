@@ -36,6 +36,7 @@ export function App() {
   const [editing, setEditing] = useState<Preset | "new" | null>(null);
   const [filling, setFilling] = useState<Preset | null>(null);
   const [adHoc, setAdHoc] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
   const importInput = useRef<HTMLInputElement>(null);
 
@@ -226,6 +227,23 @@ export function App() {
     }
   };
 
+  const refreshSession = async () => {
+    setRefreshing(true);
+    try {
+      const r = await api.action.refresh();
+      if (r.success) {
+        setState(r);
+        flash("Session refreshed from YouTube");
+      } else {
+        flash(r.error?.message ?? "Refresh failed", "err");
+      }
+    } catch (e) {
+      flash((e as Error).message, "err");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const pushAdHoc = async (
     payload: Parameters<typeof api.action.update>[0],
   ) => {
@@ -244,7 +262,7 @@ export function App() {
 
   return (
     <div className="shell">
-      <StatusRail state={state} />
+      <StatusRail state={state} onRefresh={refreshSession} refreshing={refreshing} />
 
       <main className="main">
         {/* Presets */}
@@ -295,9 +313,9 @@ export function App() {
               <div className="preset-grid">
                 {presets.map((p) => (
                   <article className="card" key={p.id}>
-                    <div className="card__title">{p.title}</div>
+                    <div className="card__title" dir="auto">{p.title}</div>
                     {p.description ? (
-                      <div className="card__desc">{p.description}</div>
+                      <div className="card__desc" dir="auto">{p.description}</div>
                     ) : null}
                     <div className="card__meta">
                       <span className={`pill ${PRIVACY_PILL[p.privacyStatus]}`}>
@@ -514,6 +532,8 @@ export function App() {
         <AdHocModal
           state={state}
           categories={categories}
+          defaultCategoryLabel={defaultCategoryLabel}
+          defaultStreamLabel={defaultStreamLabel}
           onCancel={() => setAdHoc(false)}
           onSubmit={pushAdHoc}
         />

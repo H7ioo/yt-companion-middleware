@@ -7,6 +7,9 @@ const PRIVACY: PrivacyStatus[] = ["public", "unlisted", "private"];
 interface Props {
   state: DashboardState | null;
   categories: Category[];
+  /** Human label of the app default category/stream, so "inherit default" shows its value. */
+  defaultCategoryLabel: string | null;
+  defaultStreamLabel: string | null;
   onCancel: () => void;
   onSubmit: (payload: {
     title: string;
@@ -17,7 +20,14 @@ interface Props {
   }) => Promise<void>;
 }
 
-export function AdHocModal({ state, categories, onCancel, onSubmit }: Props) {
+export function AdHocModal({
+  state,
+  categories,
+  defaultCategoryLabel,
+  defaultStreamLabel,
+  onCancel,
+  onSubmit,
+}: Props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [privacyStatus, setPrivacy] = useState<PrivacyStatus>("public");
@@ -57,11 +67,11 @@ export function AdHocModal({ state, categories, onCancel, onSubmit }: Props) {
           </span>
           <div className="field">
             <label htmlFor="ah-title">Title</label>
-            <input id="ah-title" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus required />
+            <input id="ah-title" dir="auto" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus required />
           </div>
           <div className="field">
             <label htmlFor="ah-desc">Description</label>
-            <textarea id="ah-desc" value={description} onChange={(e) => setDescription(e.target.value)} />
+            <textarea id="ah-desc" dir="auto" value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
           <div className="field">
             <label htmlFor="ah-privacy">Privacy status</label>
@@ -76,15 +86,27 @@ export function AdHocModal({ state, categories, onCancel, onSubmit }: Props) {
           <div className="field--row">
             <div className="field">
               <label htmlFor="ah-cat">
-                Category <span className="hint">— blank inherits default</span>
+                Category{" "}
+                <span className="hint">
+                  — blank inherits default: {defaultCategoryLabel ?? "none"}
+                </span>
               </label>
-              <CategorySelect id="ah-cat" value={category} categories={categories} onChange={setCategory} />
+              <CategorySelect
+                id="ah-cat"
+                value={category}
+                categories={categories}
+                blankLabel={`— inherit default: ${defaultCategoryLabel ?? "none"} —`}
+                onChange={setCategory}
+              />
             </div>
             <div className="field">
               <label htmlFor="ah-stream">
-                Stream binding <span className="hint">— blank inherits default</span>
+                Stream binding{" "}
+                <span className="hint">
+                  — blank inherits default: {defaultStreamLabel ?? "none"}
+                </span>
               </label>
-              <input id="ah-stream" value={streamBoundId} placeholder="inherits default" onChange={(e) => setStream(e.target.value)} />
+              <input id="ah-stream" dir="auto" value={streamBoundId} placeholder={`inherits default: ${defaultStreamLabel ?? "none"}`} onChange={(e) => setStream(e.target.value)} />
             </div>
           </div>
         </div>
