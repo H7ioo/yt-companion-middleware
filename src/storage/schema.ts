@@ -29,13 +29,6 @@ export const defaultSettingsSchema = z.object({
 });
 export type DefaultSettings = z.infer<typeof defaultSettingsSchema>;
 
-/** Hashed API token record (PRD §5.2). Plaintext is never stored. */
-export const tokenRecordSchema = z.object({
-  hash: z.string().nullable().default(null),
-  createdAt: z.string().nullable().default(null),
-});
-export type TokenRecord = z.infer<typeof tokenRecordSchema>;
-
 export const healthStatusSchema = z.enum(["ok", "degraded", "auth_error"]);
 export type HealthStatus = z.infer<typeof healthStatusSchema>;
 
@@ -95,7 +88,6 @@ export const storeSchema = z.object({
     defaultCategory: null,
     defaultStreamBoundId: null,
   }),
-  token: tokenRecordSchema.default({ hash: null, createdAt: null }),
   quota: quotaSchema.default({ date: null, used: 0 }),
   webhook: webhookSchema.default({ url: null }),
   cache: cacheSchema.default({

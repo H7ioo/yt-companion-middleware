@@ -7,7 +7,6 @@ import {
   type Preset,
   type PresetInput,
   type StreamInfo,
-  type TokenStatus,
 } from "./api.js";
 import { StatusRail } from "./components/StatusRail.js";
 import { PresetForm } from "./components/PresetForm.js";
@@ -31,13 +30,8 @@ export function App() {
     defaultCategory: null,
     defaultStreamBoundId: null,
   });
-  const [token, setToken] = useState<TokenStatus>({
-    configured: false,
-    createdAt: null,
-  });
   const [categories, setCategories] = useState<Category[]>([]);
   const [streams, setStreams] = useState<StreamInfo[]>([]);
-  const [newToken, setNewToken] = useState<string | null>(null);
   const [webhookUrl, setWebhookUrl] = useState<string>("");
   const [editing, setEditing] = useState<Preset | "new" | null>(null);
   const [filling, setFilling] = useState<Preset | null>(null);
@@ -58,7 +52,6 @@ export function App() {
   useEffect(() => {
     void loadPresets();
     void api.settings.get().then(setSettings);
-    void api.token.status().then(setToken);
     void api.webhook.get().then((w) => setWebhookUrl(w.url ?? ""));
     void api.categories
       .list()
@@ -181,24 +174,6 @@ export function App() {
       const saved = await api.settings.save(next);
       setSettings(saved);
       flash("Defaults saved");
-    } catch (e) {
-      flash((e as Error).message, "err");
-    }
-  };
-
-  const regenerate = async () => {
-    if (
-      token.configured &&
-      !confirm(
-        "Regenerate the API token? The current token stops working immediately.",
-      )
-    )
-      return;
-    try {
-      const r = await api.token.regenerate();
-      setNewToken(r.token);
-      setToken({ configured: r.configured, createdAt: r.createdAt });
-      flash("New token generated — copy it now");
     } catch (e) {
       flash((e as Error).message, "err");
     }
@@ -455,46 +430,6 @@ export function App() {
               </div>
             </div>
             <p className="empty">Changes save when you leave a field.</p>
-          </div>
-        </section>
-
-        {/* Token */}
-        <section className="panel">
-          <div className="panel__head">
-            <h2>API token</h2>
-          </div>
-          <div className="panel__body">
-            {newToken ? (
-              <div className="token-value">
-                <code>{newToken}</code>
-                <button
-                  className="btn btn--sm"
-                  onClick={() => copy(newToken, "Token")}
-                >
-                  Copy
-                </button>
-                <button
-                  className="btn btn--ghost btn--sm"
-                  onClick={() => setNewToken(null)}
-                >
-                  Done
-                </button>
-              </div>
-            ) : (
-              <p className="empty" style={{ marginTop: 0 }}>
-                {token.configured
-                  ? `Token active${token.createdAt ? ` since ${new Date(token.createdAt).toLocaleString()}` : ""}. Value is hidden — regenerate to reveal a new one.`
-                  : "No token set. Companion endpoints are currently open. Generate a token to lock them down."}
-              </p>
-            )}
-            <button className="btn" onClick={regenerate}>
-              {token.configured ? "Regenerate token" : "Generate token"}
-            </button>
-            <p className="empty">
-              Paste as{" "}
-              <span className="mono">Authorization: Bearer &lt;token&gt;</span>{" "}
-              in Companion’s HTTP connection.
-            </p>
           </div>
         </section>
 

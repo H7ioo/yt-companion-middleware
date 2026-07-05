@@ -2,8 +2,8 @@ import { Router } from "express";
 import type { AppContext } from "./context.js";
 
 /**
- * Unauthenticated dashboard state read (LAN-trust). Mirrors the feedback cache so the
- * web dashboard's status rail works without holding the Companion Bearer token.
+ * Unauthenticated dashboard state read (LAN-only). Mirrors the feedback cache so the
+ * web dashboard's status rail works.
  */
 export function stateRouter(ctx: AppContext): Router {
   const router = Router();

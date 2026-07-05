@@ -35,11 +35,6 @@ export interface DefaultSettings {
   defaultStreamBoundId: string | null;
 }
 
-export interface TokenStatus {
-  configured: boolean;
-  createdAt: string | null;
-}
-
 export interface Category {
   id: string;
   title: string;
@@ -121,11 +116,6 @@ export const api = {
     get: () => req<DefaultSettings>("/api/dashboard/settings"),
     save: (s: DefaultSettings) =>
       req<DefaultSettings>("/api/dashboard/settings", { method: "PUT", body: JSON.stringify(s) }),
-  },
-  token: {
-    status: () => req<TokenStatus>("/api/dashboard/token"),
-    regenerate: () =>
-      req<{ token: string } & TokenStatus>("/api/dashboard/token/regenerate", { method: "POST" }),
   },
   categories: {
     list: () => req<Category[]>("/api/dashboard/categories"),

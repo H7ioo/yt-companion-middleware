@@ -10,13 +10,11 @@ import { ActionRunner } from "./core/actionRunner.js";
 import { QuotaTracker, instrumentQuota } from "./core/quota.js";
 import { StateEvents } from "./core/events.js";
 import { WebhookDispatcher } from "./core/webhook.js";
-import { bearerAuth } from "./auth/bearerMiddleware.js";
 import type { AppContext } from "./routes/context.js";
 import { actionRouter } from "./routes/action.js";
 import { feedbackRouter } from "./routes/feedback.js";
 import { presetsRouter } from "./routes/presets.js";
 import { settingsRouter } from "./routes/settings.js";
-import { tokenRouter } from "./routes/token.js";
 import { stateRouter } from "./routes/state.js";
 import { categoriesRouter } from "./routes/categories.js";
 import { streamsRouter } from "./routes/streams.js";
@@ -64,26 +62,22 @@ async function main(): Promise<void> {
     });
   });
 
-  // Companion-facing endpoints — Bearer protected.
-  const auth = bearerAuth(store);
-  app.use("/api/action", auth, actionRouter(ctx));
-  app.use("/api/feedback", auth, feedbackRouter(ctx));
-  // Authed SSE stream — an alternative to polling for any custom integration.
-  app.get("/api/feedback/stream", auth, streamHandler(ctx));
+  // Companion-facing endpoints — unauthenticated (LAN-only personal tool, PRD §8).
+  app.use("/api/action", actionRouter(ctx));
+  app.use("/api/feedback", feedbackRouter(ctx));
+  // SSE stream — an alternative to polling for any custom integration.
+  app.get("/api/feedback/stream", streamHandler(ctx));
 
-  // Dashboard management endpoints — LAN-trust, unauthenticated so the operator can
-  // reach the token panel on first run.
+  // Dashboard management endpoints.
   app.use("/api/dashboard/presets", presetsRouter(ctx));
   app.use("/api/dashboard/settings", settingsRouter(ctx));
-  app.use("/api/dashboard/token", tokenRouter(ctx));
   app.use("/api/dashboard/state", stateRouter(ctx));
   app.use("/api/dashboard/categories", categoriesRouter(ctx));
   app.use("/api/dashboard/streams", streamsRouter(ctx));
   app.use("/api/dashboard/webhook", webhookRouter(ctx));
   // Live SSE stream so the dashboard reacts instantly instead of polling.
   app.get("/api/dashboard/stream", streamHandler(ctx));
-  // The dashboard is the trusted operator surface — it can trigger actions directly
-  // (test a preset, push an ad-hoc update) without the Companion Bearer token.
+  // Alias to the same handler so Companion buttons on either path keep working.
   app.use("/api/dashboard/action", actionRouter(ctx));
 
   // Interactive API console — a self-contained page that documents every route and can

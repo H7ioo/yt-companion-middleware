@@ -346,10 +346,6 @@
         <label for="base">Base URL</label>
         <input id="base" spellcheck="false" autocomplete="off" />
       </div>
-      <div class="field">
-        <label for="token">Bearer token <span style="color:var(--dim-2)">— for action &amp; feedback bus</span></label>
-        <input id="token" type="password" placeholder="paste API token (dashboard → API token)" spellcheck="false" autocomplete="off" />
-      </div>
       <button class="btn" id="ping">Ping health</button>
     </div>
   </header>
@@ -377,33 +373,33 @@
 
   const BUSES = [
     {
-      id: "feedback", name: "Feedback bus", auth: "token",
-      desc: "Cached state for Companion to poll every ~5s. Served from the in-app cache, never a live YouTube call, so polling costs zero quota. Needs the Bearer token.",
+      id: "feedback", name: "Feedback bus", auth: "open",
+      desc: "Cached state for Companion to poll every ~5s. Served from the in-app cache, never a live YouTube call, so polling costs zero quota. LAN-only: no auth.",
       endpoints: [
-        { m:"GET", path:"/api/feedback/health", cost:"cached", auth:true, open:true,
-          desc:"Liveness + auth + quota budget. This exact path is also reachable <em>without</em> a token (used as a plain liveness probe).",
+        { m:"GET", path:"/api/feedback/health", cost:"cached", auth:false,
+          desc:"Liveness + auth + quota budget. A plain liveness probe.",
           resp:'{ status, authenticated, message, quotaUsed, quotaLimit, quotaRemaining }' },
-        { m:"GET", path:"/api/feedback/status", cost:"cached", auth:true,
+        { m:"GET", path:"/api/feedback/status", cost:"cached", auth:false,
           desc:"Current broadcast title, privacy, and whether it is live.",
           resp:'{ title, privacyStatus, isLive }' },
-        { m:"GET", path:"/api/feedback/busy", cost:"cached", auth:true,
+        { m:"GET", path:"/api/feedback/busy", cost:"cached", auth:false,
           desc:"Whether an action is in flight — drive a Stream Deck button color from this.",
           resp:'{ busy }' },
-        { m:"GET", path:"/api/feedback/active-preset", cost:"cached", auth:true,
+        { m:"GET", path:"/api/feedback/active-preset", cost:"cached", auth:false,
           desc:"Id of the preset last applied, or null.",
           resp:'{ activePresetId }' },
-        { m:"SSE", path:"/api/feedback/stream", cost:"cached", auth:true, sse:true,
+        { m:"SSE", path:"/api/feedback/stream", cost:"cached", auth:false, sse:true,
           desc:"Server-Sent Events push of full dashboard state on every change — an alternative to polling. Lower latency for the go-live transition." },
       ]
     },
     {
-      id: "action", name: "Action bus", auth: "token",
-      desc: "One-shot control actions. Each performs YouTube's read-modify-write dance internally. The same routes are mirrored under /api/dashboard/action with no token — the tester uses that mirror automatically when you leave the token blank.",
+      id: "action", name: "Action bus", auth: "open",
+      desc: "One-shot control actions. Each performs YouTube's read-modify-write dance internally. LAN-only: no auth. The same routes are also mounted under /api/dashboard/action — either path works.",
       endpoints: [
-        { m:"POST", path:"/api/action/preset", cost:"live", auth:true,
+        { m:"POST", path:"/api/action/preset", cost:"live", auth:false,
           desc:"Apply a saved preset to the active broadcast. Get an id from <code>GET /api/dashboard/presets</code>.",
           body:[ {k:"presetId", t:"text", req:true, hint:"preset id"} ] },
-        { m:"POST", path:"/api/action/update", cost:"live", auth:true,
+        { m:"POST", path:"/api/action/update", cost:"live", auth:false,
           desc:"Ad-hoc metadata override. Only <code>title</code> is required; blank optional fields inherit app defaults.",
           body:[
             {k:"title", t:"text", req:true},
@@ -412,13 +408,13 @@
             {k:"category", t:"text", hint:"category id — blank inherits default"},
             {k:"streamBoundId", t:"text", hint:"stream id — blank inherits default"},
           ] },
-        { m:"POST", path:"/api/action/privacy", cost:"live", auth:true,
+        { m:"POST", path:"/api/action/privacy", cost:"live", auth:false,
           desc:"Flip visibility mid-stream. Choose an explicit status, or leave it as <code>toggle</code> to swap private↔public. Does not re-apply the default category or re-bind the stream.",
           body:[ {k:"status", t:"select", opts:["(toggle)","public","unlisted","private"], hint:"(toggle) flips private↔public"} ] },
-        { m:"POST", path:"/api/action/undo", cost:"live", auth:true,
+        { m:"POST", path:"/api/action/undo", cost:"live", auth:false,
           desc:"Restore the title / description / privacy / stream binding captured before the last change. Returns <code>NO_UNDO_AVAILABLE</code> if nothing has changed yet.",
           body:[] },
-        { m:"POST", path:"/api/action/refresh", cost:"live", auth:true,
+        { m:"POST", path:"/api/action/refresh", cost:"live", auth:false,
           desc:"Force an immediate cache refresh from YouTube instead of waiting for the poll interval.",
           body:[] },
       ]
@@ -461,7 +457,7 @@
     },
     {
       id: "config", name: "Config bus", auth: "open",
-      desc: "App-level defaults, the outbound webhook, the API token, and YouTube lookups (categories / streams). Dashboard-only, no token.",
+      desc: "App-level defaults, the outbound webhook, and YouTube lookups (categories / streams). Dashboard-only, no auth.",
       endpoints: [
         { m:"GET", path:"/api/dashboard/state", cost:"local", auth:false,
           desc:"Full dashboard snapshot: status, active preset, health, quota, and the pending undo label." },
@@ -478,11 +474,6 @@
         { m:"PUT", path:"/api/dashboard/webhook", cost:"local", auth:false,
           desc:"Set (or clear) the URL that receives <code>POST { event, state }</code> on every state change. Send an empty string to clear.",
           body:[ {k:"url", t:"text", hint:"https://… — empty string clears it"} ] },
-        { m:"GET", path:"/api/dashboard/token", cost:"local", auth:false,
-          desc:"Whether an API token is configured, and when it was created. Never returns the token itself." },
-        { m:"POST", path:"/api/dashboard/token/regenerate", cost:"local", auth:false,
-          desc:"Mint a new token and invalidate the old one. Returns the plaintext token exactly once — copy it into Companion.",
-          body:[] },
         { m:"GET", path:"/api/dashboard/categories", cost:"live", auth:false,
           desc:"Assignable YouTube video categories for the configured region. Cached for the process lifetime." },
         { m:"GET", path:"/api/dashboard/streams", cost:"live", auth:false,
@@ -497,16 +488,12 @@
   const el = (tag, cls, txt) => { const n = document.createElement(tag); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
   const methodClass = (m) => m === "GET" ? M.read : m === "DELETE" ? M.drop : m === "PUT" ? M.mutate : m === "SSE" ? M.read : M.write;
 
-  const baseInput = $("#base"), tokenInput = $("#token");
+  const baseInput = $("#base");
   const savedBase = localStorage.getItem("api.base");
-  const savedTok  = localStorage.getItem("api.token");
   baseInput.value = savedBase || window.location.origin;
-  if (savedTok) tokenInput.value = savedTok;
   baseInput.addEventListener("change", () => localStorage.setItem("api.base", baseInput.value.trim()));
-  tokenInput.addEventListener("change", () => localStorage.setItem("api.token", tokenInput.value.trim()));
 
   const baseURL = () => baseInput.value.trim().replace(/\/+$/, "");
-  const token = () => tokenInput.value.trim();
 
   // --- JSON syntax highlight ----------------------------------------------
   function highlight(obj) {
@@ -557,15 +544,6 @@
     return { ok: true, path: p };
   }
 
-  function needsToken(ep) { return ep.auth && token(); }
-  // Action bus without a token → fall back to the unauthenticated dashboard mirror.
-  function effectivePath(ep, path) {
-    if (ep.auth && !token() && path.startsWith("/api/action/")) {
-      return path.replace("/api/action/", "/api/dashboard/action/");
-    }
-    return path;
-  }
-
   // --- Fire one request ----------------------------------------------------
   async function fire(ep, strip) {
     const mon = $(".monitor", strip);
@@ -575,11 +553,10 @@
     const bb = buildBody(ep, strip);
     if (!bb.ok) return showLocalError(mon, bb.err);
 
-    const path = effectivePath(ep, pr.path);
+    const path = pr.path;
     const method = ep.m === "SSE" ? "GET" : ep.m;
     const headers = {};
     if (bb.body !== undefined) headers["Content-Type"] = "application/json";
-    if (needsToken(ep)) headers["Authorization"] = "Bearer " + token();
 
     take.disabled = true;
     const eta = $(".take__eta", strip); eta.textContent = "sending…";
@@ -629,9 +606,7 @@
     const mon = $(".monitor", strip);
     if (strip._es) { strip._es.close(); strip._es = null; btn.textContent = "Connect"; btn.classList.add("take--read");
       const st = mon.querySelector(".status"); st.className = "status status--warn"; st.textContent = "DISCONNECTED"; return; }
-    const path = effectivePath(ep, ep.path);
-    // EventSource can't set headers; the authed feedback stream needs the token on the query
-    // string only if the server accepts it. The dashboard stream is open, so prefer it here.
+    const path = ep.path;
     const url = baseURL() + path;
     mon.classList.add("is-live");
     const frames = [];
@@ -673,8 +648,7 @@
     const sec = el("section", "bus"); sec.id = bus.id;
     const head = el("div", "bus__head");
     head.appendChild(el("h2", null, bus.name));
-    const authBadge = el("span", "bus__auth " + (bus.auth === "token" ? "is-token" : "is-open"),
-      bus.auth === "token" ? "Bearer token" : "No auth · LAN");
+    const authBadge = el("span", "bus__auth is-open", "No auth · LAN");
     head.appendChild(authBadge);
     sec.appendChild(head);
     sec.appendChild(el("p", "bus__desc", bus.desc));
@@ -780,8 +754,7 @@
 
   async function refreshTally() {
     try {
-      const headers = token() ? { Authorization: "Bearer " + token() } : {};
-      const res = await fetch(baseURL() + "/api/dashboard/state", { headers });
+      const res = await fetch(baseURL() + "/api/dashboard/state");
       if (!res.ok) throw new Error(String(res.status));
       const s = await res.json();
       const live = s.status && s.status.isLive;
@@ -804,7 +777,6 @@
 
   $("#ping").addEventListener("click", refreshTally);
   baseInput.addEventListener("change", refreshTally);
-  tokenInput.addEventListener("change", refreshTally);
   refreshTally();
   setInterval(refreshTally, 5000);
 })();
