@@ -23,22 +23,22 @@ This slice is verifiable end-to-end via curl / the API console — no UI require
 
 ## Acceptance criteria
 
-- [ ] `presetSchema` has optional nullable `titleFallback` and `descriptionFallback`; a
+- [x] `presetSchema` has optional nullable `titleFallback` and `descriptionFallback`; a
       preset saved/loaded/exported/imported without them still parses and behaves as today.
-- [ ] A resolver detects `{name}` variables in title and description, applies supplied
+- [x] A resolver detects `{name}` variables in title and description, applies supplied
       values, then inline defaults `{name|default}`, and treats `{{`/`}}` as literal braces.
-- [ ] When a field has any unresolved variable and a fallback text is set, that field
+- [x] When a field has any unresolved variable and a fallback text is set, that field
       renders the fallback string; its variables report `source: "fallback"`.
-- [ ] When a field has an unresolved variable and no fallback text, the action is rejected
+- [x] When a field has an unresolved variable and no fallback text, the action is rejected
       with `success:false` and error `MISSING_TEMPLATE_VARS` listing the missing names.
-- [ ] Title and description resolve independently — a missing title variable does not force
+- [x] Title and description resolve independently — a missing title variable does not force
       the description into fallback (and vice versa).
-- [ ] `POST /api/action/preset` and `POST /api/dashboard/action/preset` accept optional
+- [x] `POST /api/action/preset` and `POST /api/dashboard/action/preset` accept optional
       `vars` and return `resolvedVars: [{ name, value, source }]` with
       `source ∈ provided|default|fallback`.
-- [ ] A preset with no `{...}` produces no `resolvedVars` entries and behaves exactly as
+- [x] A preset with no `{...}` produces no `resolvedVars` entries and behaves exactly as
       before.
-- [ ] Unit tests cover: plain preset, inline default used vs overridden, escaped braces,
+- [x] Unit tests cover: plain preset, inline default used vs overridden, escaped braces,
       field fallback triggered by a missing var, `MISSING_TEMPLATE_VARS`, and independent
       per-field resolution.
 

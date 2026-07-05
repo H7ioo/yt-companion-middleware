@@ -16,16 +16,16 @@ This slice is independent of the template work and can be grabbed at any time.
 
 ## Acceptance criteria
 
-- [ ] `bearerAuth` (`src/auth/bearerMiddleware.ts`), `src/auth/apiToken.ts`, and the token
+- [x] `bearerAuth` (`src/auth/bearerMiddleware.ts`), `src/auth/apiToken.ts`, and the token
       routes (`src/routes/token.ts`, `/api/dashboard/token` mount) are removed.
-- [ ] `tokenRecordSchema` and the `token` field are removed from the store schema; existing
+- [x] `tokenRecordSchema` and the `token` field are removed from the store schema; existing
       store files still load (the stale `token` key is ignored, not fatal).
-- [ ] The token panel is removed from the dashboard UI, along with any first-run
+- [x] The token panel is removed from the dashboard UI, along with any first-run
       generate-a-token flow.
-- [ ] `/api/action/*` and `/api/dashboard/action/*` both work without any Authorization
+- [x] `/api/action/*` and `/api/dashboard/action/*` both work without any Authorization
       header and hit the same handlers.
-- [ ] `/api/feedback/*` and the SSE stream endpoints work without a token.
-- [ ] Server starts cleanly and existing tests pass (auth-specific tests removed or
+- [x] `/api/feedback/*` and the SSE stream endpoints work without a token.
+- [x] Server starts cleanly and existing tests pass (auth-specific tests removed or
       updated); no dead imports/references to the removed auth code remain.
 
 ## Blocked by
