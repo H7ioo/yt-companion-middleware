@@ -386,10 +386,12 @@
           desc:"Whether an action is in flight — drive a Stream Deck button color from this.",
           resp:'{ busy }' },
         { m:"GET", path:"/api/feedback/active-preset", cost:"cached", auth:false,
-          desc:"Id of the preset last applied, or null.",
-          resp:'{ activePresetId }' },
+          desc:"Superset endpoint: the active preset's id <em>and its saved definition</em>, plus the core status/health/busy signals — so one poll can drive a whole button (text, on-air color, health lamp, highlight) and read the applied preset's own title/privacy/category. <code>activePreset</code> is null when none is active or it was deleted.",
+          resp:'{ activePresetId, activePreset: { id, title, description, privacyStatus, category, streamBoundId, titleFallback, descriptionFallback } | null, title, privacyStatus, isLive, noTarget, busy, health, quotaRemaining }' },
         { m:"SSE", path:"/api/feedback/stream", cost:"cached", auth:false, sse:true,
           desc:"Server-Sent Events push of full dashboard state on every change — an alternative to polling. Lower latency for the go-live transition." },
+        { m:"WS", path:"/api/feedback/ws", cost:"cached", auth:false, ws:true,
+          desc:"WebSocket push of the same full dashboard state — the transport Bitfocus Companion prefers. A <code>{ event:'state', state }</code> frame on connect, then one per change." },
       ]
     },
     {
@@ -479,14 +481,16 @@
         { m:"GET", path:"/api/dashboard/streams", cost:"live", auth:false,
           desc:"The channel's live streams (ingestion keys), used to validate a preset's stream binding. 30s cache." },
         { m:"SSE", path:"/api/dashboard/stream", cost:"local", auth:false, sse:true,
-          desc:"Unauthenticated SSE push of dashboard state — what the web dashboard itself consumes." },
+          desc:"Unauthenticated SSE push of dashboard state — the dashboard's fallback transport." },
+        { m:"WS", path:"/api/dashboard/ws", cost:"local", auth:false, ws:true,
+          desc:"WebSocket push of dashboard state (same handler as /api/feedback/ws) — the dashboard's preferred transport, with SSE then polling as fallbacks." },
       ]
     },
   ];
 
   const $ = (s, r) => (r || document).querySelector(s);
   const el = (tag, cls, txt) => { const n = document.createElement(tag); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
-  const methodClass = (m) => m === "GET" ? M.read : m === "DELETE" ? M.drop : m === "PUT" ? M.mutate : m === "SSE" ? M.read : M.write;
+  const methodClass = (m) => m === "GET" ? M.read : m === "DELETE" ? M.drop : m === "PUT" ? M.mutate : m === "SSE" ? M.read : m === "WS" ? M.mutate : M.write;
 
   const baseInput = $("#base");
   const savedBase = localStorage.getItem("api.base");
@@ -628,6 +632,38 @@
     });
   }
 
+  // --- WebSocket connect/disconnect ---------------------------------------
+  function toggleWS(ep, strip, btn) {
+    const mon = $(".monitor", strip);
+    const st = mon.querySelector(".status");
+    if (strip._ws) { strip._ws.close(); strip._ws = null; btn.textContent = "Connect"; btn.classList.add("take--read");
+      st.className = "status status--warn"; st.textContent = "DISCONNECTED"; return; }
+    const path = ep.path;
+    const url = baseURL().replace(/^http/, "ws") + path;
+    mon.classList.add("is-live");
+    const frames = [];
+    st.className = "status status--warn"; st.textContent = "CONNECTING";
+    mon.querySelector(".meta").innerHTML = '<b>WS</b> ' + path;
+    mon.querySelector("pre").textContent = "waiting for frames…";
+    let ws;
+    try { ws = new WebSocket(url); } catch (e) { return showLocalError(mon, String(e)); }
+    strip._ws = ws;
+    btn.textContent = "Disconnect"; btn.classList.remove("take--read");
+    ws.addEventListener("open", () => { st.className = "status status--ok"; st.textContent = "CONNECTED"; });
+    ws.addEventListener("message", (e) => {
+      let d; try { d = JSON.parse(e.data); } catch { d = e.data; }
+      frames.unshift(d); if (frames.length > 8) frames.pop();
+      mon.querySelector(".meta").innerHTML = '<b>WS</b> ' + path + ' &nbsp;·&nbsp; <b>' + frames.length + '</b> frame(s), newest first';
+      mon.querySelector("pre").innerHTML = frames.map(highlight).join("\n\n");
+    });
+    ws.addEventListener("error", () => { st.className = "status status--err"; st.textContent = "SOCKET ERROR"; });
+    ws.addEventListener("close", () => {
+      if (!strip._ws) return; // deliberate disconnect already handled
+      strip._ws = null; btn.textContent = "Connect"; btn.classList.add("take--read");
+      st.className = "status status--warn"; st.textContent = "DISCONNECTED";
+    });
+  }
+
   // --- Render --------------------------------------------------------------
   const rail = $("#rail"), buses = $("#buses");
 
@@ -700,7 +736,7 @@
     // actions
     const actions = el("div", "strip__actions");
     const take = el("button", "take" + (mc === "read" ? " take--read" : ""));
-    take.appendChild(document.createTextNode(ep.sse ? "Connect" : "Take"));
+    take.appendChild(document.createTextNode(ep.sse || ep.ws ? "Connect" : "Take"));
     actions.appendChild(take);
     actions.appendChild(el("span", "take__eta"));
     body.appendChild(actions);
@@ -718,6 +754,7 @@
     if (ep.open) strip.classList.add("is-open");
 
     if (ep.sse) take.addEventListener("click", () => toggleSSE(ep, strip, take));
+    else if (ep.ws) take.addEventListener("click", () => toggleWS(ep, strip, take));
     else take.addEventListener("click", () => fire(ep, strip));
     return strip;
   }

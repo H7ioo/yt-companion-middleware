@@ -7,6 +7,10 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      // WebSocket push must be listed before "/api" and flagged ws:true so the upgrade is
+      // forwarded rather than swallowed by the HTTP proxy.
+      "/api/dashboard/ws": { target: "ws://localhost:8080", ws: true },
+      "/api/feedback/ws": { target: "ws://localhost:8080", ws: true },
       "/api": "http://localhost:8080",
       "/docs": "http://localhost:8080",
       "/guide": "http://localhost:8080",

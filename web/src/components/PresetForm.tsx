@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Category, Preset, PresetInput, PrivacyStatus, StreamInfo } from "../api.js";
 import { CategorySelect } from "./CategorySelect.js";
+import { detectVars, type VarRef } from "../lib/template.js";
+import { useEscape } from "../lib/useEscape.js";
 
 const PRIVACY: PrivacyStatus[] = ["public", "unlisted", "private"];
 
@@ -36,9 +38,15 @@ export function PresetForm({
     streamBoundId: initial?.streamBoundId ?? null,
   });
   const [saving, setSaving] = useState(false);
+  useEscape(onCancel);
 
   const set = <K extends keyof PresetInput>(key: K, value: PresetInput[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  // Live variable detection: chips under a field confirm `{name}` is now a template variable
+  // that the fill popup will prompt for, so the operator gets feedback the moment they type it.
+  const titleVars = useMemo(() => detectVars(form.title), [form.title]);
+  const descVars = useMemo(() => detectVars(form.description), [form.description]);
 
   // Warn (don't block) if the bound stream id isn't among the channel's live streams — a
   // stale/deleted key silently fails at trigger time otherwise. Empty = inherits default.
@@ -74,6 +82,7 @@ export function PresetForm({
               required
               autoFocus
             />
+            <VarChips vars={titleVars} />
           </div>
           <div className="field">
             <label htmlFor="pf-title-fb">
@@ -96,6 +105,7 @@ export function PresetForm({
               value={form.description}
               onChange={(e) => set("description", e.target.value)}
             />
+            <VarChips vars={descVars} />
           </div>
           <div className="field">
             <label htmlFor="pf-desc-fb">
@@ -183,5 +193,25 @@ export function PresetForm({
         </div>
       </form>
     </div>
+  );
+}
+
+/** Feedback row: one chip per detected `{variable}`, shown live under a templated field. */
+function VarChips({ vars }: { vars: VarRef[] }) {
+  if (vars.length === 0) return null;
+  return (
+    <p className="var-detect">
+      <span className="var-detect__lead">
+        {vars.length === 1 ? "Variable" : "Variables"} — prompted for when applied:
+      </span>
+      {vars.map((v) => (
+        <span className="vchip vchip--var" key={v.name} title={`Fill {${v.name}} in the popup`}>
+          {v.name}
+          {v.default !== null ? (
+            <span className="vchip__default"> = {v.default || "empty"}</span>
+          ) : null}
+        </span>
+      ))}
+    </p>
   );
 }

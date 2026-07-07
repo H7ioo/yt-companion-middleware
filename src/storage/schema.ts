@@ -82,6 +82,16 @@ export const webhookSchema = z.object({
 });
 export type WebhookState = z.infer<typeof webhookSchema>;
 
+/**
+ * Master API switch (dashboard kill-switch). When `apiEnabled` is false the middleware
+ * makes no YouTube calls at all — the background poll idles and every action is rejected —
+ * so an idle service (with Companion still polling) stops burning YouTube quota.
+ */
+export const serviceSchema = z.object({
+  apiEnabled: z.boolean().default(true),
+});
+export type ServiceState = z.infer<typeof serviceSchema>;
+
 export const storeSchema = z.object({
   presets: z.array(presetSchema).default([]),
   defaults: defaultSettingsSchema.default({
@@ -90,6 +100,7 @@ export const storeSchema = z.object({
   }),
   quota: quotaSchema.default({ date: null, used: 0 }),
   webhook: webhookSchema.default({ url: null }),
+  service: serviceSchema.default({ apiEnabled: true }),
   cache: cacheSchema.default({
     status: { title: null, privacyStatus: null, isLive: false, noTarget: false },
     activePresetId: null,

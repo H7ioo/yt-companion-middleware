@@ -72,6 +72,14 @@ export class ActionRunner {
     return this.busy;
   }
 
+  /**
+   * Rejects — before any YouTube call — when the operator has switched the API off from the
+   * dashboard, so an idle service never spends quota on a stray Companion button press.
+   */
+  private assertEnabled(): void {
+    if (!this.store.get().service.apiEnabled) throw new AppError("SERVICE_DISABLED");
+  }
+
   /** Set the busy flag and push a change so the "processing" indicator updates promptly. */
   private setBusy(value: boolean): void {
     if (this.busy === value) return;
@@ -86,6 +94,7 @@ export class ActionRunner {
    * variable and no fallback text.
    */
   async runPreset(presetId: string, vars: Record<string, string> = {}): Promise<ActionResult> {
+    this.assertEnabled();
     const preset = this.store.get().presets.find((p) => p.id === presetId);
     if (!preset) throw new AppError("INVALID_PRESET", `Preset '${presetId}' not found`);
     const resolved = resolvePresetText(preset, vars);
@@ -107,6 +116,7 @@ export class ActionRunner {
 
   /** Applies an ad-hoc payload (PRD §5.3 /action/update). Clears active preset. */
   async runUpdate(payload: MetadataPayload): Promise<ActionResult> {
+    this.assertEnabled();
     return this.enqueue(async () => {
       const result = await this.applyPayload(payload);
       await this.cache.setActivePreset(null);
@@ -121,6 +131,7 @@ export class ActionRunner {
    * diverges from whatever preset was applied.
    */
   async runPrivacy(arg: { status?: PrivacyStatus }): Promise<ActionResult> {
+    this.assertEnabled();
     return this.enqueue(async () => {
       const result = await this.applyPayload(
         (current) => ({
@@ -141,6 +152,7 @@ export class ActionRunner {
    * if nothing has been changed yet. Clears the active preset since state now diverges.
    */
   async runUndo(): Promise<ActionResult> {
+    this.assertEnabled();
     const snapshot = this.store.get().cache.undoSnapshot;
     if (!snapshot) throw new AppError("NO_UNDO_AVAILABLE");
     return this.enqueue(async () => {

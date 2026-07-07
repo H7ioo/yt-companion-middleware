@@ -74,6 +74,7 @@ export function actionRouter(ctx: AppContext): Router {
 
   router.post("/refresh", async (_req, res) => {
     try {
+      if (!ctx.store.get().service.apiEnabled) throw new AppError("SERVICE_DISABLED");
       await ctx.cache.refresh();
       res.json({ success: true, ...ctx.cache.snapshot() });
     } catch (err) {

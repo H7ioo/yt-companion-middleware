@@ -11,6 +11,7 @@ function state(over: Partial<DashboardState> = {}): DashboardState {
     busy: false,
     quota: { date: "2026-07-03", used: 0, limit: 10000, remaining: 10000 },
     undo: null,
+    apiEnabled: true,
     ...over,
   };
 }
@@ -30,6 +31,10 @@ describe("changeSignature", () => {
 
   it("changes on busy transitions", () => {
     expect(changeSignature(state())).not.toBe(changeSignature(state({ busy: true })));
+  });
+
+  it("changes when the API master switch is flipped", () => {
+    expect(changeSignature(state())).not.toBe(changeSignature(state({ apiEnabled: false })));
   });
 
   it("does not react to sub-1% quota drift", () => {

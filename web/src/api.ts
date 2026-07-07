@@ -9,8 +9,8 @@ export interface Preset {
   streamBoundId: string | null;
   /**
    * Whole-sentence fallback used when the field has any unresolved variable (PRD §1).
-   * Optional in the client view: presets authored before templating omit them, and the
-   * preset form does not yet edit them.
+   * Optional in the client view: presets authored before templating omit them; the preset
+   * form edits them via the title/description fallback inputs.
    */
   titleFallback?: string | null;
   descriptionFallback?: string | null;
@@ -75,6 +75,8 @@ export interface DashboardState {
   busy: boolean;
   quota: QuotaSnapshot;
   undo: { label: string | null; capturedAt: string } | null;
+  /** Master API switch. When false the middleware makes no YouTube calls at all. */
+  apiEnabled: boolean;
 }
 
 export type PresetInput = Omit<Preset, "id">;
@@ -132,21 +134,68 @@ export const api = {
         body: JSON.stringify({ url: url ?? "" }),
       }),
   },
+  service: {
+    get: () => req<{ apiEnabled: boolean }>("/api/dashboard/service"),
+    save: (apiEnabled: boolean) =>
+      req<{ apiEnabled: boolean }>("/api/dashboard/service", {
+        method: "PUT",
+        body: JSON.stringify({ apiEnabled }),
+      }),
+  },
   /**
-   * Subscribe to live state via SSE. Returns an unsubscribe function. `onError` fires if
-   * the stream drops, so the caller can fall back to polling.
+   * Subscribe to live state. Prefers a WebSocket (the transport Bitfocus Companion favours);
+   * if the socket drops or never opens, falls back to SSE, which itself auto-reconnects. When
+   * SSE also errors, `onError` fires so the caller can fall back to 5s polling. Returns an
+   * unsubscribe function that tears down whichever transport is active.
    */
   streamState: (onState: (s: DashboardState) => void, onError: () => void): (() => void) => {
-    const es = new EventSource("/api/dashboard/stream");
-    es.addEventListener("state", (e) => {
+    let closed = false;
+    let active: (() => void) | null = null;
+
+    const startSSE = () => {
+      if (closed) return;
+      const es = new EventSource("/api/dashboard/stream");
+      es.addEventListener("state", (e) => {
+        try {
+          onState(JSON.parse((e as MessageEvent).data));
+        } catch {
+          /* ignore malformed frame */
+        }
+      });
+      es.addEventListener("error", onError);
+      active = () => es.close();
+    };
+
+    const startWS = () => {
+      if (closed) return;
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      let ws: WebSocket;
       try {
-        onState(JSON.parse((e as MessageEvent).data));
+        ws = new WebSocket(`${proto}//${location.host}/api/dashboard/ws`);
       } catch {
-        /* ignore malformed frame */
+        startSSE();
+        return;
       }
-    });
-    es.addEventListener("error", onError);
-    return () => es.close();
+      ws.addEventListener("message", (e) => {
+        try {
+          const frame = JSON.parse((e as MessageEvent).data);
+          if (frame?.event === "state" && frame.state) onState(frame.state as DashboardState);
+        } catch {
+          /* ignore malformed frame */
+        }
+      });
+      // A drop (or a socket that never opened) falls through to SSE.
+      ws.addEventListener("close", () => {
+        if (!closed) startSSE();
+      });
+      active = () => ws.close();
+    };
+
+    startWS();
+    return () => {
+      closed = true;
+      active?.();
+    };
   },
   action: {
     preset: (presetId: string, vars?: Record<string, string>) =>

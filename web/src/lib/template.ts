@@ -39,7 +39,7 @@ export interface VarField {
   required: boolean;
 }
 
-interface VarRef {
+export interface VarRef {
   name: string;
   default: string | null;
 }
@@ -186,6 +186,22 @@ function fieldRefs(text: string): VarRef[] {
   return parse(text)
     .filter(isRef)
     .map((s) => s.ref);
+}
+
+/**
+ * Public: variables detected in a single raw field, deduped by name (first occurrence keeps
+ * the inline default), in order of appearance. Used by the preset form to give live "this is
+ * now a variable" feedback under the title/description inputs as the operator types.
+ */
+export function detectVars(text: string): VarRef[] {
+  const seen = new Set<string>();
+  const out: VarRef[] = [];
+  for (const ref of fieldRefs(text)) {
+    if (seen.has(ref.name)) continue;
+    seen.add(ref.name);
+    out.push(ref);
+  }
+  return out;
 }
 
 /**

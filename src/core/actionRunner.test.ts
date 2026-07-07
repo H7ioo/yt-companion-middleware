@@ -55,10 +55,10 @@ describe("snapshotOf (undo capture)", () => {
 });
 
 describe("ActionRunner.runPreset template handling", () => {
-  function makeRunner(preset: Preset) {
+  function makeRunner(preset: Preset, apiEnabled = true) {
     // Only store.get() is reached on the paths under test; YouTube is never called, so a
     // throwing stub guards against an accidental network hit.
-    const store = { get: () => ({ presets: [preset] }) } as never;
+    const store = { get: () => ({ presets: [preset], service: { apiEnabled } }) } as never;
     const yt = new Proxy({}, { get: () => { throw new Error("YouTube must not be called"); } }) as never;
     return new ActionRunner(yt, store, {} as never);
   }
@@ -84,5 +84,10 @@ describe("ActionRunner.runPreset template handling", () => {
   it("rejects with INVALID_PRESET for an unknown preset id", async () => {
     const runner = makeRunner(templated);
     await expect(runner.runPreset("nope")).rejects.toBeInstanceOf(AppError);
+  });
+
+  it("rejects with SERVICE_DISABLED before touching YouTube when the API is switched off", async () => {
+    const runner = makeRunner({ ...templated, title: "Plain" }, false);
+    await expect(runner.runPreset("lesson")).rejects.toMatchObject({ code: "SERVICE_DISABLED" });
   });
 });

@@ -7,6 +7,7 @@ export type ErrorCode =
   | "MISSING_TEMPLATE_VARS"
   | "BUSY_TRY_AGAIN"
   | "NO_UNDO_AVAILABLE"
+  | "SERVICE_DISABLED"
   | "YOUTUBE_ERROR"
   | "INVALID_REQUEST";
 
@@ -18,6 +19,7 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   MISSING_TEMPLATE_VARS: "One or more template variables are unresolved and have no fallback",
   BUSY_TRY_AGAIN: "A request is already in flight and the queue slot is full",
   NO_UNDO_AVAILABLE: "No previous state to undo — no change has been made yet",
+  SERVICE_DISABLED: "The YouTube API is switched off from the dashboard — re-enable it to run actions",
   YOUTUBE_ERROR: "YouTube API request failed",
   INVALID_REQUEST: "Invalid request payload",
 };

@@ -1,3 +1,4 @@
+import type { JsonStore } from "../storage/jsonStore.js";
 import type { StateCache } from "./stateCache.js";
 import type { ActionRunner } from "./actionRunner.js";
 import type { QuotaTracker, QuotaSnapshot } from "./quota.js";
@@ -17,11 +18,14 @@ export interface DashboardState {
   busy: boolean;
   quota: QuotaSnapshot;
   undo: { label: string | null; capturedAt: string } | null;
+  /** Master API switch — false means the middleware is making no YouTube calls (PRD kill-switch). */
+  apiEnabled: boolean;
 }
 
-/** Assembles the current state from its three sources — the single source of truth for
- *  the state route, the SSE stream, and webhook payloads. */
+/** Assembles the current state from its sources — the single source of truth for the state
+ *  route, the SSE stream, and webhook payloads. */
 export function buildDashboardState(
+  store: JsonStore,
   cache: StateCache,
   runner: ActionRunner,
   quota: QuotaTracker,
@@ -38,6 +42,7 @@ export function buildDashboardState(
     undo: c.undoSnapshot
       ? { label: c.undoSnapshot.label, capturedAt: c.undoSnapshot.capturedAt }
       : null,
+    apiEnabled: store.get().service.apiEnabled,
   };
 }
 
@@ -58,6 +63,7 @@ export function changeSignature(s: DashboardState): string {
     s.healthMessage,
     s.busy,
     s.undo?.capturedAt ?? null,
+    s.apiEnabled,
     quotaBucket,
   ]);
 }
