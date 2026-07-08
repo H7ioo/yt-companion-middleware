@@ -16,9 +16,23 @@ on connect and on every change — **instant, no polling** — and the module au
 link drops. Actions are HTTP `POST`s to `/api/action/*`; after each one the server pushes a fresh
 state, so there is nothing to poll.
 
+## Quick setup
+
+1. Make sure the middleware is running and reachable (its dashboard opens at
+   `http://<APP_IP>:8080`).
+2. **Connections → Add connection**, search **yt-companion-middleware**, add it.
+3. Set **Middleware base URL** to that host. Leave **Bearer token** blank unless the action bus
+   is protected. Save — the status pill goes **Connecting → OK**.
+4. Confirm it works: set any key's text to `$(ytmeta:display_label)`.
+5. On a key, add a **feedback** (image or boolean) and/or an **action** from the tables below.
+
+After editing presets in the dashboard, run the **Refresh preset/category/stream lists** action
+once so the dropdowns pick up the change.
+
 ## Configuration
 
-- **Middleware base URL** — e.g. `http://localhost:8080` (same host as the dashboard).
+- **Middleware base URL** — e.g. `http://localhost:8080` (same host as the dashboard). HTTPS is
+  fine; the module derives `wss://` automatically.
 - **Bearer token** — only needed if the action bus is protected.
 
 ## Variables

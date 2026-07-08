@@ -5,7 +5,8 @@ Control middleware in this repo. It exists to solve one thing the Generic HTTP m
 **putting the middleware's Arabic-rendered title/slug PNGs onto a key** (Companion's built-in
 fonts render Arabic as tofu boxes, and Generic HTTP has no image feedback).
 
-It also exposes the middleware's state as variables and its `/api/action/*` bus as actions.
+It also exposes the middleware's state as variables, colours keys with boolean feedbacks, and
+drives its `/api/action/*` bus as actions.
 
 ## Transport
 
@@ -15,52 +16,178 @@ on every meaningful change, so updates are **instant and cost zero YouTube quota
 poll interval to configure. It auto-reconnects with backoff. **Actions** stay HTTP `POST`s to the
 `/api/action/*` bus; the server pushes a fresh state after each mutation, so nothing is polled.
 
-## What it provides
+---
 
-- **Variables** — `display_label`, `live_title`, `active_preset_id`, `active_preset_title`,
-  `is_live`, `no_target`, `privacy`, `health`, `health_message`, `busy`, `api_enabled`,
-  `quota_used`, `quota_limit`, `quota_remaining`, `undo_label`, `dashboard_url`.
-- **Image feedbacks** (advanced, `png64`) — *Image: button label (slug)* and *Image: full live
-  title*. Bind one to a key; a two-state button toggles between them.
-- **Boolean feedbacks** (color a key) — *On air*, *Busy*, *API disabled*, *Health state is…*,
-  *Active preset is…*.
-- **Actions** — Apply preset (dropdown + optional template vars), Update live metadata, Privacy
-  toggle/set, Undo, Refresh cache, Refresh lists.
+## 1. Prerequisites
 
-## Template vars & opening the dashboard
+- The **middleware is running and reachable** from the machine running Companion — e.g.
+  `http://<APP_IP>:8080` opens the dashboard. (See the repo root README for running it via Docker
+  or `npm run dev`.)
+- **Companion 3.x or newer** (this module targets module-api `~1.11`, Node 22 runtime).
+- **Node.js ≥ 22** on the machine where you prepare the module folder (only needed to run
+  `npm install` inside `companion-module/` once).
+- If your action bus is protected, the **Bearer token** the middleware expects. On a trusted LAN
+  it is usually left blank.
 
-These use Companion's built-in **Open URL** action, not this module:
+---
 
-- Open the dashboard: **Open URL** → `$(ytmeta:dashboard_url)`.
-- Fill a template-var preset: **Open URL** →
-  `$(ytmeta:dashboard_url)/fill?preset=<id>&redirect=<back>`.
+## 2. Install (developer / sideload)
 
-The preset/category/stream dropdowns are only as fresh as the last fetch (init, config change, or
-the **Refresh lists** action) — re-run *Refresh lists* after editing presets in the webapp.
+Companion loads unreleased modules from a **Developer modules path** — a folder you nominate that
+holds one subfolder per module.
 
-## Install (developer / sideload)
-
-Companion loads modules from a **Developer modules path**.
-
-1. Build/prepare the module folder:
+1. **Fetch the module's dependencies** (pulls `@companion-module/base` and `ws`):
    ```bash
    cd companion-module
-   npm install        # pulls @companion-module/base
+   npm install
    ```
-2. In Companion: **Settings → Developer modules path** → point it at a folder, and place (or
-   symlink) this `companion-module` directory inside it.
-3. Restart Companion. Add a connection: search **yt-companion-middleware**.
-4. Set the **Middleware base URL** (e.g. `http://localhost:8080`).
+2. **Put the module where Companion can see it.** Pick (or create) a folder to be your developer
+   modules path, e.g. `~/companion-dev-modules/`, and place or symlink this whole
+   `companion-module` directory inside it:
+   ```bash
+   mkdir -p ~/companion-dev-modules
+   ln -s "$(pwd)" ~/companion-dev-modules/yt-companion-middleware
+   ```
+   > The subfolder name is up to you; Companion identifies the module by its `manifest.json`, not
+   > the folder name.
+3. **Point Companion at that folder.** In the Companion admin UI open
+   **Settings → Developer modules path** and set it to `~/companion-dev-modules` (the *parent*
+   folder, not the module folder). Save.
+4. **Restart Companion** so it rescans the developer path.
 
-To package for distribution, use the Companion module tools
-(`companion-module-build`) and submit to the module registry.
+If a step fails, check Companion's log (**Log** tab) for a line mentioning
+`yt-companion-middleware` — a missing `npm install` or a bad path is the usual cause.
 
-## Using it on a button (the Arabic fix)
+---
 
-1. Add the connection and confirm variables populate (e.g. `$(ytmeta:display_label)`).
-2. On a button, add a **feedback → yt-companion-middleware → Image: full live title**
-   (or *button label*). The button now shows the Arabic image.
-3. For a toggle: make it a two-step button — step 1 uses the *slug* feedback, step 2 the
-   *title* feedback — so one press flips between the short label and the full title.
+## 3. Add and configure the connection
 
-See the middleware's in-app guide (`/docs`) for the endpoint details.
+1. **Connections → Add connection**, search **yt-companion-middleware**, and add it.
+2. Fill in the config fields:
+
+   | Field | Value |
+   |---|---|
+   | **Middleware base URL** | The dashboard host, e.g. `http://192.168.1.50:8080` — no trailing path. HTTPS is fine; the module derives `wss://` automatically. |
+   | **Bearer token** | Leave blank on a trusted LAN. Set it only if the action bus is protected; it is sent as `Authorization: Bearer <token>` on the WS handshake and every action POST. |
+
+3. Watch the connection's status pill. It goes **Connecting → OK** once the WebSocket is up. If it
+   sits on **Connection failure**, the base URL is wrong/unreachable or the token was rejected —
+   fix it and the module reconnects on its own (or reopen the config to force a reconnect).
+4. Confirm variables populate: on any button set the text to `$(ytmeta:display_label)` and it
+   should show the active label within a second.
+
+> **Editing presets later?** The preset / category / stream **dropdowns are snapshotted** when the
+> connection starts (and on config save). After you add or rename presets in the dashboard, run
+> the **Refresh preset/category/stream lists** action once (bind it to a spare key or press it
+> from the button editor) so the dropdowns pick up the change.
+
+---
+
+## 4. Reference
+
+### Variables — `$(ytmeta:<id>)`
+
+| Variable | Meaning |
+|---|---|
+| `display_label` | Button label: slug → preset id → `Custom`. Latin-safe. |
+| `live_title` | The live broadcast title (may be Arabic — use the image feedback to render it). |
+| `active_preset_id` | Id of the currently applied preset. |
+| `active_preset_title` | Title of that preset (looked up in the fetched preset list). |
+| `is_live` | `true` while on air. |
+| `no_target` | `true` when there is no broadcast target. |
+| `privacy` | `public` / `unlisted` / `private`. |
+| `health` | `ok` / `degraded` / `auth_error`. |
+| `health_message` | Human-readable health detail, if any. |
+| `busy` | `true` while an action is being applied. |
+| `api_enabled` | `false` when the middleware master switch (kill switch) is off. |
+| `quota_used` / `quota_limit` / `quota_remaining` | YouTube API quota counters. |
+| `undo_label` | Label of the change that **Undo** would revert. |
+| `dashboard_url` | The configured base URL — use it with the built-in **Open URL** action. |
+
+### Feedbacks
+
+Image feedbacks are the reason this module exists; boolean feedbacks recolour keys.
+
+| Feedback | Type | Fires / draws |
+|---|---|---|
+| **Image: button label (slug)** | advanced (`png64`) | Draws the slug/label PNG (Arabic-safe). |
+| **Image: full live title** | advanced (`png64`) | Draws the full broadcast-title PNG (Arabic-safe). |
+| **On air** | boolean | While `is_live`. Default style: red bg. |
+| **Busy** | boolean | While an action is in progress. Default: blue bg. |
+| **API disabled** | boolean | When the kill switch is off. Default: grey bg. |
+| **Health state is…** | boolean | When `health` equals the dropdown value (`ok`/`degraded`/`auth_error`). Default: amber bg. |
+| **Active preset is…** | boolean | When the dropdown-selected preset is the active one — highlights the applied preset's key. Default: green bg. |
+
+### Actions
+
+All hit the middleware's `/api/action/*` bus over HTTP. State updates arrive over the WebSocket,
+so you never need to add a manual refresh after an action.
+
+| Action | Options | Effect |
+|---|---|---|
+| **Apply preset** | `Preset` (dropdown), `Template vars` (JSON, optional; supports `$(...)`) | Applies the preset. If the preset has template placeholders, pass a JSON object of values. |
+| **Update live metadata** | `Title` (required, supports `$(...)`), `Description`, `Privacy`, `Category`, `Bound stream` | Ad-hoc edit of the live metadata. Empty/"unchanged" fields are omitted; `Title` is always sent. |
+| **Privacy: toggle private ↔ public** | — | Flips privacy. |
+| **Privacy: set** | `Status` dropdown | Sets `public` / `unlisted` / `private`. |
+| **Undo last change** | — | Reverts the last change (`$(ytmeta:undo_label)` shows what). |
+| **Refresh cache** | — | Forces the middleware to refresh its cached state. |
+| **Refresh preset/category/stream lists** | — | Re-fetches the dropdown choices after you edit presets in the dashboard. |
+
+---
+
+## 5. Worked setups
+
+### Arabic title/label on a key (the core use case)
+
+1. Add a button. **Feedbacks → yt-companion-middleware → Image: full live title** (or *Image:
+   button label*). The key now shows the Arabic image instead of tofu boxes.
+2. **Toggle short label ↔ full title:** make it a **two-step button** — step 1 carries the *slug*
+   image feedback, step 2 the *title* image feedback — so one press flips between them. The long
+   title rarely fits a key, so the slug is the everyday face.
+
+### An on-air indicator
+
+Add **On air** feedback to a key (default red). Optionally set the key text to
+`$(ytmeta:live_title)` or bind the *title* image feedback so it doubles as the live-title display.
+
+### A preset key that lights up when active
+
+1. Add the **Apply preset** action to a key and pick the preset in its dropdown.
+2. Add the **Active preset is…** feedback to the *same* key and select the *same* preset. The key
+   goes green whenever that preset is the one on air — an instant "which preset am I on" wall.
+
+### Ad-hoc metadata edit
+
+Bind **Update live metadata** to a key. Set **Title** (required — you can reference a variable
+like `$(internal:custom_myTitle)`), and leave Privacy/Category/Bound stream on "unchanged" to keep
+the current values.
+
+### Template-var presets & opening the dashboard (built-in Open URL, not this module)
+
+Companion keys can't prompt for input, so presets with placeholders and any "open the dashboard"
+step use Companion's built-in **Open URL** action:
+
+- **Open the dashboard:** Open URL → `$(ytmeta:dashboard_url)`.
+- **Fill a template-var preset:** Open URL →
+  `$(ytmeta:dashboard_url)/fill?preset=<id>&redirect=<back>` — the browser page collects the
+  values and bounces back.
+
+---
+
+## 6. Troubleshooting
+
+| Symptom | Likely cause / fix |
+|---|---|
+| Status stuck on **Connection failure** | Base URL wrong/unreachable, or a bad/absent token. The module keeps retrying with backoff; fix the config and it recovers. |
+| Variables blank | Connection not **OK** yet, or the middleware hasn't pushed a state frame — check the status pill and the Log tab. |
+| Dropdowns missing new presets | Snapshot is stale — run **Refresh preset/category/stream lists**. |
+| Arabic still shows as boxes | You bound the *text* variable, not an *image feedback*. Use **Image: full live title** / **Image: button label**. |
+| Action seems ignored | Check the Log tab for a `rejected`/`failed` line (e.g. token required, or `update` with an empty title). |
+
+---
+
+## Packaging for distribution
+
+To ship the module beyond a developer sideload, use the Companion module tooling
+(`companion-module-build`) and submit to the module registry. See the middleware's in-app guide at
+`/docs` for the underlying endpoint details.
