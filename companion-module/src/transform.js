@@ -2,23 +2,34 @@
 // can be unit-tested directly (see transform.test.js) without a running Companion instance.
 
 /**
- * Maps the middleware's `/api/feedback/active-preset` JSON onto Companion variable values.
- * Tolerates missing fields (e.g. an early poll before the cache is warm).
+ * Maps the middleware's nested `DashboardState` (as carried by the WebSocket `state` frame) onto
+ * Companion variable values. Tolerates a missing/partial state (e.g. an early frame before the
+ * server's first push). `presets` is used to resolve `active_preset_title` from `activePresetId`.
  * @param {Record<string, any>} state
+ * @param {Array<{ id: string, title?: string }>} [presets]
  */
-export function mapVariables(state) {
+export function mapVariables(state, presets = []) {
   const s = state ?? {};
+  const status = s.status ?? {};
+  const quota = s.quota ?? {};
+  const num = (v) => (typeof v === 'number' ? v : 0);
+  const active = (presets ?? []).find((p) => p.id === s.activePresetId);
   return {
     display_label: s.displayLabel ?? '',
-    live_title: s.title ?? '',
+    live_title: status.title ?? '',
     active_preset_id: s.activePresetId ?? '',
-    is_live: Boolean(s.isLive),
-    no_target: Boolean(s.noTarget),
-    privacy: s.privacyStatus ?? '',
+    active_preset_title: active?.title ?? '',
+    is_live: Boolean(status.isLive),
+    no_target: Boolean(status.noTarget),
+    privacy: status.privacyStatus ?? '',
     health: s.health ?? '',
+    health_message: s.healthMessage ?? '',
     busy: Boolean(s.busy),
     api_enabled: s.apiEnabled !== false,
-    quota_remaining: typeof s.quotaRemaining === 'number' ? s.quotaRemaining : 0,
+    quota_used: num(quota.used),
+    quota_limit: num(quota.limit),
+    quota_remaining: num(quota.remaining),
+    undo_label: s.undo?.label ?? '',
   };
 }
 
@@ -42,4 +53,51 @@ export function toPng64(value) {
  */
 export function joinUrl(base, path) {
   return `${String(base).replace(/\/+$/, '')}/${String(path).replace(/^\/+/, '')}`;
+}
+
+/**
+ * Builds the middleware's WebSocket state endpoint from the HTTP base URL, forcing the protocol
+ * to `ws:` (from `http:`) or `wss:` (from `https:`).
+ * @param {string} base
+ * @returns {string}
+ */
+export function wsUrl(base) {
+  const u = new URL(joinUrl(base, '/api/feedback/ws'));
+  u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
+  return u.toString();
+}
+
+/**
+ * Turns the middleware's preset list into Companion dropdown choices. Labels prefer
+ * `slug · title`, falling back to the title, then the raw id.
+ * @param {Array<{ id: string, title?: string, slug?: string }>} presets
+ */
+export function presetChoices(presets) {
+  return (presets ?? []).map((p) => ({
+    id: p.id,
+    label: p.slug?.trim() ? `${p.slug} · ${p.title}` : p.title || p.id,
+  }));
+}
+
+/**
+ * Category dropdown choices with a leading "inherit default" (empty id) entry so the update
+ * action can leave the field unchanged.
+ * @param {Array<{ id: string, title?: string }>} categories
+ */
+export function categoryChoices(categories) {
+  return [
+    { id: '', label: '— inherit default —' },
+    ...(categories ?? []).map((c) => ({ id: c.id, label: c.title ?? c.id })),
+  ];
+}
+
+/**
+ * Stream (bound-broadcast) dropdown choices with a leading "inherit default" entry.
+ * @param {Array<{ id: string, title?: string }>} streams
+ */
+export function streamChoices(streams) {
+  return [
+    { id: '', label: '— inherit default —' },
+    ...(streams ?? []).map((s) => ({ id: s.id, label: s.title ?? s.id })),
+  ];
 }

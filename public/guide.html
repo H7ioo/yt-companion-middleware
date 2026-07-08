@@ -1706,9 +1706,18 @@ npm start</pre>
                 fits a key), make it a <strong>two-step button</strong>: step 1
                 uses the <em>slug</em> feedback, step 2 the <em>title</em> feedback
                 — one press toggles. The module also exposes the actions (apply
-                preset, privacy, undo, refresh) and the state variables.
+                preset, update, privacy, undo, refresh) and the state variables.
               </li>
             </ol>
+            <p>
+              The module holds a live <strong>WebSocket (instant push)</strong> to
+              <code>/api/feedback/ws</code> — no poll interval, updates land the
+              moment state changes, and it auto-reconnects. Template-var presets and
+              opening the dashboard use Companion's built-in <strong>Open URL</strong>
+              action (bound to <code>$(ytmeta:dashboard_url)</code> or
+              <code>&hellip;/fill?preset=&hellip;&amp;redirect=&hellip;</code>), not the
+              module.
+            </p>
             <p>
               See <code>companion-module/README.md</code> for the full install and
               packaging notes.

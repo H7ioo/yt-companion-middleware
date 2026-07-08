@@ -7,13 +7,36 @@ fonts render Arabic as tofu boxes, and Generic HTTP has no image feedback).
 
 It also exposes the middleware's state as variables and its `/api/action/*` bus as actions.
 
+## Transport
+
+The module holds a **persistent WebSocket** to `ws://<host>:<port>/api/feedback/ws` (like the OBS
+module holds an obs-websocket connection). The server pushes one `state` frame on connect and one
+on every meaningful change, so updates are **instant and cost zero YouTube quota** — there is no
+poll interval to configure. It auto-reconnects with backoff. **Actions** stay HTTP `POST`s to the
+`/api/action/*` bus; the server pushes a fresh state after each mutation, so nothing is polled.
+
 ## What it provides
 
-- **Variables** — `display_label`, `live_title`, `active_preset_id`, `is_live`, `no_target`,
-  `privacy`, `health`, `busy`, `api_enabled`, `quota_remaining`.
+- **Variables** — `display_label`, `live_title`, `active_preset_id`, `active_preset_title`,
+  `is_live`, `no_target`, `privacy`, `health`, `health_message`, `busy`, `api_enabled`,
+  `quota_used`, `quota_limit`, `quota_remaining`, `undo_label`, `dashboard_url`.
 - **Image feedbacks** (advanced, `png64`) — *Image: button label (slug)* and *Image: full live
   title*. Bind one to a key; a two-state button toggles between them.
-- **Actions** — Apply preset, Privacy toggle/set, Undo, Refresh.
+- **Boolean feedbacks** (color a key) — *On air*, *Busy*, *API disabled*, *Health state is…*,
+  *Active preset is…*.
+- **Actions** — Apply preset (dropdown + optional template vars), Update live metadata, Privacy
+  toggle/set, Undo, Refresh cache, Refresh lists.
+
+## Template vars & opening the dashboard
+
+These use Companion's built-in **Open URL** action, not this module:
+
+- Open the dashboard: **Open URL** → `$(ytmeta:dashboard_url)`.
+- Fill a template-var preset: **Open URL** →
+  `$(ytmeta:dashboard_url)/fill?preset=<id>&redirect=<back>`.
+
+The preset/category/stream dropdowns are only as fresh as the last fetch (init, config change, or
+the **Refresh lists** action) — re-run *Refresh lists* after editing presets in the webapp.
 
 ## Install (developer / sideload)
 

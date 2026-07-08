@@ -1,35 +1,62 @@
-import { InstanceBase, InstanceStatus, Regex, runEntrypoint } from '@companion-module/base'
-import { joinUrl, mapVariables, toPng64 } from './src/transform.js'
+import { InstanceBase, InstanceStatus, Regex, combineRgb, runEntrypoint } from '@companion-module/base'
+import WebSocket from 'ws'
+import {
+	categoryChoices,
+	joinUrl,
+	mapVariables,
+	presetChoices,
+	streamChoices,
+	toPng64,
+	wsUrl,
+} from './src/transform.js'
 import { UpgradeScripts } from './src/upgrades.js'
+
+const FEEDBACK_IDS = ['slug_image', 'title_image', 'on_air', 'busy', 'api_disabled', 'health_state', 'active_preset']
 
 /**
  * Companion module for the YouTube Live Metadata Control middleware.
  *
  * Its reason to exist: Companion's Generic HTTP module can bind the Latin-safe `displayLabel`
  * text, but it has no way to put the middleware's Arabic title/slug PNGs onto a key. This module
- * adds two advanced feedbacks that return those PNGs via `png64`, plus variables and the action
- * bus — so an Arabic title shows correctly as an image instead of tofu boxes.
+ * adds two advanced feedbacks that return those PNGs via `png64`, plus variables, boolean
+ * feedbacks and the action bus — so an Arabic title shows correctly as an image, not tofu boxes.
  *
- * It polls GET /api/feedback/active-preset (served from cache, zero YouTube quota) and never
- * calls YouTube directly.
+ * Transport: it holds a persistent WebSocket to /api/feedback/ws (like the OBS module holds an
+ * obs-websocket connection). The server pushes a `state` frame on connect and on every change, so
+ * updates are instant and cost zero YouTube quota. Actions are HTTP POSTs to the action bus; the
+ * server pushes a fresh state after each mutation, so we never poll.
  */
 class YtMiddlewareInstance extends InstanceBase {
 	async init(config) {
 		this.config = config
-		this.latest = {} // last polled /active-preset payload
+		this.latest = {} // last DashboardState pushed over the WS
+		this.presets = []
+		this.categories = []
+		this.streams = []
+		this.reconnectDelay = 1000
+		this.destroyed = false
 		this.defineVariables()
 		this.defineFeedbacks()
 		this.defineActions()
-		this.startPolling()
+		this.setVariableValues({ dashboard_url: this.config.url })
+		await this.refreshLists()
+		this.connectWs()
 	}
 
 	async destroy() {
-		this.stopPolling()
+		this.destroyed = true
+		if (this.reconnectTimer) {
+			clearTimeout(this.reconnectTimer)
+			this.reconnectTimer = undefined
+		}
+		this.closeWs()
 	}
 
 	async configUpdated(config) {
 		this.config = config
-		this.startPolling() // re-arm with the new url/interval
+		this.setVariableValues({ dashboard_url: this.config.url })
+		await this.refreshLists()
+		this.connectWs()
 	}
 
 	getConfigFields() {
@@ -40,7 +67,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				width: 12,
 				label: 'About',
 				value:
-					'Connects to the YouTube Live Metadata Control middleware. Point this at the same host that serves the dashboard. The slug/title image feedbacks render Arabic correctly on a key.',
+					'Connects to the YouTube Live Metadata Control middleware over a live WebSocket (instant push, no polling). Point this at the same host that serves the dashboard. The slug/title image feedbacks render Arabic correctly on a key.',
 			},
 			{
 				type: 'textinput',
@@ -49,15 +76,6 @@ class YtMiddlewareInstance extends InstanceBase {
 				width: 8,
 				default: 'http://localhost:8080',
 				regex: Regex.SOMETHING,
-			},
-			{
-				type: 'number',
-				id: 'interval',
-				label: 'Poll interval (seconds)',
-				width: 4,
-				default: 5,
-				min: 1,
-				max: 3600,
 			},
 			{
 				type: 'textinput',
@@ -77,34 +95,8 @@ class YtMiddlewareInstance extends InstanceBase {
 		return h
 	}
 
-	startPolling() {
-		this.stopPolling()
-		const seconds = Math.min(3600, Math.max(1, Number(this.config.interval) || 5))
-		this.poll() // immediate, so the key isn't blank for a whole interval
-		this.pollTimer = setInterval(() => this.poll(), seconds * 1000)
-	}
-
-	stopPolling() {
-		if (this.pollTimer) {
-			clearInterval(this.pollTimer)
-			this.pollTimer = undefined
-		}
-	}
-
-	async poll() {
-		try {
-			const res = await fetch(joinUrl(this.config.url, '/api/feedback/active-preset'), {
-				headers: this.headers(),
-			})
-			if (!res.ok) throw new Error(`HTTP ${res.status}`)
-			this.latest = await res.json()
-			this.updateStatus(InstanceStatus.Ok)
-			this.setVariableValues(mapVariables(this.latest))
-			// Re-run the image feedbacks so the key redraws when the title/label (hence PNG) moves.
-			this.checkFeedbacks('slug_image', 'title_image')
-		} catch (err) {
-			this.updateStatus(InstanceStatus.ConnectionFailure, String(err?.message ?? err))
-		}
+	authHeader() {
+		return this.config.token ? { Authorization: `Bearer ${this.config.token}` } : {}
 	}
 
 	async postAction(path, body) {
@@ -118,10 +110,108 @@ class YtMiddlewareInstance extends InstanceBase {
 			if (json && json.success === false) {
 				this.log('warn', `${path} rejected: ${json.error?.code ?? 'unknown'} ${json.error?.message ?? ''}`)
 			}
-			// Refresh state promptly so feedbacks reflect the change without waiting a full interval.
-			this.poll()
+			// No poll here: the server pushes a fresh state frame over the WS after every mutation.
 		} catch (err) {
 			this.log('error', `${path} failed: ${err?.message ?? err}`)
+		}
+	}
+
+	/**
+	 * Fetches the preset/category/stream lists over HTTP (each independently, tolerating failure)
+	 * and re-defines the actions so the dropdowns repopulate. Called on init, configUpdated and the
+	 * refresh_lists action — never on a timer.
+	 */
+	async refreshLists() {
+		this.presets = await this.getJson('/api/dashboard/presets', [])
+		this.categories = await this.getJson('/api/dashboard/categories', [])
+		this.streams = await this.getJson('/api/dashboard/streams', [])
+		this.defineActions()
+	}
+
+	async getJson(path, fallback) {
+		try {
+			const res = await fetch(joinUrl(this.config.url, path), { headers: this.headers() })
+			if (!res.ok) throw new Error(`HTTP ${res.status}`)
+			return await res.json()
+		} catch (err) {
+			this.log('warn', `GET ${path} failed: ${err?.message ?? err}`)
+			return fallback
+		}
+	}
+
+	// --- WebSocket ----------------------------------------------------------
+
+	connectWs() {
+		if (this.reconnectTimer) {
+			clearTimeout(this.reconnectTimer)
+			this.reconnectTimer = undefined
+		}
+		this.closeWs()
+		this.updateStatus(InstanceStatus.Connecting)
+		let ws
+		try {
+			ws = new WebSocket(wsUrl(this.config.url), { headers: this.authHeader() })
+		} catch (err) {
+			this.updateStatus(InstanceStatus.ConnectionFailure, String(err?.message ?? err))
+			this.scheduleReconnect()
+			return
+		}
+		this.ws = ws
+
+		ws.on('open', () => {
+			this.updateStatus(InstanceStatus.Ok)
+			this.reconnectDelay = 1000
+			// Any inbound frame forces the server to resend current state — belt-and-suspenders resync.
+			try {
+				ws.send('resync')
+			} catch {
+				// ignore — a fresh connection always gets an unsolicited state frame anyway
+			}
+		})
+
+		ws.on('message', (data) => {
+			let msg
+			try {
+				msg = JSON.parse(data.toString())
+			} catch {
+				return
+			}
+			if (msg?.event !== 'state') return
+			this.latest = msg.state ?? {}
+			this.setVariableValues(mapVariables(this.latest, this.presets))
+			this.checkFeedbacks(...FEEDBACK_IDS)
+		})
+
+		ws.on('close', () => this.onWsDown('WebSocket closed'))
+		ws.on('error', (err) => this.onWsDown(String(err?.message ?? err)))
+	}
+
+	onWsDown(message) {
+		if (this.destroyed) return
+		this.updateStatus(InstanceStatus.ConnectionFailure, message)
+		this.scheduleReconnect()
+	}
+
+	scheduleReconnect() {
+		if (this.destroyed || this.reconnectTimer) return
+		const delay = this.reconnectDelay
+		this.reconnectTimer = setTimeout(() => {
+			this.reconnectTimer = undefined
+			this.connectWs()
+		}, delay)
+		this.reconnectDelay = Math.min(10000, this.reconnectDelay * 2)
+	}
+
+	closeWs() {
+		if (this.ws) {
+			// Drop listeners first so a close during teardown doesn't schedule a reconnect.
+			this.ws.removeAllListeners()
+			try {
+				this.ws.close()
+			} catch {
+				// already closed
+			}
+			this.ws = undefined
 		}
 	}
 
@@ -132,20 +222,25 @@ class YtMiddlewareInstance extends InstanceBase {
 			{ variableId: 'display_label', name: 'Button label (slug / id / Custom)' },
 			{ variableId: 'live_title', name: 'Live broadcast title (may be Arabic)' },
 			{ variableId: 'active_preset_id', name: 'Active preset id' },
+			{ variableId: 'active_preset_title', name: 'Active preset title' },
 			{ variableId: 'is_live', name: 'On air' },
 			{ variableId: 'no_target', name: 'No broadcast target' },
 			{ variableId: 'privacy', name: 'Privacy status' },
 			{ variableId: 'health', name: 'Health (ok/degraded/auth_error)' },
+			{ variableId: 'health_message', name: 'Health message' },
 			{ variableId: 'busy', name: 'Action in progress' },
 			{ variableId: 'api_enabled', name: 'API master switch enabled' },
+			{ variableId: 'quota_used', name: 'YouTube quota used' },
+			{ variableId: 'quota_limit', name: 'YouTube quota limit' },
 			{ variableId: 'quota_remaining', name: 'YouTube quota remaining' },
+			{ variableId: 'undo_label', name: 'Undo target label' },
+			{ variableId: 'dashboard_url', name: 'Dashboard base URL' },
 		])
 	}
 
 	defineFeedbacks() {
-		// Advanced feedbacks returning png64 — the whole point of this module. Bind one to a key
-		// and it shows the middleware-rendered image; a two-state button can toggle slug ↔ title.
 		this.setFeedbackDefinitions({
+			// Advanced feedbacks returning png64 — the Arabic-safe images that justify this module.
 			slug_image: {
 				type: 'advanced',
 				name: 'Image: button label (slug)',
@@ -166,6 +261,66 @@ class YtMiddlewareInstance extends InstanceBase {
 					return png64 ? { png64 } : {}
 				},
 			},
+			on_air: {
+				type: 'boolean',
+				name: 'On air',
+				description: 'True while the broadcast is live.',
+				defaultStyle: { bgcolor: combineRgb(200, 0, 0), color: combineRgb(255, 255, 255) },
+				options: [],
+				callback: () => Boolean(this.latest?.status?.isLive),
+			},
+			busy: {
+				type: 'boolean',
+				name: 'Busy (action in progress)',
+				description: 'True while the middleware is applying a change.',
+				defaultStyle: { bgcolor: combineRgb(0, 80, 200), color: combineRgb(255, 255, 255) },
+				options: [],
+				callback: () => Boolean(this.latest?.busy),
+			},
+			api_disabled: {
+				type: 'boolean',
+				name: 'API disabled (kill switch)',
+				description: 'True when the middleware master switch is off.',
+				defaultStyle: { bgcolor: combineRgb(120, 120, 120), color: combineRgb(255, 255, 255) },
+				options: [],
+				callback: () => this.latest?.apiEnabled === false,
+			},
+			health_state: {
+				type: 'boolean',
+				name: 'Health state is…',
+				description: 'True when the middleware health matches the selected value.',
+				defaultStyle: { bgcolor: combineRgb(200, 120, 0), color: combineRgb(255, 255, 255) },
+				options: [
+					{
+						type: 'dropdown',
+						id: 'which',
+						label: 'Health',
+						default: 'degraded',
+						choices: [
+							{ id: 'ok', label: 'ok' },
+							{ id: 'degraded', label: 'degraded' },
+							{ id: 'auth_error', label: 'auth_error' },
+						],
+					},
+				],
+				callback: (fb) => this.latest?.health === fb.options.which,
+			},
+			active_preset: {
+				type: 'boolean',
+				name: 'Active preset is…',
+				description: 'True when the selected preset is the active one — highlights its key.',
+				defaultStyle: { bgcolor: combineRgb(0, 140, 0), color: combineRgb(255, 255, 255) },
+				options: [
+					{
+						type: 'dropdown',
+						id: 'presetId',
+						label: 'Preset',
+						default: '',
+						choices: presetChoices(this.presets),
+					},
+				],
+				callback: (fb) => Boolean(fb.options.presetId) && this.latest?.activePresetId === fb.options.presetId,
+			},
 		})
 	}
 
@@ -173,8 +328,69 @@ class YtMiddlewareInstance extends InstanceBase {
 		this.setActionDefinitions({
 			apply_preset: {
 				name: 'Apply preset',
-				options: [{ type: 'textinput', id: 'presetId', label: 'Preset id', default: '' }],
-				callback: (a) => this.postAction('/api/action/preset', { presetId: a.options.presetId }),
+				options: [
+					{
+						type: 'dropdown',
+						id: 'presetId',
+						label: 'Preset',
+						default: this.presets[0]?.id ?? '',
+						choices: presetChoices(this.presets),
+					},
+					{
+						type: 'textinput',
+						id: 'vars',
+						label: 'Template vars (JSON, optional)',
+						default: '',
+						useVariables: true,
+					},
+				],
+				callback: async (a) => {
+					const body = { presetId: a.options.presetId }
+					const raw = (await this.parseVariablesInString(a.options.vars ?? '')).trim()
+					if (raw) {
+						try {
+							body.vars = JSON.parse(raw)
+						} catch (err) {
+							this.log('warn', `apply_preset: ignoring invalid vars JSON: ${err?.message ?? err}`)
+						}
+					}
+					return this.postAction('/api/action/preset', body)
+				},
+			},
+			update: {
+				name: 'Update live metadata',
+				options: [
+					{ type: 'textinput', id: 'title', label: 'Title (required)', default: '', useVariables: true },
+					{ type: 'textinput', id: 'description', label: 'Description', default: '', useVariables: true },
+					{
+						type: 'dropdown',
+						id: 'privacyStatus',
+						label: 'Privacy',
+						default: '',
+						choices: [
+							{ id: '', label: '— unchanged —' },
+							{ id: 'public', label: 'public' },
+							{ id: 'unlisted', label: 'unlisted' },
+							{ id: 'private', label: 'private' },
+						],
+					},
+					{ type: 'dropdown', id: 'category', label: 'Category', default: '', choices: categoryChoices(this.categories) },
+					{ type: 'dropdown', id: 'streamBoundId', label: 'Bound stream', default: '', choices: streamChoices(this.streams) },
+				],
+				callback: async (a) => {
+					const title = (await this.parseVariablesInString(a.options.title ?? '')).trim()
+					if (!title) {
+						this.log('warn', 'update: title is required — skipping')
+						return
+					}
+					const body = { title }
+					const description = (await this.parseVariablesInString(a.options.description ?? '')).trim()
+					if (description) body.description = description
+					if (a.options.privacyStatus) body.privacyStatus = a.options.privacyStatus
+					if (a.options.category) body.category = a.options.category
+					if (a.options.streamBoundId) body.streamBoundId = a.options.streamBoundId
+					return this.postAction('/api/action/update', body)
+				},
 			},
 			privacy_toggle: {
 				name: 'Privacy: toggle private ↔ public',
@@ -207,6 +423,11 @@ class YtMiddlewareInstance extends InstanceBase {
 				name: 'Refresh cache',
 				options: [],
 				callback: () => this.postAction('/api/action/refresh', {}),
+			},
+			refresh_lists: {
+				name: 'Refresh preset/category/stream lists',
+				options: [],
+				callback: () => this.refreshLists(),
 			},
 		})
 	}

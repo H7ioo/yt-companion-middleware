@@ -12,6 +12,7 @@
     "check": "node --check main.js && node --check src/transform.js && node --check src/upgrades.js"
   },
   "dependencies": {
-    "@companion-module/base": "~1.11.0"
+    "@companion-module/base": "~1.11.0",
+    "ws": "^8"
   }
 }
