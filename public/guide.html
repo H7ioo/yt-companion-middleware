@@ -1230,6 +1230,16 @@ npm start</pre>
                 and 5-second polling remain fully supported — WebSocket is an
                 additional transport, not a replacement. Pick one per client.
               </p>
+              <p>
+                <strong>Resync.</strong> The connection persists across button edits,
+                so a button added <em>after</em> the socket connected would otherwise
+                stay blank until the next change. Two safety nets fix that: state is
+                re-sent on the <strong>~25s heartbeat</strong>, and <strong>any inbound
+                frame forces an immediate resend</strong>. Send any text or hex from the
+                connection (e.g. a Companion "send message" action on button press) and
+                the server replies with the current <code>state</code> at once — no need
+                to reconnect.
+              </p>
             </div>
           </div>
         </section>
@@ -1567,6 +1577,14 @@ npm start</pre>
               <code>state</code> frame on every change. SSE
               (<code>/api/feedback/stream</code>) and plain 5-second polling
               stay available if you'd rather not.
+            </p>
+            <p>
+              Added a button after the connection was already up and it shows no
+              value? The socket doesn't reconnect on a button edit, so it hasn't
+              received a fresh frame yet. Give it a moment — state re-sends on the
+              ~25s heartbeat — or add a "send message" action to the button (any
+              text or hex) to pull the current state instantly. Disabling and
+              re-enabling the connection also forces a fresh frame.
             </p>
           </div>
         </section>

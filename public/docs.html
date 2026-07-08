@@ -391,7 +391,7 @@
         { m:"SSE", path:"/api/feedback/stream", cost:"cached", auth:false, sse:true,
           desc:"Server-Sent Events push of full dashboard state on every change — an alternative to polling. Lower latency for the go-live transition." },
         { m:"WS", path:"/api/feedback/ws", cost:"cached", auth:false, ws:true,
-          desc:"WebSocket push of the same full dashboard state — the transport Bitfocus Companion prefers. A <code>{ event:'state', state }</code> frame on connect, then one per change." },
+          desc:"WebSocket push of the same full dashboard state — the transport Bitfocus Companion prefers. A <code>{ event:'state', state }</code> frame on connect, then one per change. State is also re-sent on the ~25s heartbeat, and any inbound frame (send any text/hex) forces an immediate resend — so a button added after connect can pull the current state instead of waiting for the next change." },
       ]
     },
     {
@@ -483,7 +483,7 @@
         { m:"SSE", path:"/api/dashboard/stream", cost:"local", auth:false, sse:true,
           desc:"Unauthenticated SSE push of dashboard state — the dashboard's fallback transport." },
         { m:"WS", path:"/api/dashboard/ws", cost:"local", auth:false, ws:true,
-          desc:"WebSocket push of dashboard state (same handler as /api/feedback/ws) — the dashboard's preferred transport, with SSE then polling as fallbacks." },
+          desc:"WebSocket push of dashboard state (same handler as /api/feedback/ws) — the dashboard's preferred transport, with SSE then polling as fallbacks. Re-sends state on the ~25s heartbeat and on any inbound frame, so a late-added consumer converges without a state change." },
       ]
     },
   ];
