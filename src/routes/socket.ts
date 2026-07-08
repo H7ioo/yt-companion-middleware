@@ -32,20 +32,32 @@ export function attachStateSocket(server: Server, ctx: AppContext): WebSocketSer
 
   wss.on("connection", (ws: WebSocket) => {
     let lastSignature: string | null = null;
-    const send = (): void => {
+    // `force` re-delivers the current state even when unchanged — used for resync (inbound
+    // request or periodic heartbeat) so a button added after connect isn't stuck blank
+    // waiting for the next real change.
+    const send = (force = false): void => {
       if (ws.readyState !== ws.OPEN) return;
       const state = buildDashboardState(ctx.store, ctx.cache, ctx.runner, ctx.quota);
       const signature = changeSignature(state);
-      if (signature === lastSignature) return;
+      if (!force && signature === lastSignature) return;
       lastSignature = signature;
       ws.send(JSON.stringify({ event: "state", state }));
     };
 
     send();
+    // onChange passes no args, so real changes stay deduped by signature.
     const unsubscribe = ctx.events.onChange(send);
+    // Any inbound frame is a resync request (Companion "send message" action, generic text or
+    // hex — content is ignored): a button configured after connect can pull current state on
+    // demand instead of waiting for a state change to reach it.
+    ws.on("message", () => send(true));
     // Ping keeps intermediaries from dropping an idle socket; the client pongs automatically.
+    // The forced resend on the same cadence re-delivers full state so a newly configured
+    // button converges within one interval even with no state change and no manual pull.
     const heartbeat = setInterval(() => {
-      if (ws.readyState === ws.OPEN) ws.ping();
+      if (ws.readyState !== ws.OPEN) return;
+      ws.ping();
+      send(true);
     }, HEARTBEAT_MS);
 
     const teardown = (): void => {
