@@ -86,6 +86,13 @@ Workflow extras added on top of the v2 spec:
   (`GET /api/dashboard/presets/export`, `POST /api/dashboard/presets/import`).
 - **Stream-binding validation** — preset and default stream fields warn when the bound
   stream id no longer exists on the channel (`GET /api/dashboard/streams`).
+- **Arabic-safe button text** — Companion's bundled fonts render Arabic titles as boxes
+  (tofu). Each preset has a short **button label** (slug); feedback exposes `displayLabel`
+  (slug → preset id → `"Custom"`) as Latin-safe text, plus `slugPng`/`titlePng` — the label
+  and full title pre-rendered to base64 PNGs with an Arabic-capable font (shaped + joined),
+  also served raw at `GET /api/feedback/{slug,title}.png`. Bind the PNG as a button image and
+  toggle between the two. PNGs are cached per text and pushed over SSE/WebSocket like the rest
+  of the state.
 
 ## Test
 

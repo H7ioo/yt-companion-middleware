@@ -11,6 +11,10 @@ export type PrivacyStatus = z.infer<typeof privacyStatusSchema>;
 export const presetSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
+  // Short display label shown on Companion buttons instead of the (often Arabic) title, which
+  // Companion's bundled fonts render as tofu boxes. Free text — may itself be Arabic, in which
+  // case the slug PNG carries it. Empty falls back to the preset id on the button (PRD §5.4).
+  slug: z.string().default(""),
   description: z.string().default(""),
   privacyStatus: privacyStatusSchema,
   category: z.string().min(1).nullable().default(null),

@@ -66,6 +66,7 @@ describe("ActionRunner.runPreset template handling", () => {
   const templated: Preset = {
     id: "lesson",
     title: "Drs {lesson}",
+    slug: "",
     description: "",
     privacyStatus: "public",
     category: null,
