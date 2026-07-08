@@ -40,7 +40,7 @@ export class WebhookDispatcher {
   private onChange(): void {
     const url = this.store.get().webhook.url;
     if (!url) return;
-    const state = buildDashboardState(this.cache, this.runner, this.quota);
+    const state = buildDashboardState(this.store, this.cache, this.runner, this.quota);
     const signature = changeSignature(state);
     if (signature === this.lastSignature) return;
     this.lastSignature = signature;

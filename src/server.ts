@@ -19,7 +19,9 @@ import { stateRouter } from "./routes/state.js";
 import { categoriesRouter } from "./routes/categories.js";
 import { streamsRouter } from "./routes/streams.js";
 import { webhookRouter } from "./routes/webhook.js";
+import { serviceRouter } from "./routes/service.js";
 import { streamHandler } from "./routes/stream.js";
+import { attachStateSocket } from "./routes/socket.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -55,6 +57,7 @@ async function main(): Promise<void> {
     res.json({
       status: c.health,
       authenticated: c.health !== "auth_error",
+      apiEnabled: store.get().service.apiEnabled,
       message: c.healthMessage,
       quotaUsed: q.used,
       quotaLimit: q.limit,
@@ -75,6 +78,7 @@ async function main(): Promise<void> {
   app.use("/api/dashboard/categories", categoriesRouter(ctx));
   app.use("/api/dashboard/streams", streamsRouter(ctx));
   app.use("/api/dashboard/webhook", webhookRouter(ctx));
+  app.use("/api/dashboard/service", serviceRouter(ctx));
   // Live SSE stream so the dashboard reacts instantly instead of polling.
   app.get("/api/dashboard/stream", streamHandler(ctx));
   // Alias to the same handler so Companion buttons on either path keep working.
@@ -102,14 +106,19 @@ async function main(): Promise<void> {
   cache.start();
   webhooks.start();
 
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     console.log(`[server] listening on http://0.0.0.0:${config.port}`);
     console.log(`[server] data store: ${config.storePath}`);
   });
 
+  // WebSocket push (Companion prefers WS); SSE and polling remain available.
+  const wss = attachStateSocket(server, ctx);
+
   const shutdown = () => {
     cache.stop();
     webhooks.stop();
+    wss.close();
+    server.close();
     process.exit(0);
   };
   process.on("SIGINT", shutdown);

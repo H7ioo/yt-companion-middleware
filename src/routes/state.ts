@@ -21,6 +21,7 @@ export function stateRouter(ctx: AppContext): Router {
       undo: c.undoSnapshot
         ? { label: c.undoSnapshot.label, capturedAt: c.undoSnapshot.capturedAt }
         : null,
+      apiEnabled: ctx.store.get().service.apiEnabled,
     });
   });
 

@@ -137,6 +137,17 @@ export function App() {
     }
   };
 
+  const duplicatePreset = async (p: Preset) => {
+    try {
+      const { id: _id, ...rest } = p;
+      await api.presets.create({ ...rest, title: `${p.title} (copy)` });
+      await loadPresets();
+      flash("Preset duplicated");
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
   const deletePreset = async (p: Preset) => {
     if (!confirm(`Delete preset “${p.title}”?`)) return;
     try {
@@ -185,6 +196,8 @@ export function App() {
     ? (categories.find((c) => c.id === settings.defaultCategory)?.title ??
       `id ${settings.defaultCategory}`)
     : null;
+  const apiEnabled = state?.apiEnabled ?? true;
+
   const defaultStreamLabel = settings.defaultStreamBoundId
     ? (streams.find((s) => s.id === settings.defaultStreamBoundId)?.title ??
       settings.defaultStreamBoundId)
@@ -227,6 +240,21 @@ export function App() {
     }
   };
 
+  // Master API switch: cut YouTube calls entirely when the service is idle so Companion's
+  // polling stops burning quota. Optimistically flip so the breaker responds instantly, then
+  // reconcile from the server (SSE will also push the authoritative value).
+  const toggleApi = async (next: boolean) => {
+    setState((s) => (s ? { ...s, apiEnabled: next } : s));
+    try {
+      const { apiEnabled } = await api.service.save(next);
+      setState((s) => (s ? { ...s, apiEnabled } : s));
+      flash(apiEnabled ? "YouTube API enabled" : "YouTube API paused — no quota in use");
+    } catch (e) {
+      setState((s) => (s ? { ...s, apiEnabled: !next } : s));
+      flash((e as Error).message, "err");
+    }
+  };
+
   const refreshSession = async () => {
     setRefreshing(true);
     try {
@@ -262,7 +290,12 @@ export function App() {
 
   return (
     <div className="shell">
-      <StatusRail state={state} onRefresh={refreshSession} refreshing={refreshing} />
+      <StatusRail
+        state={state}
+        onRefresh={refreshSession}
+        refreshing={refreshing}
+        onToggleApi={toggleApi}
+      />
 
       <main className="main">
         {/* Presets */}
@@ -364,7 +397,8 @@ export function App() {
                       <button
                         className="btn btn--sm"
                         onClick={() => applyPreset(p)}
-                        disabled={state?.busy ?? false}
+                        disabled={(state?.busy ?? false) || !apiEnabled}
+                        title={apiEnabled ? undefined : "YouTube API is paused"}
                       >
                         Apply now
                       </button>
@@ -373,6 +407,13 @@ export function App() {
                         onClick={() => setEditing(p)}
                       >
                         Edit
+                      </button>
+                      <button
+                        className="btn btn--sm"
+                        onClick={() => duplicatePreset(p)}
+                        title="Create an editable copy of this preset"
+                      >
+                        Duplicate
                       </button>
                       <button
                         className="btn btn--sm btn--danger"
@@ -396,7 +437,7 @@ export function App() {
               <button
                 className="btn btn--sm"
                 onClick={undo}
-                disabled={(state?.busy ?? false) || !state?.undo}
+                disabled={(state?.busy ?? false) || !state?.undo || !apiEnabled}
                 title={
                   state?.undo
                     ? `Revert the last change${state.undo.label ? ` (was “${state.undo.label}”)` : ""}`
@@ -408,12 +449,19 @@ export function App() {
               <button
                 className="btn btn--sm"
                 onClick={togglePrivacy}
-                disabled={(state?.busy ?? false) || (state?.status.noTarget ?? false)}
-                title="Flip the live target between private and public"
+                disabled={
+                  (state?.busy ?? false) || (state?.status.noTarget ?? false) || !apiEnabled
+                }
+                title={apiEnabled ? "Flip the live target between private and public" : "YouTube API is paused"}
               >
                 Toggle privacy
               </button>
-              <button className="btn btn--sm" onClick={() => setAdHoc(true)}>
+              <button
+                className="btn btn--sm"
+                onClick={() => setAdHoc(true)}
+                disabled={!apiEnabled}
+                title={apiEnabled ? undefined : "YouTube API is paused"}
+              >
                 Ad-hoc update…
               </button>
             </div>

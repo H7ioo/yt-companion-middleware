@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Preset, PresetActionResult, VarSource } from "../api.js";
 import { extractVars, resolvePresetText } from "../lib/template.js";
+import { useEscape } from "../lib/useEscape.js";
 
 interface Props {
   preset: Preset;
@@ -40,6 +41,7 @@ export function PresetFillModal({ preset, fire, onClose }: Props) {
   });
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<PresetActionResult | null>(null);
+  useEscape(onClose);
 
   const preview = useMemo(() => resolvePresetText(preset, values), [preset, values]);
   const sourceOf = (name: string): VarSource | undefined =>

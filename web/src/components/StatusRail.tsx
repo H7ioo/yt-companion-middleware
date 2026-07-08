@@ -31,15 +31,19 @@ export function StatusRail({
   state,
   onRefresh,
   refreshing,
+  onToggleApi,
 }: {
   state: DashboardState | null;
   onRefresh: () => void;
   refreshing: boolean;
+  onToggleApi: (next: boolean) => void;
 }) {
   const isLive = state?.status.isLive ?? false;
   const noTarget = state?.status.noTarget ?? false;
   const health = state?.health ?? "ok";
   const busy = state?.busy ?? false;
+  // Default to armed until the first state lands, so the breaker doesn't flash "paused" on load.
+  const apiEnabled = state?.apiEnabled ?? true;
 
   return (
     <aside className="rail">
@@ -49,6 +53,32 @@ export function StatusRail({
         <a className="rail__manual" href="/guide" target="_blank" rel="noreferrer">
           Operator manual &amp; Companion setup &rarr;
         </a>
+      </div>
+
+      {/* Main breaker — cuts every YouTube call so an idle rig spends zero quota. */}
+      <div className={`breaker ${apiEnabled ? "breaker--on" : "breaker--off"}`}>
+        <div className="breaker__meta">
+          <span className="eyebrow">YouTube API</span>
+          <span className="breaker__state">{apiEnabled ? "Live" : "Paused"}</span>
+          <span className="breaker__note">
+            {apiEnabled
+              ? "Actions and background polling active"
+              : "No calls sent — quota untouched"}
+          </span>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={apiEnabled}
+          aria-label={apiEnabled ? "Pause YouTube API" : "Enable YouTube API"}
+          className="breaker__switch"
+          disabled={state == null}
+          onClick={() => onToggleApi(!apiEnabled)}
+        >
+          <span className="breaker__track">
+            <span className="breaker__knob" />
+          </span>
+        </button>
       </div>
 
       <div className="tally">
@@ -110,8 +140,12 @@ export function StatusRail({
         <button
           className="btn btn--sm"
           onClick={onRefresh}
-          disabled={refreshing}
-          title="Re-fetch the current title, status and privacy live from YouTube"
+          disabled={refreshing || !apiEnabled}
+          title={
+            apiEnabled
+              ? "Re-fetch the current title, status and privacy live from YouTube"
+              : "Enable the YouTube API to refresh"
+          }
         >
           {refreshing ? "Refreshing…" : "Refresh from YouTube"}
         </button>

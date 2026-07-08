@@ -301,6 +301,9 @@
       .m.del {
         background: var(--tally);
       }
+      .m.ws {
+        background: var(--violet);
+      }
       .path {
         font-family: var(--mono);
         font-size: 14px;
@@ -698,13 +701,23 @@
 <span class="k">YT_QUOTA_LIMIT</span>=<span class="n">10000</span>          <span class="c"># daily quota budget, shown on the dashboard</span></pre>
 
           <h3>Run it</h3>
-          <pre><span class="c"># development — API + hot-reloading dashboard</span>
+          <pre><span class="c"># development — API on :8080 (tsx watch, auto-restart)</span>
 npm install
 npm run dev
 
-<span class="c"># production — build the SPA, build the server, start</span>
+<span class="c"># hot-reloading dashboard (separate terminal, Vite dev server)</span>
+npm --prefix web run dev
+
+<span class="c"># production — build the SPA + server, then serve both from :8080</span>
 npm run build:all
 npm start</pre>
+          <p>
+            <code>npm run dev</code> runs the API only. In development the
+            dashboard is served by Vite on its own port (proxying
+            <code>/api</code> and <code>/guide</code> back to :8080); the
+            production build bundles the SPA so <code>npm start</code> serves
+            everything from a single port.
+          </p>
           <p>
             Open <code>http://&lt;host&gt;:8080</code> for the dashboard,
             <code>/docs</code> for the interactive API console, and this page at
@@ -765,11 +778,16 @@ npm start</pre>
           <h3>Presets</h3>
           <p>
             A preset is a named bundle of broadcast metadata you can fire in one
-            press. Full create / edit / delete from the grid. Each preset
-            carries:
+            press. Create / edit / <strong>duplicate</strong> / delete from the
+            grid. Each preset carries:
           </p>
           <ul>
             <li><strong>Title, description, privacy</strong> — always set.</li>
+            <li>
+              <strong>Title / description fallback</strong> — optional
+              whole-sentence alternates used when a field has an unresolved
+              variable (see §05). Leave blank to make the variable required.
+            </li>
             <li>
               <strong>Category</strong> and <strong>stream binding</strong> —
               optional overrides. Leave blank and the preset shows "inherits
@@ -777,10 +795,27 @@ npm start</pre>
             </li>
           </ul>
           <p>
+            As you type a <code>{variable}</code> into the title or description,
+            a chip appears under that field naming the variable (and its inline
+            default, if any) — immediate confirmation that it's now a fill-in the
+            popup will prompt for.
+          </p>
+          <p>
             Every preset displays its <code>id</code> for copy-paste into a
-            Companion button payload. Delete one and any Companion button still
-            pointing at it simply gets <code>INVALID_PRESET</code> on its next
-            press — no cascade, no cleanup.
+            Companion button payload. <strong>Duplicate</strong> clones a preset
+            (title suffixed "(copy)") so you can spin a variant without retyping.
+            Delete one and any Companion button still pointing at it simply gets
+            <code>INVALID_PRESET</code> on its next press — no cascade, no
+            cleanup.
+          </p>
+
+          <h4>Backup &amp; restore</h4>
+          <p>
+            <strong>Export</strong> downloads every preset as a JSON file;
+            <strong>Import</strong> reads one back. Import offers
+            <strong>replace</strong> (restore a backup, keeping IDs) or
+            <strong>merge</strong> (append the file's presets as copies with
+            fresh IDs) — handy for cloning a set between hosts.
           </p>
 
           <h3>App-level defaults</h3>
@@ -880,8 +915,10 @@ npm start</pre>
           <h3>Resolution order (per field, independent)</h3>
           <ol>
             <li>
-              Every variable resolves (supplied value → last-used → inline
-              default) → render the <strong>primary</strong> text.
+              Every variable resolves (supplied value → inline default) →
+              render the <strong>primary</strong> text. (The fill popup prefills
+              inputs with your last-used values, but that only pre-fills the
+              "supplied value" step — the engine itself has no last-used tier.)
             </li>
             <li>
               Something unresolved <em>and</em> the field has a fallback →
@@ -1069,8 +1106,46 @@ npm start</pre>
               ><span class="path">/api/feedback/active-preset</span>
             </div>
             <div class="ep__body">
-              <pre>{ <span class="p">"activePresetId"</span>: <span class="s">"gaming_main"</span> }</pre>
-              <p>Highlight the key whose preset is currently applied.</p>
+              <pre>{
+  <span class="p">"activePresetId"</span>: <span class="s">"gaming_main"</span>,
+  <span class="p">"activePreset"</span>: {
+    <span class="p">"id"</span>: <span class="s">"gaming_main"</span>,
+    <span class="p">"title"</span>: <span class="s">"Late Night Gaming — {game}"</span>,
+    <span class="p">"description"</span>: <span class="s">"Come hang out."</span>,
+    <span class="p">"privacyStatus"</span>: <span class="s">"public"</span>,
+    <span class="p">"category"</span>: <span class="s">"20"</span>,
+    <span class="p">"streamBoundId"</span>: <span class="k">null</span>,
+    <span class="p">"titleFallback"</span>: <span class="k">null</span>,
+    <span class="p">"descriptionFallback"</span>: <span class="k">null</span>
+  },
+  <span class="p">"title"</span>: <span class="s">"Late Night Gaming Live!"</span>,
+  <span class="p">"privacyStatus"</span>: <span class="s">"public"</span>,
+  <span class="p">"isLive"</span>: <span class="k">true</span>,
+  <span class="p">"noTarget"</span>: <span class="k">false</span>,
+  <span class="p">"busy"</span>: <span class="k">false</span>,
+  <span class="p">"health"</span>: <span class="s">"ok"</span>,
+  <span class="p">"quotaRemaining"</span>: <span class="n">8760</span>
+}</pre>
+              <p>
+                A <strong>superset</strong> feedback endpoint. It carries the
+                <strong>active preset's saved definition</strong> in
+                <code>activePreset</code> (its own title, description, privacy,
+                category, stream binding and fallbacks) — so Companion can label
+                or inspect the applied preset without a second call to
+                <code>/api/dashboard/presets</code>. It's <code>null</code> when
+                no preset is active or it was since deleted.
+              </p>
+              <p>
+                It also folds in the core status, on-air, busy and health
+                signals, so you can bind a whole button — text, color, health
+                lamp, active-preset highlight — from this <strong>one</strong>
+                poll instead of hitting <code>/status</code>,
+                <code>/busy</code> and <code>/health</code> separately. Note
+                the top-level <code>title</code> is the <em>live broadcast</em>
+                title (what's on air now); <code>activePreset.title</code> is
+                the preset's configured template. The narrow endpoints stay for
+                buttons that need just one field.
+              </p>
             </div>
           </div>
           <div class="ep">
@@ -1130,7 +1205,30 @@ npm start</pre>
             <div class="ep__body">
               <p>
                 Server-Sent Events stream of state changes — an alternative to
-                polling for any custom integration that prefers push.
+                polling for any custom integration that prefers push. Emits an
+                initial <code>state</code> event on connect, then one per
+                meaningful change.
+              </p>
+            </div>
+          </div>
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m ws">WS</span
+              ><span class="path">/api/feedback/ws</span>
+            </div>
+            <div class="ep__body">
+              <p>
+                <strong>WebSocket</strong> push of the same state changes —
+                <strong>Bitfocus Companion's WebSocket module prefers this over
+                SSE.</strong> Connect and you get a <code>state</code> frame
+                immediately, then one on every meaningful change (deduped
+                server-side). Frame envelope matches the change webhook:
+              </p>
+              <pre>{ <span class="p">"event"</span>: <span class="s">"state"</span>, <span class="p">"state"</span>: { <span class="p">"status"</span>: { … }, <span class="p">"activePresetId"</span>: <span class="s">"gaming_main"</span>, … } }</pre>
+              <p>
+                Also mounted at <code>/api/dashboard/ws</code> (same handler). SSE
+                and 5-second polling remain fully supported — WebSocket is an
+                additional transport, not a replacement. Pick one per client.
               </p>
             </div>
           </div>
@@ -1212,6 +1310,16 @@ npm start</pre>
                   </td>
                   <td><code>/api/dashboard/webhook</code></td>
                   <td>Read / set the change webhook URL.</td>
+                </tr>
+                <tr>
+                  <td><span class="m get">GET</span></td>
+                  <td><code>/api/dashboard/stream</code></td>
+                  <td>SSE state stream (same as <code>/api/feedback/stream</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="m ws">WS</span></td>
+                  <td><code>/api/dashboard/ws</code></td>
+                  <td>WebSocket state push (same as <code>/api/feedback/ws</code>).</td>
                 </tr>
                 <tr>
                   <td><span class="m post">POST</span></td>
@@ -1436,6 +1544,31 @@ npm start</pre>
             quota — Companion formats and binds these itself; there's no
             server-side wiring to do.
           </p>
+
+          <div class="callout tip">
+            <p>
+              <strong>One poll instead of four.</strong>
+              <code>GET /api/feedback/active-preset</code> now returns
+              <code>title</code>, <code>privacyStatus</code>,
+              <code>isLive</code>, <code>busy</code>, <code>health</code> and
+              <code>quotaRemaining</code> alongside <code>activePresetId</code>
+              — bind a whole button from it and skip the separate
+              <code>/status</code>, <code>/busy</code> and <code>/health</code>
+              calls.
+            </p>
+          </div>
+
+          <div class="callout">
+            <p>
+              <strong>Prefer push?</strong> Point Companion's
+              <strong>WebSocket</strong> connection at
+              <code>ws://&lt;APP_IP&gt;:8080/api/feedback/ws</code> for instant
+              updates with no polling interval — the app pushes a
+              <code>state</code> frame on every change. SSE
+              (<code>/api/feedback/stream</code>) and plain 5-second polling
+              stay available if you'd rather not.
+            </p>
+          </div>
         </section>
 
         <!-- ===================== REDIRECT FLOW ===================== -->

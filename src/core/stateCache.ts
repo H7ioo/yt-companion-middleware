@@ -32,6 +32,9 @@ export class StateCache {
 
   /** Perform a live GET and repopulate the cache. Updates health on success/failure. */
   async refresh(): Promise<void> {
+    // Master switch off: make no YouTube call. The background timer keeps ticking so polling
+    // resumes the instant the operator re-enables the API, but while off it costs zero quota.
+    if (!this.store.get().service.apiEnabled) return;
     try {
       const target = await resolveTarget(this.yt);
       const broadcast = await getBroadcast(this.yt, target.id);

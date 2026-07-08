@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Category, DashboardState, PrivacyStatus } from "../api.js";
 import { CategorySelect } from "./CategorySelect.js";
+import { useEscape } from "../lib/useEscape.js";
 
 const PRIVACY: PrivacyStatus[] = ["public", "unlisted", "private"];
 
@@ -34,6 +35,7 @@ export function AdHocModal({
   const [category, setCategory] = useState<string | null>(null);
   const [streamBoundId, setStream] = useState("");
   const [busy, setBusy] = useState(false);
+  useEscape(onCancel);
 
   const live = state?.status.isLive ?? false;
 
