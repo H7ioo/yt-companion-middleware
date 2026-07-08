@@ -1,0 +1,28 @@
+{
+	"$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
+	"id": "yt-companion-middleware",
+	"name": "yt-companion-middleware",
+	"type": "connection",
+	"shortname": "ytmeta",
+	"description": "YouTube Live metadata control middleware — presets, on-air state, and Arabic-safe title/label images.",
+	"version": "1.0.0",
+	"license": "MIT",
+	"repository": "git+https://github.com/H7ioo/yt-companion-middleware.git",
+	"bugs": "https://github.com/H7ioo/yt-companion-middleware/issues",
+	"maintainers": [
+		{
+			"name": "Omar",
+			"email": "support.glomarkt@gmail.com"
+		}
+	],
+	"legacyIds": [],
+	"runtime": {
+		"type": "node22",
+		"api": "nodejs-ipc",
+		"apiVersion": "1.0.0",
+		"entrypoint": "../main.js"
+	},
+	"manufacturer": "GloMarkt",
+	"products": ["YouTube Live"],
+	"keywords": ["YouTube", "Streaming", "Broadcast"]
+}
