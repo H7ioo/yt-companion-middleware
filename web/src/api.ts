@@ -3,6 +3,11 @@ export type PrivacyStatus = "public" | "unlisted" | "private";
 export interface Preset {
   id: string;
   title: string;
+  /**
+   * Short label shown on Companion buttons instead of the (often Arabic) title. May itself be
+   * Arabic — the middleware renders it to a PNG. Empty falls back to the preset id on the button.
+   */
+  slug: string;
   description: string;
   privacyStatus: PrivacyStatus;
   category: string | null;
@@ -69,6 +74,11 @@ export interface QuotaSnapshot {
 export interface DashboardState {
   status: FeedbackStatus;
   activePresetId: string | null;
+  /** Button label: active preset slug, its id when unset, or "Custom". */
+  displayLabel: string;
+  /** Base64 PNGs (no data-URI prefix) of the label and full title, for Companion button images. */
+  slugPng: string | null;
+  titlePng: string | null;
   health: "ok" | "degraded" | "auth_error";
   healthMessage: string | null;
   lastRefreshedAt: string | null;

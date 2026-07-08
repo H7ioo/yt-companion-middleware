@@ -1119,6 +1119,9 @@ npm start</pre>
     <span class="p">"descriptionFallback"</span>: <span class="k">null</span>
   },
   <span class="p">"title"</span>: <span class="s">"Late Night Gaming Live!"</span>,
+  <span class="p">"displayLabel"</span>: <span class="s">"Gaming"</span>,       <span class="c">// slug → id → "Custom"</span>
+  <span class="p">"slugPng"</span>: <span class="s">"iVBORw0KGgo…"</span>,      <span class="c">// base64 PNG of displayLabel</span>
+  <span class="p">"titlePng"</span>: <span class="s">"iVBORw0KGgo…"</span>,     <span class="c">// base64 PNG of the live title, or null</span>
   <span class="p">"privacyStatus"</span>: <span class="s">"public"</span>,
   <span class="p">"isLive"</span>: <span class="k">true</span>,
   <span class="p">"noTarget"</span>: <span class="k">false</span>,
@@ -1126,6 +1129,35 @@ npm start</pre>
   <span class="p">"health"</span>: <span class="s">"ok"</span>,
   <span class="p">"quotaRemaining"</span>: <span class="n">8760</span>
 }</pre>
+              <div class="callout tip">
+                <strong>Arabic (and other non-Latin) button text.</strong>
+                Companion's bundled fonts have no Arabic glyphs and do no RTL
+                shaping, so an Arabic <code>title</code> bound as plain button
+                text renders as <strong>boxes (tofu)</strong>. Two fields fix that:
+                <ul>
+                  <li>
+                    <code>displayLabel</code> — a short, Latin-safe label: the
+                    active preset's <strong>slug</strong>, or its <strong>id</strong>
+                    when the slug is blank, or <code>"Custom"</code> when no preset
+                    is active. Bind it as ordinary button text.
+                  </li>
+                  <li>
+                    <code>slugPng</code> / <code>titlePng</code> — the label and
+                    the full live title <strong>pre-rendered to a PNG</strong> with
+                    an Arabic-capable font (shaped + joined), as base64 with
+                    <em>no</em> <code>data:</code> prefix. Feed either into a
+                    button's image. A common setup binds <code>slugPng</code> and
+                    lets a button press <strong>toggle</strong> to
+                    <code>titlePng</code>, since the whole title rarely fits a key.
+                    <code>titlePng</code> is <code>null</code> when nothing is on air.
+                  </li>
+                </ul>
+                The slug itself may be Arabic — it rides the PNG. The PNGs are
+                rendered only when their text changes and cached, so polling stays
+                cheap. Prefer the raw <code>/slug.png</code> and
+                <code>/title.png</code> endpoints below if your button pulls an
+                image by URL instead of reading base64.
+              </div>
               <p>
                 A <strong>superset</strong> feedback endpoint. It carries the
                 <strong>active preset's saved definition</strong> in
@@ -1145,6 +1177,36 @@ npm start</pre>
                 title (what's on air now); <code>activePreset.title</code> is
                 the preset's configured template. The narrow endpoints stay for
                 buttons that need just one field.
+              </p>
+            </div>
+          </div>
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m get">GET</span
+              ><span class="path">/api/feedback/slug.png</span>
+            </div>
+            <div class="ep__body">
+              <p>
+                The button <strong>label</strong> (slug → id → <code>"Custom"</code>)
+                rendered as a <strong>72×72 PNG image</strong> — white text with a
+                dark outline so it stays legible over any button colour. For buttons
+                that pull an image <em>by URL</em> rather than reading
+                <code>slugPng</code> base64 out of the state. Always draws something.
+                Returns <code>image/png</code>; changes only when the label changes.
+              </p>
+            </div>
+          </div>
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m get">GET</span
+              ><span class="path">/api/feedback/title.png</span>
+            </div>
+            <div class="ep__body">
+              <p>
+                The <strong>full live broadcast title</strong> rendered as a 72×72
+                PNG (Arabic shaped + joined, wrapped, ellipsized if it overflows).
+                Same idea as <code>slug.png</code>, for the whole title. Returns
+                <code>404</code> when nothing is on air (no title to draw).
               </p>
             </div>
           </div>
@@ -1224,7 +1286,7 @@ npm start</pre>
                 immediately, then one on every meaningful change (deduped
                 server-side). Frame envelope matches the change webhook:
               </p>
-              <pre>{ <span class="p">"event"</span>: <span class="s">"state"</span>, <span class="p">"state"</span>: { <span class="p">"status"</span>: { … }, <span class="p">"activePresetId"</span>: <span class="s">"gaming_main"</span>, … } }</pre>
+              <pre>{ <span class="p">"event"</span>: <span class="s">"state"</span>, <span class="p">"state"</span>: { <span class="p">"status"</span>: { … }, <span class="p">"activePresetId"</span>: <span class="s">"gaming_main"</span>, <span class="p">"displayLabel"</span>: <span class="s">"Gaming"</span>, <span class="p">"slugPng"</span>: <span class="s">"…"</span>, <span class="p">"titlePng"</span>: <span class="s">"…"</span>, … } }</pre>
               <p>
                 Also mounted at <code>/api/dashboard/ws</code> (same handler). SSE
                 and 5-second polling remain fully supported — WebSocket is an

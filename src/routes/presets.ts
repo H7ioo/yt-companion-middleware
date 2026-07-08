@@ -7,6 +7,8 @@ import { AppError, toErrorBody } from "../core/errors.js";
 
 const upsertBody = z.object({
   title: z.string().min(1),
+  // Short button label; may be Arabic (rendered to the slug PNG). Empty = fall back to the id.
+  slug: z.string().default(""),
   description: z.string().default(""),
   privacyStatus: privacyStatusSchema,
   category: z.string().min(1).nullable().default(null),

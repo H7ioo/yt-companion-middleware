@@ -30,6 +30,7 @@ export function PresetForm({
 }: Props) {
   const [form, setForm] = useState<PresetInput>({
     title: initial?.title ?? "",
+    slug: initial?.slug ?? "",
     description: initial?.description ?? "",
     titleFallback: initial?.titleFallback ?? null,
     descriptionFallback: initial?.descriptionFallback ?? null,
@@ -83,6 +84,22 @@ export function PresetForm({
               autoFocus
             />
             <VarChips vars={titleVars} />
+          </div>
+          <div className="field">
+            <label htmlFor="pf-slug">
+              Button label{" "}
+              <span className="hint">
+                — shown on the Companion button; blank uses the preset id. Avoids the Arabic title
+                rendering as boxes.
+              </span>
+            </label>
+            <input
+              id="pf-slug"
+              dir="auto"
+              value={form.slug}
+              placeholder="e.g. Anwar Al Sahih — blank = preset id"
+              onChange={(e) => set("slug", e.target.value)}
+            />
           </div>
           <div className="field">
             <label htmlFor="pf-title-fb">

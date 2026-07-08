@@ -45,6 +45,7 @@ describe("JsonStore", () => {
           s.presets.push({
             id: `p${i}`,
             title: `t${i}`,
+            slug: "",
             description: "",
             privacyStatus: "public",
             category: null,

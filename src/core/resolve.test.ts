@@ -76,6 +76,7 @@ describe("presetToPayload", () => {
     const preset: Preset = {
       id: "p1",
       title: "Gaming",
+      slug: "",
       description: "d",
       privacyStatus: "public",
       category: null,

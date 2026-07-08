@@ -1,10 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { changeSignature, type DashboardState } from "./snapshot.js";
+import { changeSignature, resolveDisplayLabel, type DashboardState } from "./snapshot.js";
+import type { JsonStore } from "../storage/jsonStore.js";
+import type { Preset, Store } from "../storage/schema.js";
+
+/** Minimal JsonStore stand-in exposing just the presets `resolveDisplayLabel` reads. */
+function storeWith(presets: Preset[]): JsonStore {
+  return { get: () => ({ presets }) as Store } as JsonStore;
+}
+function preset(over: Partial<Preset> = {}): Preset {
+  return {
+    id: "p1",
+    title: "عنوان",
+    slug: "",
+    description: "",
+    privacyStatus: "public",
+    category: null,
+    streamBoundId: null,
+    titleFallback: null,
+    descriptionFallback: null,
+    ...over,
+  };
+}
 
 function state(over: Partial<DashboardState> = {}): DashboardState {
   return {
     status: { title: "T", privacyStatus: "public", isLive: false, noTarget: false },
     activePresetId: null,
+    displayLabel: "Custom",
+    slugPng: null,
+    titlePng: null,
     health: "ok",
     healthMessage: null,
     lastRefreshedAt: "2026-07-03T00:00:00.000Z",
@@ -33,6 +57,12 @@ describe("changeSignature", () => {
     expect(changeSignature(state())).not.toBe(changeSignature(state({ busy: true })));
   });
 
+  it("changes when the display label moves (slug edited while active)", () => {
+    expect(changeSignature(state({ displayLabel: "News" }))).not.toBe(
+      changeSignature(state({ displayLabel: "Sports" })),
+    );
+  });
+
   it("changes when the API master switch is flipped", () => {
     expect(changeSignature(state())).not.toBe(changeSignature(state({ apiEnabled: false })));
   });
@@ -47,5 +77,27 @@ describe("changeSignature", () => {
     expect(changeSignature(state({ quota: { date: "d", used: 50, limit: 10000, remaining: 9950 } }))).not.toBe(
       changeSignature(state({ quota: { date: "d", used: 150, limit: 10000, remaining: 9850 } })),
     );
+  });
+});
+
+describe("resolveDisplayLabel", () => {
+  it("returns 'Custom' when no preset is active", () => {
+    expect(resolveDisplayLabel(storeWith([]), null)).toBe("Custom");
+  });
+
+  it("returns 'Custom' when the active preset no longer exists", () => {
+    expect(resolveDisplayLabel(storeWith([]), "gone")).toBe("Custom");
+  });
+
+  it("uses the slug when the active preset has one", () => {
+    expect(resolveDisplayLabel(storeWith([preset({ slug: "Anwar" })]), "p1")).toBe("Anwar");
+  });
+
+  it("falls back to the preset id when the slug is unset", () => {
+    expect(resolveDisplayLabel(storeWith([preset({ slug: "" })]), "p1")).toBe("p1");
+  });
+
+  it("treats a whitespace-only slug as unset", () => {
+    expect(resolveDisplayLabel(storeWith([preset({ slug: "   " })]), "p1")).toBe("p1");
   });
 });

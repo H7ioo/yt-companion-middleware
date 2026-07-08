@@ -6,6 +6,7 @@ function preset(over: Partial<Preset> = {}): Preset {
   return {
     id: "p1",
     title: "Static title",
+    slug: "",
     description: "Static description",
     privacyStatus: "public",
     category: null,
