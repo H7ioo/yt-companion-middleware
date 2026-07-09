@@ -41,15 +41,16 @@ modules path)** is for iterating on the module's code.
 
 Build a package file once, then import it from the Companion UI. No restart needed.
 
-1. **Build the package** (pulls `@companion-module/base` + `ws`, then bundles a `.tgz`):
+1. **Build the package** (installs deps incl. the build tool, then bundles a `.tgz`):
    ```bash
    cd companion-module
    npm install
-   npx companion-module-build   # writes pkg.tgz into the folder
+   npm run package   # runs companion-module-build
    ```
-2. In Companion open **Modules → Import module package** and select the generated
-   `pkg.tgz`. (Companion's file dialog labels it a module package; it also accepts a zipped module
-   folder.) The module appears in the list immediately.
+   This writes **`yt-companion-middleware-<version>.tgz`** into the folder (e.g.
+   `yt-companion-middleware-1.0.0.tgz`).
+2. In Companion open **Modules → Import module package** and select that `.tgz`. (Companion's file
+   dialog labels it a module package.) The module appears in the list immediately.
 
 > Offline installs of *many* modules at once use the separate **Import offline module bundle**
 > feature with a versioned bundle from the Bitfocus website — that's not needed for this single
@@ -213,7 +214,7 @@ step use Companion's built-in **Open URL** action:
 
 ## Packaging for distribution
 
-The `npx companion-module-build` step in **Method A** produces the `pkg.tgz` you hand to other
-operators (or import yourself). To publish it more widely, submit the module to the Bitfocus
-registry so it shows up in Companion's built-in store. See the middleware's in-app guide at
-`/docs` for the underlying endpoint details.
+The `npm run package` step in **Method A** produces the `yt-companion-middleware-<version>.tgz`
+you hand to other operators (or import yourself). To publish it more widely, submit the module to
+the Bitfocus registry so it shows up in Companion's built-in store. See the middleware's in-app
+guide at `/docs` for the underlying endpoint details.

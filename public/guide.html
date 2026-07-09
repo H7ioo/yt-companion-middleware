@@ -1689,11 +1689,11 @@ npm start</pre>
                 build a package once and import it —
                 <pre><code>cd companion-module
 npm install
-npx companion-module-build   # produces pkg.tgz</code></pre>
+npm run package   # runs companion-module-build</code></pre>
+                that writes <code>yt-companion-middleware-&lt;version&gt;.tgz</code>;
                 then in Companion go to <strong>Modules</strong>, click
-                <strong>Import module package</strong>, and pick the generated
-                <code>pkg.tgz</code> (the file dialog also accepts a zipped
-                module folder). No restart needed.
+                <strong>Import module package</strong>, and pick that
+                <code>.tgz</code>. No restart needed.
                 <br />
                 <em>For development</em> you can instead point
                 <strong>Settings → Developer modules path</strong> at a folder

@@ -2,7 +2,6 @@
 	"$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
 	"id": "yt-companion-middleware",
 	"name": "yt-companion-middleware",
-	"type": "connection",
 	"shortname": "ytmeta",
 	"description": "YouTube Live metadata control middleware — presets, on-air state, and Arabic-safe title/label images.",
 	"version": "1.0.0",

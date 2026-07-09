@@ -9,10 +9,14 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "node --check main.js && node --check src/transform.js && node --check src/upgrades.js"
+    "check": "node --check main.js && node --check src/transform.js && node --check src/upgrades.js",
+    "package": "companion-module-build"
   },
   "dependencies": {
     "@companion-module/base": "~1.11.0",
     "ws": "^8"
+  },
+  "devDependencies": {
+    "@companion-module/tools": "~2.3.0"
   }
 }
