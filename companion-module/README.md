@@ -37,6 +37,11 @@ Since Companion 4.0 modules are plugins you install independently. There are two
 one in — **Method A (import a package)** is the simplest for an operator; **Method B (developer
 modules path)** is for iterating on the module's code.
 
+> **Changing the module?** Bump the version first — see
+> [VERSIONING.md](VERSIONING.md). Companion keys "is this a new build?" off the manifest version, so
+> every behaviour change ships a `npm run companion:bump`. It's enforced: the package build fails if
+> `package.json` and `manifest.json` versions drift.
+
 ### Method A — Import a module package (recommended)
 
 Build a package file once, then import it from the Companion UI. No restart needed.
