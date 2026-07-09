@@ -3,6 +3,8 @@ import {
   categoryChoices,
   joinUrl,
   mapVariables,
+  nextApiEnabled,
+  presetButtons,
   presetChoices,
   streamChoices,
   summarizeHealth,
@@ -143,6 +145,49 @@ describe('summarizeHealth', () => {
     const r = summarizeHealth(undefined);
     expect(r.ok).toBe(false);
     expect(r.text).toContain('no response');
+  });
+});
+
+describe('nextApiEnabled', () => {
+  it('enables when currently disabled', () => {
+    expect(nextApiEnabled({ apiEnabled: false })).toBe(true);
+  });
+
+  it('disables when currently enabled', () => {
+    expect(nextApiEnabled({ apiEnabled: true })).toBe(false);
+  });
+
+  it('treats unknown/missing state as enabled, so a toggle disables it', () => {
+    expect(nextApiEnabled(undefined)).toBe(false);
+    expect(nextApiEnabled({})).toBe(false);
+  });
+});
+
+describe('presetButtons', () => {
+  it('builds one drag-drop button per middleware preset, keyed apply_<id>', () => {
+    const defs = presetButtons([{ id: 'p1', title: 'Friday Khutbah', slug: 'khutbah' }]);
+    expect(Object.keys(defs)).toEqual(['apply_p1']);
+    const b = defs.apply_p1;
+    expect(b.type).toBe('button');
+    expect(b.category).toBe('Apply preset');
+    expect(b.name).toBe('Friday Khutbah');
+  });
+
+  it('labels the button with the slug, wires the apply action and the active-preset highlight', () => {
+    const b = presetButtons([{ id: 'p1', title: 'Friday Khutbah', slug: 'khutbah' }]).apply_p1;
+    expect(b.style.text).toBe('khutbah');
+    expect(b.steps[0].down[0]).toMatchObject({ actionId: 'apply_preset', options: { presetId: 'p1' } });
+    expect(b.feedbacks[0]).toMatchObject({ feedbackId: 'active_preset', options: { presetId: 'p1' } });
+  });
+
+  it('falls back to title then id for the button text', () => {
+    expect(presetButtons([{ id: 'p1', title: 'T', slug: '  ' }]).apply_p1.style.text).toBe('T');
+    expect(presetButtons([{ id: 'p2' }]).apply_p2.style.text).toBe('p2');
+  });
+
+  it('returns an empty map for no presets', () => {
+    expect(presetButtons()).toEqual({});
+    expect(presetButtons([])).toEqual({});
   });
 });
 

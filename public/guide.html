@@ -595,11 +595,12 @@
         <a href="#feedback">Feedback endpoints</a>
         <a href="#dashboard-api">Dashboard endpoints</a>
         <a href="#errors">Error codes</a>
-        <div class="grp">Companion</div>
-        <a href="#companion-conn">Connection</a>
-        <a href="#companion-trigger">Trigger buttons</a>
+        <div class="grp">Companion module</div>
+        <a href="#companion-conn">Install &amp; connect</a>
+        <a href="#companion-presets">Presets (drag-drop)</a>
+        <a href="#companion-actions">Every action</a>
         <a href="#companion-feedback">State on the keys</a>
-        <a href="#companion-redirect">The redirect flow</a>
+        <a href="#companion-redirect">Redirect / fill flow</a>
       </nav>
 
       <main>
@@ -1475,125 +1476,336 @@ npm start</pre>
 
         <hr class="rule" />
 
-        <!-- ===================== COMPANION CONNECTION ===================== -->
+        <!-- ===================== COMPANION INSTALL / CONNECT ===================== -->
         <section id="companion-conn">
-          <h2><span class="no">10</span> Companion · connection</h2>
+          <h2><span class="no">10</span> Companion · install &amp; connect</h2>
           <p class="lede">
-            Use Companion's built-in <strong>Generic HTTP</strong> module. No
-            custom module, no auth header.
+            This repo ships a <strong>dedicated Companion module</strong>
+            (<code>companion-module/</code>). It holds a live WebSocket to the
+            middleware — instant push, zero YouTube quota — and puts the
+            middleware's presets, actions, feedbacks and Arabic-safe title/slug
+            images on your keys. Prefer it over the Generic HTTP module.
           </p>
+
+          <h3>Install the module (Companion 4+)</h3>
+          <p>
+            Modules are plugins you install independently. Build a package once
+            with a single command <strong>from the repo root</strong> — it
+            installs the module's deps and bundles the <code>.tgz</code>, no
+            <code>cd</code>, no restart:
+          </p>
+          <pre><span class="p">npm</span> run companion:package   <span class="c">#</span> → companion-module/yt-companion-middleware-&lt;version&gt;.tgz</pre>
+          <p>
+            In Companion open <strong>Modules → Import module package</strong>
+            and pick that <code>.tgz</code>. <em>For development</em> instead
+            point <strong>Settings → Developer modules path</strong> at a folder
+            holding (or symlinking) <code>companion-module/</code> (run
+            <code>npm run companion:install</code> once first), then restart
+            Companion — edits hot-reload.
+          </p>
+
+          <h3>Add the connection</h3>
           <ol>
             <li>
-              In Companion → <strong>Connections</strong>, add
-              <strong>Generic: HTTP Requests</strong>.
+              <strong>Connections → Add connection</strong>, search
+              <strong>yt-companion-middleware</strong>, add it.
             </li>
             <li>
-              Set the base URL to <code>http://&lt;APP_IP&gt;:8080</code>.
+              Set <strong>Middleware base URL</strong> to
+              <code>http://&lt;APP_IP&gt;:8080</code> (same host as the
+              dashboard). HTTPS is fine — the module derives <code>wss://</code>
+              itself.
             </li>
             <li>
-              Leave any authorization header <strong>empty</strong> — the app is
-              unauthenticated on the LAN.
+              Leave <strong>Bearer token</strong> blank on a trusted LAN; set it
+              only if the action bus is protected. Save.
             </li>
           </ol>
-          <div class="callout">
+          <div class="callout tip">
             <p>
-              Every action button below is a <strong>POST</strong> with a JSON
-              body and <code>Content-Type: application/json</code>. Every
-              feedback binding is a <strong>GET</strong> polled on the buttons
-              page.
+              Watch the status pill: it goes <strong>Connecting → OK</strong>
+              once the WebSocket is up. Stuck on <strong>Connection
+              failure</strong> means a wrong/unreachable URL or a rejected token
+              — fix it and it reconnects on its own. Confirm live: set any key's
+              text to <code>$(ytmeta:display_label)</code>.
             </p>
           </div>
         </section>
 
-        <!-- ===================== COMPANION TRIGGER ===================== -->
-        <section id="companion-trigger">
-          <h2><span class="no">11</span> Companion · trigger buttons</h2>
+        <!-- ===================== COMPANION PRESETS ===================== -->
+        <section id="companion-presets">
+          <h2><span class="no">11</span> Companion · presets (drag-drop)</h2>
           <p class="lede">
-            One key, one preset. Press fires the metadata change on whatever
-            broadcast is current.
+            The module publishes ready-made buttons in Companion's
+            <strong>Presets</strong> tab — the answer to "I want a key that
+            applies a preset <em>and</em> labels itself." Drag one onto a key and
+            it arrives already labelled, already wired, already lit when active.
+            No JSON, no manual action.
           </p>
 
-          <h3>A plain preset key</h3>
-          <p>Add a button, give it a <strong>HTTP POST</strong> action:</p>
-          <pre><span class="p">URL</span>   http://&lt;APP_IP&gt;:8080/api/dashboard/action/preset
-<span class="p">Body</span>  { <span class="p">"presetId"</span>: <span class="s">"gaming_main"</span> }</pre>
-
-          <h3>Passing template variables</h3>
+          <h3>Category · <em>Apply preset</em></h3>
           <p>
-            Fill variables straight from the button using Companion variables or
-            static values:
+            One button <strong>per middleware preset</strong>, generated from
+            your dashboard. Each drops with:
           </p>
-          <pre><span class="p">Body</span>  { <span class="p">"presetId"</span>: <span class="s">"lesson_stream"</span>, <span class="p">"vars"</span>: { <span class="p">"lesson"</span>: <span class="s">"41"</span> } }</pre>
-          <p>
-            If a variable is missing and its field has a fallback, the action
-            still succeeds and the response's <code>resolvedVars</code> tells
-            you the fallback fired. If there's no fallback, you get
-            <code>MISSING_TEMPLATE_VARS</code> — a good case for the redirect
-            flow below, where the operator types the value in a browser first.
-          </p>
+          <ul>
+            <li>its <strong>slug</strong> as the button text (Latin-safe label);</li>
+            <li>the <strong>Apply preset</strong> action already bound to that preset's id;</li>
+            <li>
+              the <strong>Active preset is…</strong> feedback already pointed at
+              the same preset, so the key turns green whenever that preset is the
+              one on air.
+            </li>
+          </ul>
+          <div class="callout">
+            <p>
+              Added or renamed presets in the dashboard? The Presets tab is
+              snapshotted when the connection starts. Run the <strong>Refresh
+              preset/category/stream lists</strong> action once (or re-save the
+              connection) and the new preset buttons appear.
+            </p>
+          </div>
 
+          <h3>Category · <em>State &amp; controls</em></h3>
+          <p>Fixed helper buttons you'll usually want one of each:</p>
+          <div class="tw">
+            <table>
+              <thead>
+                <tr><th>Preset button</th><th>What it drops</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Arabic-safe live title (image)</strong></td>
+                  <td>The full broadcast title drawn as a PNG — renders Arabic correctly (no tofu).</td>
+                </tr>
+                <tr>
+                  <td><strong>Arabic-safe button label (image)</strong></td>
+                  <td>The short slug/label as a PNG image.</td>
+                </tr>
+                <tr>
+                  <td><strong>On-air indicator</strong></td>
+                  <td>Shows <code>$(ytmeta:live_title)</code>, turns red while live.</td>
+                </tr>
+                <tr>
+                  <td><strong>Busy indicator</strong></td>
+                  <td>Shows the active label, turns blue while an action is applying.</td>
+                </tr>
+                <tr>
+                  <td><strong>Privacy toggle</strong></td>
+                  <td>Flips private ↔ public; label shows the current <code>$(ytmeta:privacy)</code>.</td>
+                </tr>
+                <tr>
+                  <td><strong>Undo last change</strong></td>
+                  <td>Reverts the last change; label shows <code>$(ytmeta:undo_label)</code>.</td>
+                </tr>
+                <tr>
+                  <td><strong>Refresh cache</strong> / <strong>Refresh lists</strong></td>
+                  <td>Force a state refresh / re-pull the preset&amp;category&amp;stream dropdowns.</td>
+                </tr>
+                <tr>
+                  <td><strong>Check connection</strong></td>
+                  <td>Pings health on demand; goes red on <code>auth_error</code>.</td>
+                </tr>
+                <tr>
+                  <td><strong>API kill switch (toggle)</strong></td>
+                  <td>Flips the middleware's master switch on/off; greys out while off.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <div class="deck" role="img" aria-label="Example Stream Deck layout">
+            <div class="key live">
+              <span class="ico">●</span><span class="lbl">ON AIR</span>
+            </div>
             <div class="key on">
-              <span class="ico">▶</span><span class="lbl">Gaming</span>
+              <span class="ico">✓</span><span class="lbl">khutbah</span>
             </div>
             <div class="key">
-              <span class="ico">📚</span><span class="lbl">Lesson</span>
-            </div>
-            <div class="key busy">
-              <span class="ico">↻</span><span class="lbl">Refresh</span>
+              <span class="ico">🔒</span><span class="lbl">Privacy</span>
             </div>
             <div class="key">
               <span class="ico">↶</span><span class="lbl">Undo</span>
             </div>
           </div>
+          <div class="callout tip">
+            <p>
+              Presets are just a <strong>starting point</strong> — every dropped
+              button is fully editable afterwards (add a second feedback, swap
+              the text for an image, change colors). Presets are authored by the
+              module; you can't create new ones from the UI, but you can export
+              your edited buttons as a custom library.
+            </p>
+          </div>
+        </section>
+
+        <!-- ===================== COMPANION ACTIONS REFERENCE ===================== -->
+        <section id="companion-actions">
+          <h2><span class="no">12</span> Companion · every action, with suggested usage</h2>
+          <p class="lede">
+            All actions POST to the middleware's <code>/api/action/*</code> bus;
+            state comes back over the WebSocket, so you never add a manual
+            refresh after one. Add them under a key's <strong>Press</strong> (or
+            any step). Fields marked <em>supports <code>$(…)</code></em> accept
+            Companion variables.
+          </p>
+
+          <div class="tw">
+            <table>
+              <thead>
+                <tr><th>Action</th><th>Options</th><th>Suggested usage</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Apply preset</strong></td>
+                  <td><code>Preset</code> (dropdown); <code>Template vars</code> (JSON, optional, supports <code>$(…)</code>)</td>
+                  <td>
+                    The everyday "switch what's on air" key. For a fixed preset,
+                    just pick it — or drag its ready-made button from the Presets
+                    tab. For a preset with placeholders, pass a JSON object like
+                    <code>{"lesson":"41"}</code>; pull the value from a Companion
+                    variable if you have one. No value and no fallback? Use the
+                    redirect/fill flow (§14) so the operator types it in a
+                    browser first.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Update live metadata</strong></td>
+                  <td><code>Title</code> (required, <code>$(…)</code>); <code>Description</code>; <code>Privacy</code>; <code>Category</code>; <code>Bound stream</code></td>
+                  <td>
+                    Ad-hoc edit without a preset. Leave Privacy/Category/Bound
+                    stream on "unchanged" to keep current values; only
+                    <code>Title</code> is always sent. Great bound to a variable,
+                    e.g. <code>$(internal:custom_myTitle)</code>, for a
+                    type-then-push workflow.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Privacy: toggle private ↔ public</strong></td>
+                  <td>—</td>
+                  <td>
+                    A one-key "go public / go private" panic switch. Pair it with
+                    the <em>Privacy toggle</em> preset so the key label always
+                    shows the current state.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Privacy: set</strong></td>
+                  <td><code>Status</code> (public / unlisted / private)</td>
+                  <td>
+                    Three explicit keys when you want a dedicated public /
+                    unlisted / private button rather than a toggle.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Undo last change</strong></td>
+                  <td>—</td>
+                  <td>
+                    Reverts the last metadata change.
+                    <code>$(ytmeta:undo_label)</code> on the key tells the
+                    operator what "undo" will revert before they press it.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Refresh cache</strong></td>
+                  <td>—</td>
+                  <td>
+                    Forces the middleware to re-pull state from YouTube. Rarely
+                    needed (push keeps you current) — use it if you changed
+                    something in YouTube Studio directly and want it reflected now.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Refresh preset/category/stream lists</strong></td>
+                  <td>—</td>
+                  <td>
+                    Re-pulls the dropdown choices <em>and</em> regenerates the
+                    Presets tab after you add/rename presets in the dashboard.
+                    Bind it to a spare key or press it from the button editor.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Check middleware connection (YouTube status)</strong></td>
+                  <td>—</td>
+                  <td>
+                    On-demand health ping: logs reachability + YouTube auth/quota
+                    and nudges the status pill. Bind it to a key to verify the
+                    link (and the YouTube auth behind it) any time — the drop-in
+                    <em>Check connection</em> preset also goes red on
+                    <code>auth_error</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>API master switch (kill switch): set / toggle</strong></td>
+                  <td><em>set:</em> <code>API</code> (enabled / disabled); <em>toggle:</em> —</td>
+                  <td>
+                    Turns the middleware's master switch on/off. While off it
+                    makes no YouTube calls and rejects actions — a one-key way to
+                    stop quota burn on an idle service. Pair the <em>toggle</em>
+                    with the <strong>API disabled</strong> feedback so the key
+                    shows on/off; the drop-in <em>API kill switch</em> preset
+                    already does.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout">
+            <p>
+              <strong>Opening the dashboard or a fill page is not a module
+              action</strong> — use Companion's built-in <strong>Open URL</strong>
+              with <code>$(ytmeta:dashboard_url)</code> (see §14). A rejected
+              action (token required, empty title, etc.) is logged in Companion's
+              <strong>Log</strong> tab as a <code>rejected</code>/<code>failed</code>
+              line, not raised on the key.
+            </p>
+          </div>
         </section>
 
         <!-- ===================== COMPANION FEEDBACK ===================== -->
         <section id="companion-feedback">
-          <h2><span class="no">12</span> Companion · state on the keys</h2>
+          <h2><span class="no">13</span> Companion · state on the keys</h2>
           <p class="lede">
-            Poll the feedback endpoints and bind their fields to key text and
-            colors. All cached — polling costs no YouTube quota.
+            The module exposes state two ways: <strong>variables</strong> you
+            bind to key text, and <strong>feedbacks</strong> that recolor a key
+            or draw an image. Both update the instant the WebSocket pushes a new
+            frame — no polling, no quota.
           </p>
-          <ol>
-            <li>
-              Add a second <strong>HTTP GET</strong> connection instance (or
-              per-button feedback) hitting <code>/api/feedback/status</code>,
-              polled every <strong>5&nbsp;seconds</strong>.
-            </li>
-            <li>
-              Companion parses the JSON into variables. Bind them to buttons:
-            </li>
-          </ol>
+
+          <h3>Variables — <code>$(ytmeta:&lt;id&gt;)</code></h3>
           <div class="tw">
             <table>
               <thead>
-                <tr>
-                  <th>Endpoint field</th>
-                  <th>Bind to</th>
-                </tr>
+                <tr><th>Variable</th><th>Meaning</th></tr>
               </thead>
               <tbody>
-                <tr>
-                  <td><code>status.title</code></td>
-                  <td>Key text — the on-screen title.</td>
-                </tr>
-                <tr>
-                  <td><code>status.isLive</code></td>
-                  <td>Key color — red ring when live, dim when idle.</td>
-                </tr>
-                <tr>
-                  <td><code>busy.busy</code></td>
-                  <td>Blink / blue while an action runs.</td>
-                </tr>
-                <tr>
-                  <td><code>health.status</code></td>
-                  <td>Green / yellow / red health lamp.</td>
-                </tr>
-                <tr>
-                  <td><code>active-preset.activePresetId</code></td>
-                  <td>Highlight the currently applied preset key.</td>
-                </tr>
+                <tr><td><code>display_label</code></td><td>Button label: slug → preset id → <code>Custom</code> (Latin-safe).</td></tr>
+                <tr><td><code>live_title</code></td><td>Live broadcast title (may be Arabic — use the image feedback to render it).</td></tr>
+                <tr><td><code>active_preset_id</code> / <code>active_preset_title</code></td><td>Id / title of the currently applied preset.</td></tr>
+                <tr><td><code>is_live</code> · <code>no_target</code> · <code>busy</code></td><td>On air / no broadcast target / action in progress.</td></tr>
+                <tr><td><code>privacy</code></td><td><code>public</code> / <code>unlisted</code> / <code>private</code>.</td></tr>
+                <tr><td><code>health</code> · <code>health_message</code></td><td><code>ok</code> / <code>degraded</code> / <code>auth_error</code> + detail.</td></tr>
+                <tr><td><code>api_enabled</code></td><td><code>false</code> when the middleware kill-switch is off.</td></tr>
+                <tr><td><code>quota_used</code> · <code>quota_limit</code> · <code>quota_remaining</code></td><td>YouTube quota counters.</td></tr>
+                <tr><td><code>undo_label</code></td><td>What <strong>Undo</strong> would revert.</td></tr>
+                <tr><td><code>dashboard_url</code></td><td>The configured base URL — use with the built-in <strong>Open URL</strong> action.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Feedbacks</h3>
+          <div class="tw">
+            <table>
+              <thead>
+                <tr><th>Feedback</th><th>Type</th><th>Fires / draws</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><strong>Image: button label (slug)</strong></td><td>image</td><td>Draws the slug PNG — Arabic-safe.</td></tr>
+                <tr><td><strong>Image: full live title</strong></td><td>image</td><td>Draws the full title PNG — Arabic-safe.</td></tr>
+                <tr><td><strong>On air</strong></td><td>boolean</td><td>While <code>is_live</code>. Default red.</td></tr>
+                <tr><td><strong>Busy</strong></td><td>boolean</td><td>While an action applies. Default blue.</td></tr>
+                <tr><td><strong>API disabled</strong></td><td>boolean</td><td>When the kill-switch is off. Default grey.</td></tr>
+                <tr><td><strong>Health state is…</strong></td><td>boolean</td><td>When <code>health</code> equals the chosen value. Default amber.</td></tr>
+                <tr><td><strong>Active preset is…</strong></td><td>boolean</td><td>When the chosen preset is the active one — highlights its key. Default green.</td></tr>
               </tbody>
             </table>
           </div>
@@ -1611,126 +1823,38 @@ npm start</pre>
               <span class="ico">◍</span><span class="lbl">Health OK</span>
             </div>
           </div>
-          <p>
-            <code>GET /api/feedback/status</code> is served from cache with zero
-            quota — Companion formats and binds these itself; there's no
-            server-side wiring to do.
-          </p>
-
-          <div class="callout tip">
-            <p>
-              <strong>One poll instead of four.</strong>
-              <code>GET /api/feedback/active-preset</code> now returns
-              <code>title</code>, <code>privacyStatus</code>,
-              <code>isLive</code>, <code>busy</code>, <code>health</code> and
-              <code>quotaRemaining</code> alongside <code>activePresetId</code>
-              — bind a whole button from it and skip the separate
-              <code>/status</code>, <code>/busy</code> and <code>/health</code>
-              calls.
-            </p>
-          </div>
-
-          <div class="callout">
-            <p>
-              <strong>Prefer push?</strong> Point Companion's
-              <strong>WebSocket</strong> connection at
-              <code>ws://&lt;APP_IP&gt;:8080/api/feedback/ws</code> for instant
-              updates with no polling interval — the app pushes a
-              <code>state</code> frame on every change. SSE
-              (<code>/api/feedback/stream</code>) and plain 5-second polling
-              stay available if you'd rather not.
-            </p>
-            <p>
-              Added a button after the connection was already up and it shows no
-              value? The socket doesn't reconnect on a button edit, so it hasn't
-              received a fresh frame yet. Give it a moment — state re-sends on the
-              ~25s heartbeat — or add a "send message" action to the button (any
-              text or hex) to pull the current state instantly. Disabling and
-              re-enabling the connection also forces a fresh frame.
-            </p>
-          </div>
 
           <h3 id="arabic">Arabic (non-Latin) titles on a key</h3>
           <p>
             Companion's bundled fonts have <strong>no Arabic glyphs and do no RTL
-            shaping</strong>, so an Arabic <code>title</code> bound as plain key
-            text renders as <strong>boxes (tofu)</strong>. There are two ways
-            around it — pick per how much you need on the key.
+            shaping</strong>, so an Arabic <code>live_title</code> bound as plain
+            key text renders as <strong>boxes (tofu)</strong>. This module is the
+            fix: the middleware pre-renders the label and the full title to PNGs
+            with a bundled Arabic font (shaped + joined), and the module turns
+            them into the two <strong>image feedbacks</strong> above —
+            <strong>Image: button label (slug)</strong> and
+            <strong>Image: full live title</strong>.
           </p>
-
           <div class="callout tip">
             <p>
-              <strong>Route A — a Latin-safe label (Generic HTTP, works today).</strong>
-              Give each preset a short <strong>slug</strong> in the dashboard and
-              bind the feedback field <code>displayLabel</code> to the key text.
-              It resolves to the preset's slug, or its id when the slug is blank,
-              or <code>"Custom"</code> when no preset is active. Zero extra
-              software. Only limitation: if the slug itself is Arabic it still
-              boxes — that's Route B.
+              <strong>Two-step toggle.</strong> A full title rarely fits a key, so
+              make it a <strong>two-step button</strong>: step 1 carries the
+              <em>slug</em> image feedback, step 2 the <em>title</em> image —
+              one press flips between the short label and the full title.
+            </p>
+            <p>
+              <strong>Latin-safe fallback.</strong> If a preset's slug is Latin,
+              you can skip the image entirely and just bind the key text to
+              <code>$(ytmeta:display_label)</code>.
             </p>
           </div>
-
           <div class="callout">
             <p>
-              <strong>Route B — the real title/slug as an image (custom module).</strong>
-              The middleware pre-renders the label and the full title to PNGs with
-              a bundled Arabic font (shaped + joined): fields
-              <code>slugPng</code> / <code>titlePng</code> in the state, and raw
-              images at <code>GET /api/feedback/slug.png</code> and
-              <code>/title.png</code>. <em>Stock Companion can't put a base64 or
-              URL image on a key</em> — its button PNG is a local file only, and
-              Generic HTTP has no image feedback. So this repo ships a small
-              Companion module (<code>companion-module/</code>) that turns those
-              PNGs into two <strong>image feedbacks</strong>:
-            </p>
-            <ol>
-              <li>
-                <strong>Install the module.</strong> Easiest (Companion 4+):
-                build a package once and import it —
-                <pre><code>cd companion-module
-npm install
-npm run package   # runs companion-module-build</code></pre>
-                that writes <code>yt-companion-middleware-&lt;version&gt;.tgz</code>;
-                then in Companion go to <strong>Modules</strong>, click
-                <strong>Import module package</strong>, and pick that
-                <code>.tgz</code>. No restart needed.
-                <br />
-                <em>For development</em> you can instead point
-                <strong>Settings → Developer modules path</strong> at a folder
-                that contains (or symlinks) <code>companion-module/</code> after
-                running <code>npm install</code> inside it, then restart
-                Companion — changes reload automatically.
-              </li>
-              <li>
-                Add the <strong>yt-companion-middleware</strong> connection; set
-                its <strong>base URL</strong> to
-                <code>http://&lt;APP_IP&gt;:8080</code>.
-              </li>
-              <li>
-                On a button, add a feedback →
-                <strong>Image: full live title</strong> (or
-                <strong>Image: button label</strong>). The key now shows the
-                Arabic image instead of tofu.
-              </li>
-              <li>
-                To flip between the short slug and the long title (a title rarely
-                fits a key), make it a <strong>two-step button</strong>: step 1
-                uses the <em>slug</em> feedback, step 2 the <em>title</em> feedback
-                — one press toggles. The module also exposes the actions (apply
-                preset, update, privacy, undo, refresh) and the state variables.
-              </li>
-            </ol>
-            <p>
-              The module holds a live <strong>WebSocket (instant push)</strong> to
-              <code>/api/feedback/ws</code> — no poll interval, updates land the
-              moment state changes, and it auto-reconnects. Template-var presets and
-              opening the dashboard use Companion's built-in <strong>Open URL</strong>
-              action (bound to <code>$(ytmeta:dashboard_url)</code> or
-              <code>&hellip;/fill?preset=&hellip;&amp;redirect=&hellip;</code>), not the
-              module.
-            </p>
-            <p>
-              See <code>companion-module/README.md</code> for the full install and
+              Added a button after the connection was already up and it shows no
+              value yet? The WebSocket re-sends state on its heartbeat, or run the
+              <strong>Refresh cache</strong> action / re-save the connection to
+              force a fresh frame now. See
+              <code>companion-module/README.md</code> for full install and
               packaging notes.
             </p>
           </div>
@@ -1738,11 +1862,13 @@ npm run package   # runs companion-module-build</code></pre>
 
         <!-- ===================== REDIRECT FLOW ===================== -->
         <section id="companion-redirect">
-          <h2><span class="no">13</span> Companion · the redirect flow</h2>
+          <h2><span class="no">14</span> Companion · the redirect / fill flow</h2>
           <p class="lede">
-            Companion buttons can't show a popup — so for presets that need the
-            operator to type a value, the button opens a browser page instead,
-            and bounces back to Companion when it's done.
+            Companion keys can't prompt for input — so for a preset that needs
+            the operator to type a value, don't reach for a custom API. Use
+            Companion's built-in <strong>Open URL</strong> action: the key opens
+            a browser fill page, which POSTs the preset and bounces back to
+            Companion when it's done.
           </p>
 
           <h3>How it flows</h3>
@@ -1784,13 +1910,19 @@ npm run package   # runs companion-module-build</code></pre>
 
           <h3>Wire the button</h3>
           <p>
-            Give the key an <strong>Open URL</strong> action pointing at the
-            app's fill route, with a <code>redirect</code> back to Companion's
-            own URL (its web control, or a <code>companion://</code> deep link —
-            any <code>http(s)</code> URL is accepted, no allowlist):
+            Give the key the built-in <strong>Open URL</strong> action (not a
+            module action). Point it at the app's fill route — the module already
+            exposes the base URL as <code>$(ytmeta:dashboard_url)</code> — with a
+            <code>redirect</code> back to Companion's own URL (its web control, or
+            a <code>companion://</code> deep link — any <code>http(s)</code> URL
+            is accepted, no allowlist):
           </p>
           <pre><span class="p">Open URL</span>
-http://&lt;APP_IP&gt;:8080/fill?preset=<span class="s">lesson_stream</span>&amp;redirect=<span class="s">http://&lt;COMPANION_IP&gt;:8000/</span></pre>
+$(ytmeta:dashboard_url)/fill?preset=<span class="s">lesson_stream</span>&amp;redirect=<span class="s">http://&lt;COMPANION_IP&gt;:8000/</span></pre>
+          <p>
+            To just open the dashboard, drop the path: <strong>Open URL</strong> →
+            <code>$(ytmeta:dashboard_url)</code>.
+          </p>
 
           <h4>What the operator sees</h4>
           <ul>
@@ -1814,11 +1946,12 @@ http://&lt;APP_IP&gt;:8080/fill?preset=<span class="s">lesson_stream</span>&amp;
 
           <div class="callout tip">
             <p>
-              <strong>When to use which.</strong> Fixed metadata → a plain HTTP
-              POST key (§11). Needs a value typed each time and has no fallback
-              → the redirect flow. Needs a value but has a sensible fallback →
-              either works; the POST key just uses the fallback when you don't
-              pass <code>vars</code>.
+              <strong>When to use which.</strong> Fixed preset → the
+              <strong>Apply preset</strong> action or its drag-drop preset button
+              (§11–12). Needs a value typed each time and has no fallback → this
+              redirect flow. Needs a value but has a sensible fallback → either
+              works; <strong>Apply preset</strong> just uses the fallback when you
+              leave <code>Template vars</code> blank.
             </p>
           </div>
         </section>
