@@ -14,8 +14,12 @@ import { fileURLToPath } from "node:url";
  */
 
 const FONT_FAMILY = "CompanionArabic";
-const SIZE = 72; // Stream Deck native button face; Companion scales as needed.
+const SIZE = 72; // Logical button face; layout math stays in these units.
 const PADDING = 6;
+// Supersample: draw at SIZE*SCALE so Companion downscales (crisp) on larger surfaces
+// (Stream Deck +, XL, web) instead of upscaling a 72px bitmap (blurry). ctx.scale keeps
+// all drawing below in logical 72px coordinates.
+const SCALE = 4;
 
 // Register the bundled Arabic-capable font once. Resolved relative to this module so it works
 // both from src (tsx dev) and dist (compiled) — the repo's `assets/` sits two levels up from
@@ -70,8 +74,9 @@ export function renderTextPng(text: string, kind: "slug" | "title"): string | nu
 
 function draw(text: string, v: Variant): string | null {
   try {
-    const canvas = createCanvas(SIZE, SIZE);
+    const canvas = createCanvas(SIZE * SCALE, SIZE * SCALE);
     const ctx = canvas.getContext("2d");
+    ctx.scale(SCALE, SCALE); // work in logical 72px units; output is 4× denser.
     const inner = SIZE - PADDING * 2;
 
     // Largest font size at which the text wraps within maxLines and every line fits the width.
