@@ -21,7 +21,8 @@ state, so there is nothing to poll.
 1. Make sure the middleware is running and reachable (its dashboard opens at
    `http://<APP_IP>:8080`).
 2. Install this module — either **Modules → Import module package** with the
-   `yt-companion-middleware-<version>.tgz` built by `npm run package`, or via the **Developer
+   `yt-companion-middleware-<version>.tgz` built by `npm run companion:package` (from the repo
+   root), or via the **Developer
    modules path** (see the module README). Then **Connections → Add connection**, search
    **yt-companion-middleware**, add it.
 3. Set **Middleware base URL** to that host. Leave **Bearer token** blank unless the action bus
@@ -31,6 +32,19 @@ state, so there is nothing to poll.
 
 After editing presets in the dashboard, run the **Refresh preset/category/stream lists** action
 once so the dropdowns pick up the change.
+
+## Presets (drag-drop buttons)
+
+Open the **Presets** tab for ready-made buttons — the quickest way to build a page:
+
+- **Apply preset** category — one button *per middleware preset*, already labelled with its slug,
+  already wired to the apply action, and already carrying the *Active preset is…* highlight. Drag
+  one onto a key and it applies + self-labels + lights up when active, no config. After editing
+  presets in the dashboard, run **Refresh preset/category/stream lists** so new ones appear.
+- **State & controls** category — Arabic-safe title/label images, on-air & busy indicators,
+  privacy toggle, undo, refresh, connection check, and the API kill-switch toggle.
+
+Every dropped button stays fully editable afterwards.
 
 ## Configuration
 
@@ -61,6 +75,10 @@ Privacy toggle, Privacy set, Undo, Refresh cache, Refresh lists — all hit the 
 **Check middleware connection (YouTube status)** — pings `/api/feedback/health` on demand, logs
 reachability + YouTube auth/quota, and updates the connection status pill. Bind it to a key to
 verify the link (and YouTube auth behind it) any time.
+
+**API master switch (kill switch): set / toggle** — turns the middleware's master switch on/off
+(`PUT /api/dashboard/service`). While off it makes no YouTube calls and rejects actions, so an
+idle service stops burning quota. Pair the toggle with the *API disabled* feedback.
 
 ## Template vars & opening the dashboard
 

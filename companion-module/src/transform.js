@@ -100,6 +100,53 @@ export function summarizeHealth(health) {
 }
 
 /**
+ * Given the latest DashboardState, returns what the API master switch (kill switch) should become
+ * on a toggle: enable when it is currently off, otherwise disable. An unknown/missing state is
+ * treated as "on", so a first toggle turns it off.
+ * @param {Record<string, any> | undefined} state
+ * @returns {boolean}
+ */
+export function nextApiEnabled(state) {
+  return state?.apiEnabled === false;
+}
+
+// Local RGB packer — same math as the SDK's combineRgb, kept here so this module stays SDK-free
+// and unit-testable. `(r << 16) | (g << 8) | b`.
+const rgb = (r, g, b) => (r << 16) | (g << 8) | b;
+
+/**
+ * Builds Companion **preset buttons** (the drag-drop templates in the Presets tab) — one per
+ * middleware preset. Each arrives already labelled with the preset's slug/title, already wired to
+ * the `apply_preset` action, and already carrying the `active_preset` highlight feedback, so an
+ * operator drops it on a key and it applies + self-labels + lights up when active with no config.
+ * Returned in the `CompanionPresetDefinitions` shape expected by `setPresetDefinitions`.
+ * @param {Array<{ id: string, title?: string, slug?: string }>} presets
+ * @returns {Record<string, any>}
+ */
+export function presetButtons(presets) {
+  const defs = {};
+  for (const p of presets ?? []) {
+    const slug = p.slug?.trim();
+    const text = slug || p.title || p.id;
+    defs[`apply_${p.id}`] = {
+      type: 'button',
+      category: 'Apply preset',
+      name: p.title || p.id,
+      style: { text, size: 'auto', color: rgb(255, 255, 255), bgcolor: rgb(30, 33, 40) },
+      steps: [{ down: [{ actionId: 'apply_preset', options: { presetId: p.id, vars: '' } }], up: [] }],
+      feedbacks: [
+        {
+          feedbackId: 'active_preset',
+          options: { presetId: p.id },
+          style: { bgcolor: rgb(0, 140, 0), color: rgb(255, 255, 255) },
+        },
+      ],
+    };
+  }
+  return defs;
+}
+
+/**
  * Category dropdown choices with a leading "inherit default" (empty id) entry so the update
  * action can leave the field unchanged.
  * @param {Array<{ id: string, title?: string }>} categories

@@ -24,8 +24,8 @@ poll interval to configure. It auto-reconnects with backoff. **Actions** stay HT
   `http://<APP_IP>:8080` opens the dashboard. (See the repo root README for running it via Docker
   or `npm run dev`.)
 - **Companion 3.x or newer** (this module targets module-api `~1.11`, Node 22 runtime).
-- **Node.js ≥ 22** on the machine where you prepare the module folder (only needed to run
-  `npm install` inside `companion-module/` once).
+- **Node.js ≥ 22** on the machine where you build the package (only needed to run
+  `npm run companion:package` from the repo root once).
 - If your action bus is protected, the **Bearer token** the middleware expects. On a trusted LAN
   it is usually left blank.
 
@@ -41,14 +41,15 @@ modules path)** is for iterating on the module's code.
 
 Build a package file once, then import it from the Companion UI. No restart needed.
 
-1. **Build the package** (installs deps incl. the build tool, then bundles a `.tgz`):
+1. **Build the package** — one command from the **repo root** (installs the module's deps incl. the
+   build tool, then bundles the `.tgz`; no `cd` needed):
    ```bash
-   cd companion-module
-   npm install
-   npm run package   # runs companion-module-build
+   npm run companion:package
    ```
-   This writes **`yt-companion-middleware-<version>.tgz`** into the folder (e.g.
-   `yt-companion-middleware-1.0.0.tgz`).
+   This writes **`companion-module/yt-companion-middleware-<version>.tgz`** (e.g.
+   `yt-companion-middleware-1.0.0.tgz`). Other root helpers:
+   `npm run companion:install` (deps only), `npm run companion:check` (syntax),
+   `npm run companion:test` (the module's unit tests).
 2. In Companion open **Modules → Import module package** and select that `.tgz`. (Companion's file
    dialog labels it a module package.) The module appears in the list immediately.
 
@@ -130,6 +131,21 @@ usual cause.
 | `undo_label` | Label of the change that **Undo** would revert. |
 | `dashboard_url` | The configured base URL — use it with the built-in **Open URL** action. |
 
+### Presets (drag-drop buttons)
+
+The module publishes ready-made buttons in Companion's **Presets** tab — the answer to "I want a
+key that applies a preset *and* labels itself." Presets are a starting point; every dropped button
+is fully editable afterwards.
+
+| Category | What drops |
+|---|---|
+| **Apply preset** | One button **per middleware preset** (regenerated on **Refresh lists**): its slug as the text, the **Apply preset** action bound to that preset, and the **Active preset is…** feedback pointed at it — so the key applies, self-labels, and turns green when it's the one on air. |
+| **State & controls** | Fixed helpers: *Arabic-safe live title (image)*, *Arabic-safe button label (image)*, *On-air indicator*, *Busy indicator*, *Privacy toggle*, *Undo last change*, *Refresh cache*, *Refresh lists*, *Check connection*, *API kill switch (toggle)*. |
+
+> Presets are authored by the module — you can't create new ones from the Companion UI, but you
+> can export your edited buttons as a custom library. Added presets in the dashboard? Run
+> **Refresh preset/category/stream lists** and the new **Apply preset** buttons appear.
+
 ### Feedbacks
 
 Image feedbacks are the reason this module exists; boolean feedbacks recolour keys.
@@ -159,6 +175,8 @@ so you never need to add a manual refresh after an action.
 | **Refresh cache** | — | Forces the middleware to refresh its cached state. |
 | **Refresh preset/category/stream lists** | — | Re-fetches the dropdown choices after you edit presets in the dashboard. |
 | **Check middleware connection (YouTube status)** | — | On-demand ping of `/api/feedback/health`: logs reachability + YouTube auth/quota and updates the connection status pill. Bind it to a key to verify the link (and YouTube auth behind it) at any time. |
+| **API master switch (kill switch): set** | `API` (enabled / disabled) | Turns the middleware's master switch on/off (`PUT /api/dashboard/service`). While off, the middleware makes no YouTube calls and rejects actions — stops quota burn on an idle service. |
+| **API master switch (kill switch): toggle** | — | Flips the switch based on current state. Pair with the **API disabled** feedback so the key shows on/off. |
 
 ---
 
@@ -215,7 +233,7 @@ step use Companion's built-in **Open URL** action:
 
 ## Packaging for distribution
 
-The `npm run package` step in **Method A** produces the `yt-companion-middleware-<version>.tgz`
+The `npm run companion:package` step in **Method A** produces the `yt-companion-middleware-<version>.tgz`
 you hand to other operators (or import yourself). To publish it more widely, submit the module to
 the Bitfocus registry so it shows up in Companion's built-in store. See the middleware's in-app
 guide at `/docs` for the underlying endpoint details.
