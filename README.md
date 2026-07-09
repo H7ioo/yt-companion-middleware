@@ -64,6 +64,9 @@ from macOS/Linux requires Wine — building on Windows (or CI) is simplest.
 Closing to setup mode: the app boots into the setup screen whenever credentials are missing;
 saving them restarts the server in-place and hands off to the dashboard.
 
+Releases (the installer/exe and the Companion `.tgz`) are cut by pushing a `v*` git tag — see
+[`RELEASING.md`](RELEASING.md) for the tag + version-bump workflow.
+
 ### Local dev
 
 ```bash

@@ -30,6 +30,15 @@ npm run companion:package   # → companion-module/yt-companion-middleware-<vers
 
 Other helpers: `companion:install`, `companion:check`, `companion:test`.
 
+## Cutting a release (hard rule)
+
+Releases are driven by pushing a `v*` git tag, which builds and publishes **both** the desktop app
+(version stamped from the tag) and the Companion module `.tgz`. Before tagging: if this release
+changed anything under `companion-module/`, bump the module version in the same PR first (see
+above). Never tag on autopilot.
+
+Full end-to-end flow, semver guidance, and the checklist: [`RELEASING.md`](RELEASING.md).
+
 ## General
 
 - Conventional Commits. End commit messages with the `Co-Authored-By` trailer used across the repo.
