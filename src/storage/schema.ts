@@ -96,7 +96,21 @@ export const serviceSchema = z.object({
 });
 export type ServiceState = z.infer<typeof serviceSchema>;
 
+/**
+ * YouTube OAuth credentials entered through the desktop setup screen. Persisted here so the
+ * app can be configured without editing a .env file. Empty strings mean "not set" — when any
+ * is empty the app falls back to the matching environment variable, and if still empty it boots
+ * in setup mode. The refresh token never leaves the server (never sent to a client endpoint).
+ */
+export const credentialsSchema = z.object({
+  clientId: z.string().default(""),
+  clientSecret: z.string().default(""),
+  refreshToken: z.string().default(""),
+});
+export type CredentialsState = z.infer<typeof credentialsSchema>;
+
 export const storeSchema = z.object({
+  credentials: credentialsSchema.default({ clientId: "", clientSecret: "", refreshToken: "" }),
   presets: z.array(presetSchema).default([]),
   defaults: defaultSettingsSchema.default({
     defaultCategory: null,

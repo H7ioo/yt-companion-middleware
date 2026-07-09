@@ -4,6 +4,7 @@
   "description": "Middleware between Bitfocus Companion and the YouTube Live Streaming API",
   "type": "module",
   "private": true,
+  "main": "electron/main.mjs",
   "engines": {
     "node": ">=20"
   },
@@ -16,11 +17,53 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:electron": "tsc --noEmit -p tsconfig.electron.json",
+    "desktop:icons": "node electron/scripts/make-icons.mjs",
+    "desktop:dev": "npm run build:all && electron .",
+    "desktop:pack": "npm run desktop:icons && npm run build:all && electron-builder --dir",
+    "desktop:build": "npm run typecheck:electron && npm run desktop:icons && npm run build:all && electron-builder --win",
     "companion:install": "npm --prefix companion-module install",
     "companion:check": "npm --prefix companion-module run check",
     "companion:test": "vitest run companion-module",
     "companion:bump": "node companion-module/scripts/bump-version.mjs",
     "companion:package": "npm --prefix companion-module install && npm --prefix companion-module run package"
+  },
+  "build": {
+    "appId": "com.h7ioo.ytcompanion",
+    "productName": "YT Companion",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "web/dist/**/*",
+      "public/**/*",
+      "electron/main.mjs",
+      "electron/assets/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/*.node",
+      "**/@napi-rs/canvas*/**"
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "YT Companion"
+    },
+    "portable": {
+      "artifactName": "YT-Companion-${version}-portable.exe"
+    }
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.2",
@@ -35,6 +78,8 @@
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.2",
     "@types/ws": "^8.18.1",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

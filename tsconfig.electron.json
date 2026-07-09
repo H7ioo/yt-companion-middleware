@@ -1,0 +1,21 @@
+{
+  // Type-checks the Electron main process and its build scripts. These ship as plain ESM (.mjs)
+  // because Electron loads the entry directly, so instead of emitting we check the JSDoc-annotated
+  // JS in place (`// @ts-check` at the top of each file opts it in). No output — safety only.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
+  },
+  "include": ["electron/**/*.mjs"],
+  "exclude": ["node_modules"]
+}
