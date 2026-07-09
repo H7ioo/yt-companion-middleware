@@ -1685,10 +1685,21 @@ npm start</pre>
             </p>
             <ol>
               <li>
-                Copy/symlink <code>companion-module/</code> into your Companion
-                <strong>Developer modules path</strong> (Settings → Developer
-                modules path), run <code>npm install</code> inside it once, and
-                restart Companion.
+                <strong>Install the module.</strong> Easiest (Companion 4+):
+                build a package once and import it —
+                <pre><code>cd companion-module
+npm install
+npx companion-module-build   # produces pkg.tgz</code></pre>
+                then in Companion go to <strong>Modules</strong>, click
+                <strong>Import module package</strong>, and pick the generated
+                <code>pkg.tgz</code> (the file dialog also accepts a zipped
+                module folder). No restart needed.
+                <br />
+                <em>For development</em> you can instead point
+                <strong>Settings → Developer modules path</strong> at a folder
+                that contains (or symlinks) <code>companion-module/</code> after
+                running <code>npm install</code> inside it, then restart
+                Companion — changes reload automatically.
               </li>
               <li>
                 Add the <strong>yt-companion-middleware</strong> connection; set

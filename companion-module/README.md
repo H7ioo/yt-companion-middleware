@@ -31,12 +31,36 @@ poll interval to configure. It auto-reconnects with backoff. **Actions** stay HT
 
 ---
 
-## 2. Install (developer / sideload)
+## 2. Install
+
+Since Companion 4.0 modules are plugins you install independently. There are two ways to get this
+one in — **Method A (import a package)** is the simplest for an operator; **Method B (developer
+modules path)** is for iterating on the module's code.
+
+### Method A — Import a module package (recommended)
+
+Build a package file once, then import it from the Companion UI. No restart needed.
+
+1. **Build the package** (pulls `@companion-module/base` + `ws`, then bundles a `.tgz`):
+   ```bash
+   cd companion-module
+   npm install
+   npx companion-module-build   # writes pkg.tgz into the folder
+   ```
+2. In Companion open **Modules → Import module package** and select the generated
+   `pkg.tgz`. (Companion's file dialog labels it a module package; it also accepts a zipped module
+   folder.) The module appears in the list immediately.
+
+> Offline installs of *many* modules at once use the separate **Import offline module bundle**
+> feature with a versioned bundle from the Bitfocus website — that's not needed for this single
+> module.
+
+### Method B — Developer modules path (for development)
 
 Companion loads unreleased modules from a **Developer modules path** — a folder you nominate that
-holds one subfolder per module.
+holds one subfolder per module, and it hot-reloads on change.
 
-1. **Fetch the module's dependencies** (pulls `@companion-module/base` and `ws`):
+1. **Fetch the module's dependencies**:
    ```bash
    cd companion-module
    npm install
@@ -53,10 +77,11 @@ holds one subfolder per module.
 3. **Point Companion at that folder.** In the Companion admin UI open
    **Settings → Developer modules path** and set it to `~/companion-dev-modules` (the *parent*
    folder, not the module folder). Save.
-4. **Restart Companion** so it rescans the developer path.
+4. **Restart Companion** so it rescans the developer path. Later code edits reload automatically.
 
-If a step fails, check Companion's log (**Log** tab) for a line mentioning
-`yt-companion-middleware` — a missing `npm install` or a bad path is the usual cause.
+If either method fails, check Companion's log (**Log** tab) for a line mentioning
+`yt-companion-middleware` — a missing `npm install`, a bad path, or an unbuilt package is the
+usual cause.
 
 ---
 
@@ -188,6 +213,7 @@ step use Companion's built-in **Open URL** action:
 
 ## Packaging for distribution
 
-To ship the module beyond a developer sideload, use the Companion module tooling
-(`companion-module-build`) and submit to the module registry. See the middleware's in-app guide at
+The `npx companion-module-build` step in **Method A** produces the `pkg.tgz` you hand to other
+operators (or import yourself). To publish it more widely, submit the module to the Bitfocus
+registry so it shows up in Companion's built-in store. See the middleware's in-app guide at
 `/docs` for the underlying endpoint details.
