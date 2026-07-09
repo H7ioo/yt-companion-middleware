@@ -4,14 +4,14 @@
 	"name": "yt-companion-middleware",
 	"shortname": "ytmeta",
 	"description": "YouTube Live metadata control middleware — presets, on-air state, and Arabic-safe title/label images.",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"license": "MIT",
 	"repository": "git+https://github.com/H7ioo/yt-companion-middleware.git",
 	"bugs": "https://github.com/H7ioo/yt-companion-middleware/issues",
 	"maintainers": [
 		{
 			"name": "Omar",
-			"email": "support.glomarkt@gmail.com"
+			"email": "omar.jano05@gmail.com"
 		}
 	],
 	"legacyIds": [],
@@ -22,6 +22,12 @@
 		"entrypoint": "../main.js"
 	},
 	"manufacturer": "yt-middleware",
-	"products": ["YouTube Live"],
-	"keywords": ["YouTube", "Streaming", "Broadcast"]
+	"products": [
+		"YouTube Live"
+	],
+	"keywords": [
+		"YouTube",
+		"Streaming",
+		"Broadcast"
+	]
 }
