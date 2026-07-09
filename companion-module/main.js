@@ -6,6 +6,7 @@ import {
 	mapVariables,
 	presetChoices,
 	streamChoices,
+	summarizeHealth,
 	toPng64,
 	wsUrl,
 } from './src/transform.js'
@@ -136,6 +137,26 @@ class YtMiddlewareInstance extends InstanceBase {
 		} catch (err) {
 			this.log('warn', `GET ${path} failed: ${err?.message ?? err}`)
 			return fallback
+		}
+	}
+
+	/**
+	 * On-demand reachability + YouTube-auth check against the unauthenticated /health endpoint (the
+	 * "YouTube status" liveness route). Logs a one-line summary and nudges the connection status so
+	 * an operator can confirm the middleware — and YouTube auth behind it — from a button.
+	 */
+	async checkConnection() {
+		try {
+			const res = await fetch(joinUrl(this.config.url, '/api/feedback/health'), { headers: this.headers() })
+			if (!res.ok) throw new Error(`HTTP ${res.status}`)
+			const health = await res.json()
+			const { ok, text } = summarizeHealth(health)
+			this.log('info', `Connection check: ${text}`)
+			this.updateStatus(ok ? InstanceStatus.Ok : InstanceStatus.ConnectionFailure, text)
+		} catch (err) {
+			const message = String(err?.message ?? err)
+			this.log('error', `Connection check failed: ${message}`)
+			this.updateStatus(InstanceStatus.ConnectionFailure, message)
 		}
 	}
 
@@ -428,6 +449,11 @@ class YtMiddlewareInstance extends InstanceBase {
 				name: 'Refresh preset/category/stream lists',
 				options: [],
 				callback: () => this.refreshLists(),
+			},
+			check_connection: {
+				name: 'Check middleware connection (YouTube status)',
+				options: [],
+				callback: () => this.checkConnection(),
 			},
 		})
 	}
