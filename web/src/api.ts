@@ -105,7 +105,28 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export interface SetupStatus {
+  configured: boolean;
+  hasClientId: boolean;
+  hasClientSecret: boolean;
+  hasRefreshToken: boolean;
+}
+
+export interface CredentialsInput {
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+}
+
 export const api = {
+  setup: {
+    status: () => req<SetupStatus>("/api/setup/status"),
+    save: (creds: CredentialsInput) =>
+      req<{ ok: boolean; restarting: boolean }>("/api/setup", {
+        method: "POST",
+        body: JSON.stringify(creds),
+      }),
+  },
   presets: {
     list: () => req<Preset[]>("/api/dashboard/presets"),
     create: (input: PresetInput) =>

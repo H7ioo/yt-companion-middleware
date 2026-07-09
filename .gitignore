@@ -9,3 +9,9 @@ data/
 !.env.example
 *.log
 .DS_Store
+
+# Desktop build output + generated icons
+release/
+build/icon.ico
+electron/assets/icon.png
+electron/assets/tray.png
