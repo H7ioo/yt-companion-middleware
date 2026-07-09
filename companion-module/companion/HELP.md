@@ -20,7 +20,9 @@ state, so there is nothing to poll.
 
 1. Make sure the middleware is running and reachable (its dashboard opens at
    `http://<APP_IP>:8080`).
-2. **Connections → Add connection**, search **yt-companion-middleware**, add it.
+2. Install this module — either **Modules → Import module package** with the `pkg.tgz` built by
+   `npx companion-module-build`, or via the **Developer modules path** (see the module README).
+   Then **Connections → Add connection**, search **yt-companion-middleware**, add it.
 3. Set **Middleware base URL** to that host. Leave **Bearer token** blank unless the action bus
    is protected. Save — the status pill goes **Connecting → OK**.
 4. Confirm it works: set any key's text to `$(ytmeta:display_label)`.
