@@ -40,8 +40,9 @@ jobs:
         run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
 
       # Generates icons, builds server + web, then packs the NSIS installer and portable .exe.
-      # No GH token is exposed here on purpose: electron-builder must not auto-publish — the
-      # release job downloads these artifacts and owns publishing.
+      # desktop:build passes --publish never: electron-builder's default (onTagOrDraft) would
+      # otherwise try to upload on tag builds and fail for want of GH_TOKEN. The release job
+      # downloads these artifacts and owns publishing.
       - run: npm run desktop:build
 
       - uses: actions/upload-artifact@v4

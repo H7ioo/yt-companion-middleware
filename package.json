@@ -21,7 +21,7 @@
     "desktop:icons": "node electron/scripts/make-icons.mjs",
     "desktop:dev": "npm run build:all && electron .",
     "desktop:pack": "npm run desktop:icons && npm run build:all && electron-builder --dir",
-    "desktop:build": "npm run typecheck:electron && npm run desktop:icons && npm run build:all && electron-builder --win",
+    "desktop:build": "npm run typecheck:electron && npm run desktop:icons && npm run build:all && electron-builder --win --publish never",
     "companion:install": "npm --prefix companion-module install",
     "companion:check": "npm --prefix companion-module run check",
     "companion:test": "vitest run companion-module",
