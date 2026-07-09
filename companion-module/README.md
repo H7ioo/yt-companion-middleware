@@ -158,6 +158,7 @@ so you never need to add a manual refresh after an action.
 | **Undo last change** | — | Reverts the last change (`$(ytmeta:undo_label)` shows what). |
 | **Refresh cache** | — | Forces the middleware to refresh its cached state. |
 | **Refresh preset/category/stream lists** | — | Re-fetches the dropdown choices after you edit presets in the dashboard. |
+| **Check middleware connection (YouTube status)** | — | On-demand ping of `/api/feedback/health`: logs reachability + YouTube auth/quota and updates the connection status pill. Bind it to a key to verify the link (and YouTube auth behind it) at any time. |
 
 ---
 

@@ -80,6 +80,26 @@ export function presetChoices(presets) {
 }
 
 /**
+ * Summarises the middleware's `/api/feedback/health` response (the "YouTube status" liveness
+ * check) into a one-line log message and an `ok` flag. Used by the "Check middleware connection"
+ * action. Tolerates an undefined payload (unreachable middleware).
+ * @param {Record<string, any> | undefined} health
+ * @returns {{ ok: boolean, text: string }}
+ */
+export function summarizeHealth(health) {
+  if (!health) return { ok: false, text: 'no response from middleware' };
+  const ok = health.authenticated !== false && health.status !== 'auth_error';
+  const parts = [
+    `health ${health.status ?? 'unknown'}`,
+    health.authenticated === false ? 'NOT authenticated' : 'authenticated',
+    `API ${health.apiEnabled === false ? 'disabled' : 'enabled'}`,
+    `quota ${health.quotaRemaining ?? '?'}/${health.quotaLimit ?? '?'}`,
+  ];
+  if (health.message) parts.push(String(health.message));
+  return { ok, text: parts.join(' · ') };
+}
+
+/**
  * Category dropdown choices with a leading "inherit default" (empty id) entry so the update
  * action can leave the field unchanged.
  * @param {Array<{ id: string, title?: string }>} categories

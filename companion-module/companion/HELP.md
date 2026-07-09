@@ -58,6 +58,10 @@ Apply preset (dropdown + optional template-vars JSON), Update live metadata (tit
 Privacy toggle, Privacy set, Undo, Refresh cache, Refresh lists — all hit the middleware's
 `/api/action/*` bus (Refresh lists re-fetches the preset/category/stream dropdowns).
 
+**Check middleware connection (YouTube status)** — pings `/api/feedback/health` on demand, logs
+reachability + YouTube auth/quota, and updates the connection status pill. Bind it to a key to
+verify the link (and YouTube auth behind it) any time.
+
 ## Template vars & opening the dashboard
 
 Use Companion's built-in **Open URL** action, not this module:
