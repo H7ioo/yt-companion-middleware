@@ -12,8 +12,8 @@ tag needs a human.
 ## Acceptance criteria
 
 - [x] `release.yml` builds desktop + companion from the new paths.
-- [ ] A `workflow_dispatch` run is green and produces the desktop artifacts. **(HITL — pending)**
-- [ ] A pre-release tag proves publish works; `companion-module` `.tgz` still ships unchanged. **(HITL — pending)**
+- [x] A `workflow_dispatch` run is green and produces the desktop artifacts.
+- [x] A pre-release tag proves publish works; `companion-module` `.tgz` still ships unchanged.
 - [x] `RELEASING.md` path references updated.
 
 ## Progress notes (code done; CI proof HITL-pending)
@@ -45,6 +45,28 @@ Verified locally (green): YAML parses (3 jobs, 6 desktop steps); `typecheck:elec
    `.tgz` still ships unchanged; delete the tag/Release afterward if it was only a rehearsal.
    Note the branch must be merged to a ref CI runs from, or dispatch against the branch.
 CI-touching slices (preflight, auto-update) stay blocked until #1–#2 pass.
+
+## CI proof — DONE 2026-07-10
+
+Pushed the six PRD-04 commits to `origin/main` (clean fast-forward; the stage work sat on local
+`main`, not `docs/prd-roadmap`), then proved both HITL paths over the GitHub API:
+
+- **workflow_dispatch** (run `29111391538`, `--ref main`): `success`. Windows desktop app + Companion
+  jobs green; Publish correctly **skipped** (non-tag). Artifacts: `desktop` (~176 MB installer +
+  portable), `companion` (~42 KB `.tgz`).
+- **pre-release tag `v2.1.1-rc.1`** (run `29111634788`): `success`, all three jobs incl. Publish.
+  Release published with `YT.Companion.Setup.2.1.1-rc.1.exe`, `YT-Companion-2.1.1-rc.1-portable.exe`
+  (both **version-stamped from the tag** → electron-builder read the root package.json version, as
+  the app-dir-at-root design intends), and `yt-companion-middleware-1.1.0.tgz` (Companion module,
+  **unchanged**, its own independent version).
+
+**Follow-ups (not blockers for this issue):**
+- The rc release published as `prerelease: false` → it shows as *Latest*, visually superseding the
+  real `v2.1.0`. `release.yml`'s `softprops/action-gh-release` sets no `prerelease` flag. Fix:
+  set `prerelease: ${{ contains(github.ref_name, '-') }}` (or `true`) so `-rc`/`-beta` tags don't
+  claim Latest. Track as a small CI-polish issue.
+- The `v2.1.1-rc.1` tag + Release are a **rehearsal** — delete once reviewed
+  (`gh release delete v2.1.1-rc.1 --cleanup-tag`).
 
 ## Blocked by
 
