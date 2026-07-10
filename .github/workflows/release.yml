@@ -25,11 +25,8 @@ jobs:
           cache: npm
 
       # Full install so electron + electron-builder + the win32 @napi-rs/canvas binary are present.
+      # npm workspaces install every package (packages/shared, packages/web) from the root lockfile.
       - run: npm ci
-
-      # The dashboard is a separate package; build:web (tsc -b + vite build) needs its own deps.
-      - run: npm ci
-        working-directory: web
 
       # Stamp the desktop app version from the release tag so the installer/exe are named for the
       # release (e.g. tag v2.1.0 -> "YT Companion Setup 2.1.0.exe"). Not committed — it only

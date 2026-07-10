@@ -1,8 +1,8 @@
 node_modules/
 dist/
 *.tsbuildinfo
-web/dist/
-web/node_modules/
+packages/web/dist/
+packages/web/node_modules/
 data/
 *.local
 .env

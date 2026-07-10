@@ -70,10 +70,9 @@ Releases (the installer/exe and the Companion `.tgz`) are cut by pushing a `v*` 
 ### Local dev
 
 ```bash
-npm install
-npm --prefix web install
-npm run dev          # backend on :8080
-npm --prefix web run dev   # dashboard on :5173 (proxies /api to :8080)
+npm install                        # workspaces install server + packages/*
+npm run dev                        # backend on :8080
+npm --prefix packages/web run dev  # dashboard on :5173 (proxies /api to :8080)
 ```
 
 ## Companion setup

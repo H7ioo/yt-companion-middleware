@@ -10,7 +10,7 @@
   },
   "workspaces": [
     "packages/shared",
-    "web"
+    "packages/web"
   ],
   "allowScripts": {
     "esbuild@0.25.12": true
@@ -19,8 +19,8 @@
     "dev": "tsx watch src/server.ts",
     "build:shared": "npm run build -w @app/shared",
     "build": "npm run build:shared && tsc -p tsconfig.json",
-    "build:web": "npm run build:shared && npm --prefix web run build",
-    "build:all": "npm run build:shared && npm --prefix web run build && tsc -p tsconfig.json",
+    "build:web": "npm run build:shared && npm --prefix packages/web run build",
+    "build:all": "npm run build:shared && npm --prefix packages/web run build && tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "test": "npm run build:shared && vitest run",
     "test:watch": "vitest",
@@ -45,7 +45,7 @@
     },
     "files": [
       "dist/**/*",
-      "web/dist/**/*",
+      "packages/web/dist/**/*",
       "public/**/*",
       "electron/main.mjs",
       "electron/assets/**/*",
