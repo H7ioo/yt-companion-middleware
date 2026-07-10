@@ -1,19 +1,8 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
-    "outDir": "dist",
-    "rootDir": "src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "declaration": false,
-    "sourceMap": true
-  },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "web"]
+  // Solution file — the root is a workspace orchestrator with no app code of its own. It only
+  // wires the composite TS projects together so `tsc -b` builds them in dependency order
+  // (shared -> server). `packages/web` is built by vite within its own package; the Electron
+  // main process is checked via tsconfig.electron.json.
+  "files": [],
+  "references": [{ "path": "packages/shared" }, { "path": "packages/server" }]
 }

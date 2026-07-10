@@ -148,7 +148,7 @@ async function bootOnce(
   app.get("/guide", (_req, res) => res.sendFile(guidePage));
 
   // Serve the built React dashboard, if present.
-  const webDist = path.resolve(here, "../packages/web/dist");
+  const webDist = path.resolve(here, "../../web/dist");
   if (fs.existsSync(webDist)) {
     app.use(express.static(webDist));
     app.get(/^(?!\/api\/).*/, (_req, res) => {

@@ -25,7 +25,7 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 /**
- * The running middleware server, exposed by dist/server.js#startServer.
+ * The running middleware server, exposed by packages/server/dist/server.js#startServer.
  * @typedef {{ close(): Promise<void> }} ServerHandle
  */
 
@@ -115,7 +115,7 @@ function createTray() {
 
 async function startEmbeddedServer() {
   // Import the compiled server lazily so a build error surfaces as a dialog, not a silent crash.
-  const serverUrl = new URL("../dist/server.js", import.meta.url);
+  const serverUrl = new URL("../packages/server/dist/server.js", import.meta.url);
   /** @type {{ startServer: () => Promise<ServerHandle> }} */
   const mod = await import(serverUrl.href);
   serverHandle = await mod.startServer();

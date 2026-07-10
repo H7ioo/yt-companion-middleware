@@ -10,21 +10,23 @@
   },
   "workspaces": [
     "packages/shared",
+    "packages/server",
     "packages/web"
   ],
   "allowScripts": {
     "esbuild@0.25.12": true
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "npm run dev -w @app/server",
     "build:shared": "npm run build -w @app/shared",
-    "build": "npm run build:shared && tsc -p tsconfig.json",
-    "build:web": "npm run build:shared && npm --prefix packages/web run build",
-    "build:all": "npm run build:shared && npm --prefix packages/web run build && tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "build:server": "npm run build -w @app/server",
+    "build:web": "npm run build:shared && npm run build -w @app/web",
+    "build": "tsc -b tsconfig.json",
+    "build:all": "npm run build:web && npm run build:server",
+    "start": "npm run start -w @app/server",
     "test": "npm run build:shared && vitest run",
     "test:watch": "vitest",
-    "typecheck": "npm run build:shared && tsc --noEmit -p tsconfig.json",
+    "typecheck": "npm run build:shared && npm run typecheck -w @app/server",
     "typecheck:electron": "tsc --noEmit -p tsconfig.electron.json",
     "desktop:icons": "node electron/scripts/make-icons.mjs",
     "desktop:dev": "npm run build:all && electron .",
@@ -44,9 +46,9 @@
       "buildResources": "build"
     },
     "files": [
-      "dist/**/*",
+      "packages/server/dist/**/*",
+      "packages/server/public/**/*",
       "packages/web/dist/**/*",
-      "public/**/*",
       "electron/main.mjs",
       "electron/assets/**/*",
       "package.json"
@@ -74,22 +76,12 @@
     }
   },
   "dependencies": {
-    "@app/shared": "*",
-    "@napi-rs/canvas": "^1.0.2",
-    "dotenv": "^16.4.5",
-    "express": "^4.21.1",
-    "googleapis": "^144.0.0",
-    "nanoid": "^5.0.9",
-    "ws": "^8.21.0",
-    "zod": "^3.24.1"
+    "@app/server": "*"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
     "@types/node": "^22.10.2",
-    "@types/ws": "^8.18.1",
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }
