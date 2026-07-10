@@ -2,7 +2,7 @@
   // Solution file — the root is a workspace orchestrator with no app code of its own. It only
   // wires the composite TS projects together so `tsc -b` builds them in dependency order
   // (shared -> server). `packages/web` is built by vite within its own package; the Electron
-  // main process is checked via tsconfig.electron.json.
+  // main process is checked via packages/desktop/tsconfig.json (npm run typecheck:electron).
   "files": [],
   "references": [{ "path": "packages/shared" }, { "path": "packages/server" }]
 }

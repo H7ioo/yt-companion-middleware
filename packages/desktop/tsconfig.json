@@ -16,6 +16,6 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "include": ["electron/**/*.mjs"],
+  "include": ["**/*.mjs"],
   "exclude": ["node_modules"]
 }

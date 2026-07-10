@@ -4,14 +4,15 @@
   "description": "Middleware between Bitfocus Companion and the YouTube Live Streaming API",
   "type": "module",
   "private": true,
-  "main": "electron/main.mjs",
+  "main": "packages/desktop/main.mjs",
   "engines": {
     "node": ">=20"
   },
   "workspaces": [
     "packages/shared",
     "packages/server",
-    "packages/web"
+    "packages/web",
+    "packages/desktop"
   ],
   "allowScripts": {
     "esbuild@0.25.12": true
@@ -27,61 +28,21 @@
     "test": "npm run build:shared && vitest run",
     "test:watch": "vitest",
     "typecheck": "npm run build:shared && npm run typecheck -w @app/server",
-    "typecheck:electron": "tsc --noEmit -p tsconfig.electron.json",
-    "desktop:icons": "node electron/scripts/make-icons.mjs",
-    "desktop:dev": "npm run build:all && electron .",
-    "desktop:pack": "npm run desktop:icons && npm run build:all && electron-builder --dir",
-    "desktop:build": "npm run typecheck:electron && npm run desktop:icons && npm run build:all && electron-builder --win --publish never",
+    "typecheck:electron": "npm run typecheck -w @app/desktop",
+    "desktop:icons": "npm run icons -w @app/desktop",
+    "desktop:dev": "npm run build:all && electron packages/desktop/main.mjs",
+    "desktop:pack": "npm run desktop:icons && npm run build:all && electron-builder --dir -c packages/desktop/electron-builder.yml",
+    "desktop:build": "npm run typecheck:electron && npm run desktop:icons && npm run build:all && electron-builder --win --publish never -c packages/desktop/electron-builder.yml",
     "companion:install": "npm --prefix companion-module install",
     "companion:check": "npm --prefix companion-module run check",
     "companion:test": "vitest run companion-module",
     "companion:bump": "node companion-module/scripts/bump-version.mjs",
     "companion:package": "npm --prefix companion-module install && npm --prefix companion-module run package"
   },
-  "build": {
-    "appId": "com.h7ioo.ytcompanion",
-    "productName": "YT Companion",
-    "directories": {
-      "output": "release",
-      "buildResources": "build"
-    },
-    "files": [
-      "packages/server/dist/**/*",
-      "packages/server/public/**/*",
-      "packages/web/dist/**/*",
-      "electron/main.mjs",
-      "electron/assets/**/*",
-      "package.json"
-    ],
-    "asarUnpack": [
-      "**/*.node",
-      "**/@napi-rs/canvas*/**"
-    ],
-    "win": {
-      "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
-      ],
-      "icon": "build/icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "shortcutName": "YT Companion"
-    },
-    "portable": {
-      "artifactName": "YT-Companion-${version}-portable.exe"
-    }
-  },
   "dependencies": {
     "@app/server": "*"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
-    "electron": "^33.2.1",
-    "electron-builder": "^25.1.8",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }

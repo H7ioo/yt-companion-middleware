@@ -1,0 +1,22 @@
+{
+  "name": "@app/desktop",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "description": "Electron desktop wrapper — runs the middleware server in-process and shows the dashboard in a native window.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "icons": "node scripts/make-icons.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^0.1.65",
+    "@types/node": "^22.10.2",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.2"
+  }
+}

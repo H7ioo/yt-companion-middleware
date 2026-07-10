@@ -13,6 +13,6 @@ data/
 
 # Desktop build output + generated icons
 release/
-build/icon.ico
-electron/assets/icon.png
-electron/assets/tray.png
+packages/desktop/build/icon.ico
+packages/desktop/assets/icon.png
+packages/desktop/assets/tray.png

@@ -115,7 +115,7 @@ function createTray() {
 
 async function startEmbeddedServer() {
   // Import the compiled server lazily so a build error surfaces as a dialog, not a silent crash.
-  const serverUrl = new URL("../packages/server/dist/server.js", import.meta.url);
+  const serverUrl = new URL("../server/dist/server.js", import.meta.url);
   /** @type {{ startServer: () => Promise<ServerHandle> }} */
   const mod = await import(serverUrl.href);
   serverHandle = await mod.startServer();

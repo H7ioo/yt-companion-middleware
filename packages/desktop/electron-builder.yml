@@ -1,0 +1,55 @@
+# electron-builder config for the YT Companion desktop app.
+#
+# The project/app dir is the workspace ROOT (this file is loaded from root via `electron-builder
+# -c packages/desktop/electron-builder.yml`). That keeps the asar tree identical to a plain
+# single-package build: files land at their real workspace paths, so the runtime's relative
+# lookups resolve — packages/desktop/main.mjs -> ../server/dist/server.js, and the server's
+# ../../web/dist / ../public. electron-builder collects the app's production deps (@app/server +
+# transitive) from the root package.json into the asar node_modules. `extraMetadata.main`
+# repoints the packaged manifest at the desktop entry so no dev package.json needs a `main`.
+#
+# App dir = root is required because electron-builder's asarUnpack matcher rejects files mapped
+# in from outside the app dir; a two-package (directories.app) layout breaks native `.node`
+# unpacking for the server's @napi-rs/canvas binary.
+appId: com.h7ioo.ytcompanion
+productName: YT Companion
+
+directories:
+  output: release # installers at repo-root release/ (CI reads release/*.exe)
+  buildResources: packages/desktop/build # holds the generated icon.ico
+
+# Inject the entry point into the packaged package.json so no development manifest needs `main`.
+extraMetadata:
+  main: packages/desktop/main.mjs
+
+# Root-relative globs — every path is where the file actually lives in the workspace, and that
+# is exactly where it lands inside the asar.
+files:
+  - packages/server/dist/**/*
+  - packages/server/public/**/*
+  - packages/web/dist/**/*
+  - packages/desktop/main.mjs
+  - packages/desktop/assets/**/*
+  - package.json
+
+asarUnpack:
+  - "**/*.node"
+  - "**/@napi-rs/canvas*/**"
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  icon: packages/desktop/build/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: YT Companion
+
+portable:
+  artifactName: YT-Companion-${version}-portable.exe

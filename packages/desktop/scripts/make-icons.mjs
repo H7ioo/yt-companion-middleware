@@ -3,9 +3,9 @@
 // Draws the dashboard's "broadcast control" mark — a graphite tile, a tally-red lamp, and a
 // play glyph — at the sizes Electron and the Windows installer need.
 //
-//   electron/assets/icon.png  256x256  window + Linux icon
-//   electron/assets/tray.png   32x32   system tray
-//   build/icon.ico            256x256  NSIS installer / .exe icon (PNG-in-ICO)
+//   packages/desktop/assets/icon.png  256x256  window + Linux icon
+//   packages/desktop/assets/tray.png   32x32   system tray
+//   packages/desktop/build/icon.ico    256x256  NSIS installer / .exe icon (PNG-in-ICO)
 
 import { createCanvas } from "@napi-rs/canvas";
 import fs from "node:fs";
@@ -13,9 +13,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(here, "..", "..");
-const assetsDir = path.join(here, "..", "assets");
-const buildDir = path.join(root, "build");
+const pkgDir = path.resolve(here, ".."); // packages/desktop
+const assetsDir = path.join(pkgDir, "assets");
+const buildDir = path.join(pkgDir, "build"); // electron-builder buildResources — holds icon.ico
 fs.mkdirSync(assetsDir, { recursive: true });
 fs.mkdirSync(buildDir, { recursive: true });
 
