@@ -42,7 +42,13 @@ jobs:
       # NSIS installer and portable .exe from packages/desktop/electron-builder.yml. --publish never:
       # electron-builder's default (onTagOrDraft) would otherwise try to upload on tag builds and
       # fail for want of GH_TOKEN. The release job downloads these artifacts and owns publishing.
+      # Bundled OAuth client (issue 011). Injected from repo secrets into the gitignored generated
+      # constant the shipped binary carries — never committed. Absent secrets => empty constants and
+      # an override-only build (e.g. on forks), which still packs fine.
       - run: npm run desktop:build
+        env:
+          YT_BUNDLED_CLIENT_ID: ${{ secrets.YT_BUNDLED_CLIENT_ID }}
+          YT_BUNDLED_CLIENT_SECRET: ${{ secrets.YT_BUNDLED_CLIENT_SECRET }}
 
       - uses: actions/upload-artifact@v4
         with:

@@ -10,6 +10,7 @@
   },
   "scripts": {
     "icons": "node scripts/make-icons.mjs",
+    "gen:oauth": "node scripts/gen-oauth-config.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {

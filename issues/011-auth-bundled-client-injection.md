@@ -26,3 +26,26 @@ create the Cloud project + provide the secret to CI.
 ## User stories addressed
 
 - User story 1, 2 (foundation)
+
+## Progress (2026-07-10)
+
+**Code/infra complete — awaiting HITL to close.**
+
+Done and verified:
+- Build step `packages/desktop/scripts/gen-oauth-config.mjs` reads `YT_BUNDLED_CLIENT_ID` /
+  `YT_BUNDLED_CLIENT_SECRET` and writes `packages/desktop/generated/oauth.mjs`
+  (`BUNDLED_CLIENT_ID` / `BUNDLED_CLIENT_SECRET` / `HAS_BUNDLED_CLIENT`). Values JSON-encoded (quote-safe).
+- `generated/` is gitignored; `git check-ignore` confirms the file is never committed.
+- Absent env → empty constants + `HAS_BUNDLED_CLIENT=false`, no crash (override-only build). Verified.
+- Wired into root `desktop:build` / `desktop:pack` / `desktop:dev` via `desktop:gen-oauth`.
+- CI `release.yml` passes the two secrets into `npm run desktop:build`.
+- 6 unit tests (`gen-oauth-config.test.mjs`); full suite 129 passing, typecheck + typecheck:electron clean.
+- HITL runbook: [packages/desktop/BUNDLED-OAUTH.md](../packages/desktop/BUNDLED-OAUTH.md).
+
+Remaining (HITL — cannot be automated):
+- [ ] AC1: Create Cloud project + External/Production (unverified) OAuth client; register redirect
+  `http://localhost:53682/oauth2callback`.
+- [ ] AC4 (secrets half): Add `YT_BUNDLED_CLIENT_ID` / `YT_BUNDLED_CLIENT_SECRET` as GitHub repo
+  secrets, then confirm a CI build carries them.
+
+Once the human completes the two boxes above, move this issue to `issues/done/`.

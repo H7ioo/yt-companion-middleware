@@ -16,3 +16,6 @@ release/
 packages/desktop/build/icon.ico
 packages/desktop/assets/icon.png
 packages/desktop/assets/tray.png
+
+# Build-time injected bundled OAuth client — carried by the CI binary, never committed (issue 011)
+packages/desktop/generated/
