@@ -95,3 +95,6 @@ jobs:
             artifacts/companion/*.tgz
           generate_release_notes: true
           fail_on_unmatched_files: true
+          # Semver pre-release tags (v2.1.1-rc.1, v2.2.0-beta.2 — anything with a hyphen) publish as
+          # a pre-release so they don't claim "Latest" over a real release. Stable tags stay latest.
+          prerelease: ${{ contains(github.ref_name, '-') }}
