@@ -68,7 +68,7 @@ autopilot.
 
 - [ ] Companion module changed? → `companion:bump` in the same PR, versions in sync, tests pass.
 - [ ] Upgrade script appended for any Companion rename/removal.
-- [ ] Docs (`README.md`, `companion/HELP.md`, `public/guide.html`) reflect behaviour changes.
+- [ ] Docs (`README.md`, `companion-module/companion/HELP.md`, `packages/server/public/guide.html`) reflect behaviour changes.
 - [ ] `main` is green and pulled locally.
 - [ ] Tag is `v<semver>` and pushed.
 - [ ] CI `Release` run is green; exe + `.tgz` are on the Release page.
