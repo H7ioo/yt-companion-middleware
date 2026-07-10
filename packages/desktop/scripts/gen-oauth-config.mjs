@@ -11,7 +11,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const defaultOutDir = path.resolve(here, "..", "generated"); // packages/desktop/generated
@@ -51,8 +51,11 @@ export function writeOAuthConfig(env = process.env, outDir = defaultOutDir) {
   return outFile;
 }
 
-// Run as a build step when invoked directly; stay inert when imported by tests.
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+// Run as a build step when invoked directly; stay inert when imported by tests. pathToFileURL
+// normalises the argv path to a file:// URL so the comparison holds on Windows too (backslashes
+// and the C:\ drive letter make a naive `file://` + argv concatenation never match on win32).
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) {
   const written = writeOAuthConfig();
   const present = Boolean(process.env.YT_BUNDLED_CLIENT_ID && process.env.YT_BUNDLED_CLIENT_SECRET);
   console.log(
