@@ -9,6 +9,7 @@
     "node": ">=20"
   },
   "workspaces": [
+    "packages/shared",
     "web"
   ],
   "allowScripts": {
@@ -16,13 +17,14 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
-    "build:web": "npm --prefix web run build",
-    "build:all": "npm run build:web && npm run build",
+    "build:shared": "npm run build -w @app/shared",
+    "build": "npm run build:shared && tsc -p tsconfig.json",
+    "build:web": "npm run build:shared && npm --prefix web run build",
+    "build:all": "npm run build:shared && npm --prefix web run build && tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "test": "vitest run",
+    "test": "npm run build:shared && vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "npm run build:shared && tsc --noEmit -p tsconfig.json",
     "typecheck:electron": "tsc --noEmit -p tsconfig.electron.json",
     "desktop:icons": "node electron/scripts/make-icons.mjs",
     "desktop:dev": "npm run build:all && electron .",
@@ -72,6 +74,7 @@
     }
   },
   "dependencies": {
+    "@app/shared": "*",
     "@napi-rs/canvas": "^1.0.2",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",

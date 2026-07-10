@@ -3,10 +3,9 @@ import type { AppContext } from "./context.js";
 import { mapYouTubeError } from "../youtube/client.js";
 import { toErrorBody } from "../core/errors.js";
 
-export interface Category {
-  id: string;
-  title: string;
-}
+// Category is part of the shared API contract (the dashboard/preset category picker).
+export type { Category } from "@app/shared";
+import type { Category } from "@app/shared";
 
 // Category lists are effectively static, so cache per region for the process lifetime to
 // avoid spending quota on every dashboard load (videoCategories.list costs 1 unit).

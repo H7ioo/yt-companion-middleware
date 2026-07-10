@@ -1,41 +1,11 @@
 import type { JsonStore } from "../storage/jsonStore.js";
 import type { StateCache } from "./stateCache.js";
 import type { ActionRunner } from "./actionRunner.js";
-import type { QuotaTracker, QuotaSnapshot } from "./quota.js";
+import type { QuotaTracker } from "./quota.js";
 import { renderTextPng } from "./titleImage.js";
-
-/** The full operational state pushed to the dashboard and outbound webhooks. */
-export interface DashboardState {
-  status: {
-    title: string | null;
-    privacyStatus: string | null;
-    isLive: boolean;
-    noTarget: boolean;
-  };
-  activePresetId: string | null;
-  /**
-   * Short button label safe for Companion's Latin fonts: the active preset's slug, or its id
-   * when the slug is unset, or "Custom" when no preset is active (PRD §5.4). A button binds
-   * this instead of `status.title` to avoid Arabic rendering as boxes.
-   */
-  displayLabel: string;
-  /**
-   * Base64 PNG (no data-URI prefix) of `displayLabel`, and of the full `status.title`,
-   * rendered with an Arabic-capable font so a button can show either as an image — sidestepping
-   * Companion's tofu boxes entirely. null when there is no text to draw or rendering is
-   * unavailable. A button typically toggles between the two (slug fits; full title may not).
-   */
-  slugPng: string | null;
-  titlePng: string | null;
-  health: "ok" | "degraded" | "auth_error";
-  healthMessage: string | null;
-  lastRefreshedAt: string | null;
-  busy: boolean;
-  quota: QuotaSnapshot;
-  undo: { label: string | null; capturedAt: string } | null;
-  /** Master API switch — false means the middleware is making no YouTube calls (PRD kill-switch). */
-  apiEnabled: boolean;
-}
+// DashboardState is the shared API contract for the dashboard state / SSE / webhook payloads.
+export type { DashboardState } from "@app/shared";
+import type { DashboardState } from "@app/shared";
 
 /** Assembles the current state from its sources — the single source of truth for the state
  *  route, the SSE stream, and webhook payloads. */

@@ -1,94 +1,36 @@
-export type PrivacyStatus = "public" | "unlisted" | "private";
+// The API contract lives in @app/shared — the single source of truth the server validates
+// against (PRD-04 §2). These types are re-exported so the web components' existing
+// `import ... from "../api.js"` sites keep resolving; adding a field to a shared schema is now
+// a type error here until the UI handles it. Do not hand-redeclare these interfaces.
+export type {
+  PrivacyStatus,
+  Preset,
+  DefaultSettings,
+  VarSource,
+  ResolvedVar,
+  PresetActionResult,
+  Category,
+  StreamInfo,
+  FeedbackStatus,
+  HealthFeedback,
+  QuotaSnapshot,
+  DashboardState,
+  SetupStatus,
+} from "@app/shared";
 
-export interface Preset {
-  id: string;
-  title: string;
-  /**
-   * Short label shown on Companion buttons instead of the (often Arabic) title. May itself be
-   * Arabic — the middleware renders it to a PNG. Empty falls back to the preset id on the button.
-   */
-  slug: string;
-  description: string;
-  privacyStatus: PrivacyStatus;
-  category: string | null;
-  streamBoundId: string | null;
-  /**
-   * Whole-sentence fallback used when the field has any unresolved variable (PRD §1).
-   * Optional in the client view: presets authored before templating omit them; the preset
-   * form edits them via the title/description fallback inputs.
-   */
-  titleFallback?: string | null;
-  descriptionFallback?: string | null;
-}
+import type {
+  Preset,
+  DefaultSettings,
+  PresetActionResult,
+  Category,
+  StreamInfo,
+  DashboardState,
+  PrivacyStatus,
+  SetupStatus,
+  CredentialsState,
+} from "@app/shared";
 
-export type VarSource = "provided" | "default" | "fallback";
-
-export interface ResolvedVar {
-  name: string;
-  value: string | null;
-  source: VarSource;
-}
-
-export interface PresetActionResult {
-  success: boolean;
-  resolvedVars?: ResolvedVar[];
-  error?: { code: string; message: string };
-}
-
-export interface DefaultSettings {
-  defaultCategory: string | null;
-  defaultStreamBoundId: string | null;
-}
-
-export interface Category {
-  id: string;
-  title: string;
-}
-
-export interface StreamInfo {
-  id: string;
-  title: string;
-  streamName: string | null;
-}
-
-export interface FeedbackStatus {
-  title: string | null;
-  privacyStatus: string | null;
-  isLive: boolean;
-  noTarget: boolean;
-}
-
-export interface HealthFeedback {
-  status: "ok" | "degraded" | "auth_error";
-  authenticated: boolean;
-  message: string | null;
-}
-
-export interface QuotaSnapshot {
-  date: string;
-  used: number;
-  limit: number;
-  remaining: number;
-}
-
-export interface DashboardState {
-  status: FeedbackStatus;
-  activePresetId: string | null;
-  /** Button label: active preset slug, its id when unset, or "Custom". */
-  displayLabel: string;
-  /** Base64 PNGs (no data-URI prefix) of the label and full title, for Companion button images. */
-  slugPng: string | null;
-  titlePng: string | null;
-  health: "ok" | "degraded" | "auth_error";
-  healthMessage: string | null;
-  lastRefreshedAt: string | null;
-  busy: boolean;
-  quota: QuotaSnapshot;
-  undo: { label: string | null; capturedAt: string } | null;
-  /** Master API switch. When false the middleware makes no YouTube calls at all. */
-  apiEnabled: boolean;
-}
-
+/** Preset payload for create/update — the full preset minus its server-assigned id. */
 export type PresetInput = Omit<Preset, "id">;
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -105,18 +47,8 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export interface SetupStatus {
-  configured: boolean;
-  hasClientId: boolean;
-  hasClientSecret: boolean;
-  hasRefreshToken: boolean;
-}
-
-export interface CredentialsInput {
-  clientId: string;
-  clientSecret: string;
-  refreshToken: string;
-}
+/** Credentials the setup screen submits — structurally the persisted credentials schema. */
+export type CredentialsInput = CredentialsState;
 
 export const api = {
   setup: {

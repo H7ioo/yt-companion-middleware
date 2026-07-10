@@ -3,12 +3,9 @@ import type { AppContext } from "./context.js";
 import { mapYouTubeError } from "../youtube/client.js";
 import { toErrorBody } from "../core/errors.js";
 
-export interface StreamInfo {
-  id: string;
-  title: string;
-  /** cdn ingestion/stream key, when present — useful to disambiguate similarly-named streams. */
-  streamName: string | null;
-}
+// StreamInfo is part of the shared API contract (the preset form's stream picker).
+export type { StreamInfo } from "@app/shared";
+import type { StreamInfo } from "@app/shared";
 
 // Short-lived cache: the stream list rarely changes, but it can (new key created), so keep
 // it brief rather than for the process lifetime. liveStreams.list costs 1 quota unit.

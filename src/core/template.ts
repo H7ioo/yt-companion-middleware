@@ -1,14 +1,7 @@
 import type { Preset } from "../storage/schema.js";
-
-/** How a template variable got its value (PRD §4). */
-export type VarSource = "provided" | "default" | "fallback";
-
-export interface ResolvedVar {
-  name: string;
-  /** The value used, or null when the field fell back and the variable had none. */
-  value: string | null;
-  source: VarSource;
-}
+// VarSource/ResolvedVar are part of the shared API contract (web reads them off action results).
+export type { VarSource, ResolvedVar } from "@app/shared";
+import type { VarSource, ResolvedVar } from "@app/shared";
 
 export interface ResolvedField {
   /** The rendered text (primary render, or the fallback string). */

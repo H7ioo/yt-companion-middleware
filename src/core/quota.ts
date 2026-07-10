@@ -15,13 +15,9 @@ import type { StateEvents } from "./events.js";
  */
 export const QUOTA_COST = { read: 1, write: 50 } as const;
 
-export interface QuotaSnapshot {
-  /** PT calendar day the counter is for (YYYY-MM-DD). */
-  date: string;
-  used: number;
-  limit: number;
-  remaining: number;
-}
+// QuotaSnapshot is part of the shared API contract (surfaced on the dashboard state).
+export type { QuotaSnapshot } from "@app/shared";
+import type { QuotaSnapshot } from "@app/shared";
 
 /** Current calendar day in US-Pacific, where the YouTube quota window resets. */
 export function pacificDate(now: Date = new Date()): string {
