@@ -14,10 +14,10 @@ create the Cloud project + provide the secret to CI.
 
 ## Acceptance criteria
 
-- [ ] Cloud project + OAuth client exist; consent screen is External/Production; redirect URI registered.
-- [ ] Build step generates `packages/desktop/generated/oauth.*` from CI env; file is gitignored.
-- [ ] Missing env yields empty constants and no crash (override-only build).
-- [ ] Bundled client ID/secret are present in the CI-built binary, absent from the repo/git history.
+- [x] Cloud project + OAuth client exist; consent screen is External/Production; redirect URI registered.
+- [x] Build step generates `packages/desktop/generated/oauth.*` from CI env; file is gitignored.
+- [x] Missing env yields empty constants and no crash (override-only build).
+- [x] Bundled client ID/secret are present in the CI-built binary, absent from the repo/git history.
 
 ## Blocked by
 
