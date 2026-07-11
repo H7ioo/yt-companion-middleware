@@ -32,11 +32,13 @@ export function StatusRail({
   onRefresh,
   refreshing,
   onToggleApi,
+  onOpenSettings,
 }: {
   state: DashboardState | null;
   onRefresh: () => void;
   refreshing: boolean;
   onToggleApi: (next: boolean) => void;
+  onOpenSettings: () => void;
 }) {
   const isLive = state?.status.isLive ?? false;
   const noTarget = state?.status.noTarget ?? false;
@@ -53,6 +55,9 @@ export function StatusRail({
         <a className="rail__manual" href="/guide" target="_blank" rel="noreferrer">
           Operator manual &amp; Companion setup &rarr;
         </a>
+        <button className="rail__settings" type="button" onClick={onOpenSettings}>
+          <span aria-hidden="true">⚙</span> Settings
+        </button>
       </div>
 
       {/* Main breaker — cuts every YouTube call so an idle rig spends zero quota. */}

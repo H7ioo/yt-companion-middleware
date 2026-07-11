@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { JsonStore } from "../storage/jsonStore.js";
 import { AppError, toErrorBody } from "../core/errors.js";
 import { OAUTH_REDIRECT } from "../youtube/oauthFlow.js";
+import { deriveActiveFlow } from "../youtube/setupStatus.js";
 
 const body = z.object({
   clientId: z.string().trim().min(1, "Client ID is required"),
@@ -37,6 +38,8 @@ interface SetupDeps {
   oauth?: {
     /** Whether a bundled OAuth client shipped with this build (one-click connect available). */
     hasBundledClient: boolean;
+    /** The bundled client's ID, used only to tell the bundled flow apart from an override. */
+    bundledClientId?: string;
     /**
      * Runs the loopback consent flow, persists the refresh token, and hot-applies the creds.
      * An override client (the operator's own ID/secret) takes precedence over the bundled one.
@@ -65,9 +68,23 @@ export function setupRouter({ store, configured, requestRestart, oauth }: SetupD
       // Whether the one-click in-app OAuth flow can run in this build/host.
       hasBundledClient: Boolean(oauth?.hasBundledClient),
       canConnect: Boolean(oauth),
+      // Which flow currently backs the app (bundled/override/env), or null when not configured.
+      activeFlow: deriveActiveFlow(c, { configured, bundledClientId: oauth?.bundledClientId }),
       // The loopback redirect the operator must register on their own OAuth client (override flow).
       redirectUri: OAUTH_REDIRECT,
     });
+  });
+
+  // Disconnect (issue 014): wipe the stored credentials and reboot into setup mode. Reversible
+  // only by reconnecting — the refresh token is discarded, so YouTube access stops immediately.
+  // Env/CLI-supplied credentials live outside the store and are surfaced as read-only guidance,
+  // so this route is only reached from the desktop connection settings.
+  router.post("/disconnect", async (_req, res) => {
+    await store.update((s) => {
+      s.credentials = { clientId: "", clientSecret: "", refreshToken: "" };
+    });
+    res.json({ ok: true, restarting: true });
+    requestRestart();
   });
 
   // In-app OAuth: opens the system browser, catches the loopback code, stores the refresh token,

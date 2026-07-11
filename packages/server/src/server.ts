@@ -78,6 +78,7 @@ async function bootOnce(
         hasBundledClient: Boolean(
           options.bundledClient?.clientId && options.bundledClient?.clientSecret,
         ),
+        bundledClientId: options.bundledClient?.clientId,
         run: (override?: { clientId: string; clientSecret: string }) =>
           connectYouTube({
             store,

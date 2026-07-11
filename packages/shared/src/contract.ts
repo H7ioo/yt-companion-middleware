@@ -90,12 +90,17 @@ export interface DashboardState {
   apiEnabled: boolean;
 }
 
+/** Which OAuth credential flow is backing the app (issue 014 Settings connection section). */
+export type OAuthFlow = "bundled" | "override" | "env";
+
 /** Setup-screen status: whether credentials are present (booleans only — secrets never leave the server). */
 export interface SetupStatus {
   configured: boolean;
   hasClientId: boolean;
   hasClientSecret: boolean;
   hasRefreshToken: boolean;
+  /** The active credential flow, or null when not configured. Shown on the Settings page. */
+  activeFlow: OAuthFlow | null;
   /** A bundled OAuth client shipped with this build, so one-click "Connect YouTube" is offered. */
   hasBundledClient: boolean;
   /** The host can run the in-app OAuth flow (Electron); false for headless/Docker boots. */

@@ -69,6 +69,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(override ?? {}),
       }),
+    /**
+     * Disconnects the channel: the server discards the stored refresh token and reboots into setup
+     * mode. No secret is sent or returned — only the ok/restarting acknowledgement.
+     */
+    disconnect: () =>
+      req<{ ok: boolean; restarting: boolean }>("/api/setup/disconnect", { method: "POST" }),
   },
   presets: {
     list: () => req<Preset[]>("/api/dashboard/presets"),

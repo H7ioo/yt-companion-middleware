@@ -9,6 +9,7 @@ import {
   type StreamInfo,
 } from "./api.js";
 import { StatusRail } from "./components/StatusRail.js";
+import { SettingsPanel } from "./components/SettingsPanel.js";
 import { PresetForm } from "./components/PresetForm.js";
 import { PresetFillModal } from "./components/PresetFillModal.js";
 import { AdHocModal } from "./components/AdHocModal.js";
@@ -36,6 +37,7 @@ export function App() {
   const [editing, setEditing] = useState<Preset | "new" | null>(null);
   const [filling, setFilling] = useState<Preset | null>(null);
   const [adHoc, setAdHoc] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
   const importInput = useRef<HTMLInputElement>(null);
@@ -295,6 +297,7 @@ export function App() {
         onRefresh={refreshSession}
         refreshing={refreshing}
         onToggleApi={toggleApi}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       <main className="main">
@@ -584,6 +587,17 @@ export function App() {
           defaultStreamLabel={defaultStreamLabel}
           onCancel={() => setAdHoc(false)}
           onSubmit={pushAdHoc}
+        />
+      ) : null}
+
+      {settingsOpen ? (
+        <SettingsPanel
+          settings={settings}
+          categories={categories}
+          streams={streams}
+          onSaveSettings={saveSettings}
+          flash={flash}
+          onClose={() => setSettingsOpen(false)}
         />
       ) : null}
 
