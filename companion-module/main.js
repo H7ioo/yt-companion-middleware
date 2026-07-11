@@ -1,4 +1,9 @@
+// @ts-check
 import { InstanceBase, InstanceStatus, Regex, combineRgb, runEntrypoint } from '@companion-module/base'
+// ws ships no type declarations and @types/ws is not in the module's dependency tree; the default
+// export is the runtime WebSocket constructor. The surface we use (on/send/close/removeAllListeners)
+// is exercised by integration, not the type checker.
+// @ts-ignore
 import WebSocket from 'ws'
 import {
 	categoryChoices,
@@ -27,6 +32,31 @@ const FEEDBACK_IDS = [
 ]
 
 /**
+ * Persisted instance config, as edited in Companion's module settings (see getConfigFields).
+ * @typedef {{ url: string, token: string }} ModuleConfig
+ */
+
+/**
+ * Extracts a log-friendly message from a caught value. Catch bindings are `unknown` under strict
+ * typing, so this narrows: an Error yields its message, anything else is stringified.
+ * @param {unknown} err
+ * @returns {string}
+ */
+function errText(err) {
+	return err instanceof Error ? err.message : String(err)
+}
+
+/**
+ * A middleware preset, as returned by /api/dashboard/presets.
+ * @typedef {{ id: string, title?: string, slug?: string }} Preset
+ */
+
+/**
+ * A named middleware list item (category or bound stream), `{ id, title }`.
+ * @typedef {{ id: string, title?: string }} NamedItem
+ */
+
+/**
  * Companion module for the YouTube Live Metadata Control middleware.
  *
  * Its reason to exist: Companion's Generic HTTP module can bind the Latin-safe `displayLabel`
@@ -38,11 +68,33 @@ const FEEDBACK_IDS = [
  * obs-websocket connection). The server pushes a `state` frame on connect and on every change, so
  * updates are instant and cost zero YouTube quota. Actions are HTTP POSTs to the action bus; the
  * server pushes a fresh state after each mutation, so we never poll.
+ *
+ * @augments {InstanceBase<ModuleConfig>}
  */
 class YtMiddlewareInstance extends InstanceBase {
+	// Instance state is declared as fields (not just assigned in init) so `checkJs` sees a concrete,
+	// non-undefined type for each — a property only ever assigned inside a method infers `T | undefined`.
+	/** @type {ModuleConfig} */
+	config = { url: '', token: '' }
+	/** @type {Record<string, any>} last DashboardState pushed over the WS */
+	latest = {}
+	/** @type {Preset[]} */
+	presets = []
+	/** @type {NamedItem[]} */
+	categories = []
+	/** @type {NamedItem[]} */
+	streams = []
+	reconnectDelay = 1000
+	destroyed = false
+	/** @type {ReturnType<typeof setTimeout> | undefined} */
+	reconnectTimer = undefined
+	/** @type {any} ws WebSocket instance (the `ws` package ships no type declarations) */
+	ws = undefined
+
+	/** @param {ModuleConfig} config */
 	async init(config) {
 		this.config = config
-		this.latest = {} // last DashboardState pushed over the WS
+		this.latest = {}
 		this.presets = []
 		this.categories = []
 		this.streams = []
@@ -66,6 +118,7 @@ class YtMiddlewareInstance extends InstanceBase {
 		this.closeWs()
 	}
 
+	/** @param {ModuleConfig} config */
 	async configUpdated(config) {
 		this.config = config
 		this.setVariableValues({ dashboard_url: this.config.url })
@@ -73,6 +126,7 @@ class YtMiddlewareInstance extends InstanceBase {
 		this.connectWs()
 	}
 
+	/** @returns {import('@companion-module/base').SomeCompanionConfigField[]} */
 	getConfigFields() {
 		return [
 			{
@@ -104,6 +158,7 @@ class YtMiddlewareInstance extends InstanceBase {
 	// --- HTTP ---------------------------------------------------------------
 
 	headers() {
+		/** @type {Record<string, string>} */
 		const h = { 'Content-Type': 'application/json' }
 		if (this.config.token) h['Authorization'] = `Bearer ${this.config.token}`
 		return h
@@ -113,6 +168,11 @@ class YtMiddlewareInstance extends InstanceBase {
 		return this.config.token ? { Authorization: `Bearer ${this.config.token}` } : {}
 	}
 
+	/**
+	 * POSTs to the middleware action bus and logs a warning if the server rejects the request.
+	 * @param {string} path
+	 * @param {Record<string, any>} [body]
+	 */
 	async postAction(path, body) {
 		try {
 			const res = await fetch(joinUrl(this.config.url, path), {
@@ -120,13 +180,13 @@ class YtMiddlewareInstance extends InstanceBase {
 				headers: this.headers(),
 				body: JSON.stringify(body ?? {}),
 			})
-			const json = await res.json().catch(() => ({}))
+			const json = /** @type {any} */ (await res.json().catch(() => ({})))
 			if (json && json.success === false) {
 				this.log('warn', `${path} rejected: ${json.error?.code ?? 'unknown'} ${json.error?.message ?? ''}`)
 			}
 			// No poll here: the server pushes a fresh state frame over the WS after every mutation.
 		} catch (err) {
-			this.log('error', `${path} failed: ${err?.message ?? err}`)
+			this.log('error', `${path} failed: ${errText(err)}`)
 		}
 	}
 
@@ -143,13 +203,19 @@ class YtMiddlewareInstance extends InstanceBase {
 		this.definePresets()
 	}
 
+	/**
+	 * GETs and parses JSON from a middleware endpoint, returning `fallback` on any failure.
+	 * @param {string} path
+	 * @param {any} fallback
+	 * @returns {Promise<any>}
+	 */
 	async getJson(path, fallback) {
 		try {
 			const res = await fetch(joinUrl(this.config.url, path), { headers: this.headers() })
 			if (!res.ok) throw new Error(`HTTP ${res.status}`)
 			return await res.json()
 		} catch (err) {
-			this.log('warn', `GET ${path} failed: ${err?.message ?? err}`)
+			this.log('warn', `GET ${path} failed: ${errText(err)}`)
 			return fallback
 		}
 	}
@@ -168,14 +234,14 @@ class YtMiddlewareInstance extends InstanceBase {
 				body: JSON.stringify({ apiEnabled: enabled }),
 			})
 			if (!res.ok) {
-				const json = await res.json().catch(() => ({}))
+				const json = /** @type {any} */ (await res.json().catch(() => ({})))
 				this.log('warn', `API switch rejected: ${json.error?.message ?? `HTTP ${res.status}`}`)
 				return
 			}
 			this.log('info', `API master switch → ${enabled ? 'enabled' : 'disabled'}`)
 			// No poll: the PUT emits a change, so a fresh state frame lands over the WS.
 		} catch (err) {
-			this.log('error', `API switch failed: ${err?.message ?? err}`)
+			this.log('error', `API switch failed: ${errText(err)}`)
 		}
 	}
 
@@ -188,12 +254,12 @@ class YtMiddlewareInstance extends InstanceBase {
 		try {
 			const res = await fetch(joinUrl(this.config.url, '/api/feedback/health'), { headers: this.headers() })
 			if (!res.ok) throw new Error(`HTTP ${res.status}`)
-			const health = await res.json()
+			const health = /** @type {any} */ (await res.json())
 			const { ok, text } = summarizeHealth(health)
 			this.log('info', `Connection check: ${text}`)
 			this.updateStatus(ok ? InstanceStatus.Ok : InstanceStatus.ConnectionFailure, text)
 		} catch (err) {
-			const message = String(err?.message ?? err)
+			const message = errText(err)
 			this.log('error', `Connection check failed: ${message}`)
 			this.updateStatus(InstanceStatus.ConnectionFailure, message)
 		}
@@ -212,7 +278,7 @@ class YtMiddlewareInstance extends InstanceBase {
 		try {
 			ws = new WebSocket(wsUrl(this.config.url), { headers: this.authHeader() })
 		} catch (err) {
-			this.updateStatus(InstanceStatus.ConnectionFailure, String(err?.message ?? err))
+			this.updateStatus(InstanceStatus.ConnectionFailure, errText(err))
 			this.scheduleReconnect()
 			return
 		}
@@ -243,9 +309,10 @@ class YtMiddlewareInstance extends InstanceBase {
 		})
 
 		ws.on('close', () => this.onWsDown('WebSocket closed'))
-		ws.on('error', (err) => this.onWsDown(String(err?.message ?? err)))
+		ws.on('error', (err) => this.onWsDown(errText(err)))
 	}
 
+	/** @param {string} message */
 	onWsDown(message) {
 		if (this.destroyed) return
 		this.updateStatus(InstanceStatus.ConnectionFailure, message)
@@ -418,13 +485,14 @@ class YtMiddlewareInstance extends InstanceBase {
 					},
 				],
 				callback: async (a) => {
+					/** @type {Record<string, any>} */
 					const body = { presetId: a.options.presetId }
-					const raw = (await this.parseVariablesInString(a.options.vars ?? '')).trim()
+					const raw = (await this.parseVariablesInString(String(a.options.vars ?? ''))).trim()
 					if (raw) {
 						try {
 							body.vars = JSON.parse(raw)
 						} catch (err) {
-							this.log('warn', `apply_preset: ignoring invalid vars JSON: ${err?.message ?? err}`)
+							this.log('warn', `apply_preset: ignoring invalid vars JSON: ${errText(err)}`)
 						}
 					}
 					return this.postAction('/api/action/preset', body)
@@ -451,13 +519,14 @@ class YtMiddlewareInstance extends InstanceBase {
 					{ type: 'dropdown', id: 'streamBoundId', label: 'Bound stream', default: '', choices: streamChoices(this.streams) },
 				],
 				callback: async (a) => {
-					const title = (await this.parseVariablesInString(a.options.title ?? '')).trim()
+					const title = (await this.parseVariablesInString(String(a.options.title ?? ''))).trim()
 					if (!title) {
 						this.log('warn', 'update: title is required — skipping')
 						return
 					}
+					/** @type {Record<string, any>} */
 					const body = { title }
-					const description = (await this.parseVariablesInString(a.options.description ?? '')).trim()
+					const description = (await this.parseVariablesInString(String(a.options.description ?? ''))).trim()
 					if (description) body.description = description
 					if (a.options.privacyStatus) body.privacyStatus = a.options.privacyStatus
 					if (a.options.category) body.category = a.options.category
@@ -540,6 +609,15 @@ class YtMiddlewareInstance extends InstanceBase {
 	definePresets() {
 		const white = combineRgb(255, 255, 255)
 		const black = combineRgb(0, 0, 0)
+		/**
+		 * Builds a single "State & controls" preset button.
+		 * @param {string} name
+		 * @param {string} text
+		 * @param {number} bgcolor
+		 * @param {string} [actionId]
+		 * @param {any} [feedback]
+		 * @returns {import('@companion-module/base').CompanionButtonPresetDefinition}
+		 */
 		const util = (name, text, bgcolor, actionId, feedback) => ({
 			type: 'button',
 			category: 'State & controls',

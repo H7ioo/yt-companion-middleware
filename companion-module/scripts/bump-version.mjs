@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 // Bumps the Companion module version in BOTH package.json and companion/manifest.json in lockstep.
 // Companion identifies a module (and whether a re-import is "new") by the MANIFEST version, so the
 // two must never drift. Run this on every change that you want Companion to pick up as a new build.
@@ -12,6 +13,13 @@ const here = dirname(fileURLToPath(import.meta.url))
 const pkgPath = resolve(here, '../package.json')
 const manifestPath = resolve(here, '../companion/manifest.json')
 
+/**
+ * Computes the next semver from the current one. `kind` is a bump level (patch/minor/major) or an
+ * explicit `x.y.z` string, which is returned verbatim.
+ * @param {string} current
+ * @param {string} kind
+ * @returns {string}
+ */
 function nextVersion(current, kind) {
 	if (/^\d+\.\d+\.\d+$/.test(kind)) return kind // explicit x.y.z
 	const [maj, min, pat] = current.split('.').map((n) => Number.parseInt(n, 10))

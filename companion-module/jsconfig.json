@@ -1,0 +1,23 @@
+{
+  // Type-checks the Companion module's plain JS in place — it ships as ESM the Companion runtime
+  // loads directly, so there is no build step to emit from. `checkJs` turns the JSDoc annotations
+  // (`// @ts-check` at the top of each file opts it in) into enforced types: `tsc --noEmit` fails on
+  // a mismatch. Mirrors packages/desktop/tsconfig.json. Test files are excluded — they pull vitest
+  // types the module doesn't vendor and are checked by the root vitest run instead.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
+  },
+  "include": ["main.js", "src/**/*.js", "scripts/**/*.mjs"],
+  "exclude": ["node_modules", "pkg", "**/*.test.js", "**/*.test.mjs"]
+}

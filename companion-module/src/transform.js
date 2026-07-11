@@ -1,3 +1,4 @@
+// @ts-check
 // Pure helpers for the YT Companion middleware module. Kept free of the Companion SDK so they
 // can be unit-tested directly (see transform.test.js) without a running Companion instance.
 
@@ -12,7 +13,7 @@ export function mapVariables(state, presets = []) {
   const s = state ?? {};
   const status = s.status ?? {};
   const quota = s.quota ?? {};
-  const num = (v) => (typeof v === 'number' ? v : 0);
+  const num = (/** @type {unknown} */ v) => (typeof v === 'number' ? v : 0);
   const active = (presets ?? []).find((p) => p.id === s.activePresetId);
   return {
     display_label: s.displayLabel ?? '',
@@ -112,11 +113,12 @@ export function nextApiEnabled(state) {
 
 // Local RGB packer — same math as the SDK's combineRgb, kept here so this module stays SDK-free
 // and unit-testable. `(r << 16) | (g << 8) | b`.
-const rgb = (r, g, b) => (r << 16) | (g << 8) | b;
+const rgb = (/** @type {number} */ r, /** @type {number} */ g, /** @type {number} */ b) => (r << 16) | (g << 8) | b;
 
 // Canonical key colour per health state. `offline` (issue 017 / PRD-06 §1.2) is deliberately a
 // muted slate — a "no link" grey, distinct from `degraded` amber and `auth_error` red, so a
 // firewalled rig no longer reads as an auth failure. Unknown states fall back to a dark neutral.
+/** @type {Record<string, number>} */
 const HEALTH_COLORS = {
   ok: rgb(0, 140, 0), // green
   degraded: rgb(200, 120, 0), // amber
@@ -132,7 +134,7 @@ const HEALTH_COLORS = {
  * @returns {number}
  */
 export function healthColor(status) {
-  return HEALTH_COLORS[status] ?? rgb(60, 66, 78);
+  return HEALTH_COLORS[status ?? ''] ?? rgb(60, 66, 78);
 }
 
 /**
@@ -145,6 +147,7 @@ export function healthColor(status) {
  * @returns {Record<string, any>}
  */
 export function presetButtons(presets) {
+  /** @type {Record<string, any>} */
   const defs = {};
   for (const p of presets ?? []) {
     const slug = p.slug?.trim();

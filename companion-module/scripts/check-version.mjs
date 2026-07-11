@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 // Preflight guard: package.json and companion/manifest.json MUST declare the same version. Runs
 // automatically before `npm run package` (as prepackage) so a drifted build can never ship — a
 // mismatch is what makes Companion re-import inconsistently.
