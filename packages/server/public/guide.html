@@ -456,6 +456,16 @@
         color: var(--muted);
         line-height: 1.5;
       }
+      /* Long API paths in a node must wrap inside the card, not force
+         horizontal page scroll at narrow widths. */
+      .node,
+      .node span.d {
+        max-width: 100%;
+        overflow-wrap: break-word;
+      }
+      .node code {
+        word-break: break-all;
+      }
       .arrow {
         display: flex;
         align-items: center;
@@ -1189,8 +1199,10 @@ npm start</pre>
             <div class="ep__body">
               <p>
                 The button <strong>label</strong> (slug → id → <code>"Custom"</code>)
-                rendered as a <strong>72×72 PNG image</strong> — white text with a
-                dark outline so it stays legible over any button colour. For buttons
+                rendered as a <strong>288×288 PNG image</strong> — a 72px logical
+                button face drawn <strong>supersampled 4×</strong> (72 × 4 = 288) so
+                Companion downscales it crisply on larger key surfaces. White text
+                with a dark outline so it stays legible over any button colour. For buttons
                 that pull an image <em>by URL</em> rather than reading
                 <code>slugPng</code> base64 out of the state. Always draws something.
                 Returns <code>image/png</code>; changes only when the label changes.
@@ -1204,8 +1216,9 @@ npm start</pre>
             </div>
             <div class="ep__body">
               <p>
-                The <strong>full live broadcast title</strong> rendered as a 72×72
-                PNG (Arabic shaped + joined, wrapped, ellipsized if it overflows).
+                The <strong>full live broadcast title</strong> rendered as a 288×288
+                PNG (same 72px-supersampled-4× scheme as <code>slug.png</code>;
+                Arabic shaped + joined, wrapped, ellipsized if it overflows).
                 Same idea as <code>slug.png</code>, for the whole title. Returns
                 <code>404</code> when nothing is on air (no title to draw).
               </p>
