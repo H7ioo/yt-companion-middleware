@@ -17,6 +17,8 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
   // Whether the host can run the one-click flow, and whether a bundled client ships with it.
   const [canConnect, setCanConnect] = useState(false);
   const [hasBundled, setHasBundled] = useState(false);
+  // The loopback redirect the operator registers on their own OAuth client (override flow).
+  const [redirectUri, setRedirectUri] = useState("");
   // Manual fields start hidden when one-click is available; the disclosure reveals them.
   const [manual, setManual] = useState(false);
 
@@ -26,6 +28,7 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
       .then((s) => {
         setCanConnect(s.canConnect);
         setHasBundled(s.hasBundledClient);
+        setRedirectUri(s.redirectUri);
         // No one-click path here — go straight to the manual form (today's behaviour).
         if (!s.canConnect || !s.hasBundledClient) setManual(true);
       })
@@ -40,6 +43,22 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
     try {
       // The server holds this request open while the user approves in their browser.
       await api.setup.connect();
+      setStatus("waiting");
+      await waitForReady();
+      onReady();
+    } catch (err) {
+      setError((err as Error).message);
+      setStatus("idle");
+    }
+  };
+
+  // Override (PRD-03 §3): run the in-app OAuth flow against the operator's own client. Only the
+  // client ID/secret are entered — the flow itself fetches the refresh token; nothing is pasted.
+  const connectOwn = async () => {
+    setError(null);
+    setStatus("connecting");
+    try {
+      await api.setup.connect({ clientId: clientId.trim(), clientSecret: clientSecret.trim() });
       setStatus("waiting");
       await waitForReady();
       onReady();
@@ -110,10 +129,72 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
           </button>
         ) : null}
 
-        {manual ? (
-          <form className="setup__manual" onSubmit={submit}>
-            {oneClick ? <div className="setup__seam">Manual credentials</div> : null}
+        {manual && canConnect ? (
+          // Electron host: enter only the client ID/secret; the in-app flow does the rest.
+          <form
+            className="setup__manual"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void connectOwn();
+            }}
+          >
+            {oneClick ? <div className="setup__seam">Your own credentials</div> : null}
 
+            <div className="field">
+              <label htmlFor="setup-client-id">Client ID</label>
+              <input
+                id="setup-client-id"
+                className="mono"
+                value={clientId}
+                placeholder="xxxxxxxx.apps.googleusercontent.com"
+                onChange={(e) => setClientId(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="setup-client-secret">Client secret</label>
+              <input
+                id="setup-client-secret"
+                className="mono"
+                type="password"
+                value={clientSecret}
+                placeholder="GOCSPX-…"
+                onChange={(e) => setClientSecret(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+
+            {redirectUri ? (
+              <div className="setup__redirect">
+                <span className="setup__redirect-label">Authorized redirect URI — add this to your client</span>
+                <code className="setup__redirect-uri">{redirectUri}</code>
+              </div>
+            ) : null}
+
+            <div className="setup__foot">
+              <a className="setup__link" href="/guide" target="_blank" rel="noreferrer">
+                Where do I get these?
+              </a>
+              <button
+                className="btn btn--primary"
+                type="submit"
+                disabled={busy || !clientId.trim() || !clientSecret.trim()}
+              >
+                {status === "connecting"
+                  ? "Waiting for your browser…"
+                  : status === "waiting"
+                    ? "Finishing up…"
+                    : "Connect with my client"}
+              </button>
+            </div>
+          </form>
+        ) : null}
+
+        {manual && !canConnect ? (
+          // Headless/Docker: no system browser to drive, so the refresh token is pasted directly
+          // (the CLI script produces it). Saving restarts the server to wire the client.
+          <form className="setup__manual" onSubmit={submit}>
             <div className="field">
               <label htmlFor="setup-client-id">Client ID</label>
               <input

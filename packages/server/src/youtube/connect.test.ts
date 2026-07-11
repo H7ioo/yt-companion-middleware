@@ -60,6 +60,29 @@ describe("connectYouTube", () => {
     );
   });
 
+  it("prefers a freshly-supplied override client over stored and bundled", async () => {
+    const store = fakeStore({ clientId: "old-id", clientSecret: "old-secret", refreshToken: "" });
+    const runFlow = vi.fn(async () => ({ refreshToken: "rt-fresh" }));
+
+    await connectYouTube({
+      store,
+      override: { clientId: "fresh-id", clientSecret: "fresh-secret" },
+      bundledClient: { clientId: "bundled-id", clientSecret: "bundled-secret" },
+      openBrowser: vi.fn(),
+      applyCredentials: vi.fn(),
+      runFlow,
+    });
+
+    expect(runFlow).toHaveBeenCalledWith(
+      expect.objectContaining({ clientId: "fresh-id", clientSecret: "fresh-secret" }),
+    );
+    expect(store.get().credentials).toEqual({
+      clientId: "fresh-id",
+      clientSecret: "fresh-secret",
+      refreshToken: "rt-fresh",
+    });
+  });
+
   it("fails without running the flow when no client is available", async () => {
     const store = fakeStore(EMPTY);
     const runFlow = vi.fn();

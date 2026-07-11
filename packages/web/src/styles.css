@@ -942,3 +942,28 @@ textarea {
 .setup__error {
   margin-top: 16px;
 }
+
+/* Redirect URI the operator copies onto their own OAuth client. An inset panel so the exact
+   string reads as a value to transcribe, not prose. */
+.setup__redirect {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.setup__redirect-label {
+  color: var(--ink-dim);
+  font-size: 12px;
+}
+
+.setup__redirect-uri {
+  padding: 9px 11px;
+  border: var(--seam-line);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  word-break: break-all;
+  user-select: all;
+}

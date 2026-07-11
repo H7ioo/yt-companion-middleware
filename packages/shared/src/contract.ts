@@ -100,4 +100,9 @@ export interface SetupStatus {
   hasBundledClient: boolean;
   /** The host can run the in-app OAuth flow (Electron); false for headless/Docker boots. */
   canConnect: boolean;
+  /**
+   * The loopback redirect URI the in-app flow listens on. Shown to operators using their own
+   * OAuth client so they can register it as an authorized redirect (PRD-03 §3 override flow).
+   */
+  redirectUri: string;
 }

@@ -61,8 +61,14 @@ export const api = {
     /**
      * Runs the in-app OAuth flow: the server opens the system browser and waits for consent, so
      * this request stays open until the user finishes (or the flow errors). No token is returned.
+     * Pass an override client (the operator's own ID/secret) to run against it instead of the
+     * bundled client; omit it for the one-click bundled path.
      */
-    connect: () => req<{ ok: boolean }>("/api/setup/oauth/start", { method: "POST" }),
+    connect: (override?: { clientId: string; clientSecret: string }) =>
+      req<{ ok: boolean }>("/api/setup/oauth/start", {
+        method: "POST",
+        body: JSON.stringify(override ?? {}),
+      }),
   },
   presets: {
     list: () => req<Preset[]>("/api/dashboard/presets"),

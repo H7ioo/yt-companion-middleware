@@ -12,6 +12,12 @@ import { runOAuthFlow } from "./oauthFlow.js";
  */
 export interface ConnectDeps {
   store: JsonStore;
+  /**
+   * An operator's own client ID/secret, supplied fresh from the "Use my own credentials" form
+   * (PRD-03 §1.2, §3). Wins over both the stored and bundled clients so a just-entered override
+   * takes effect on the very first connect, before it has been persisted.
+   */
+  override?: { clientId: string; clientSecret: string };
   /** Bundled client injected by the desktop build; undefined in override-only / headless builds. */
   bundledClient?: { clientId: string; clientSecret: string };
   /** Opens the consent URL in the system browser (shell.openExternal under Electron). */
@@ -24,11 +30,14 @@ export interface ConnectDeps {
 
 export async function connectYouTube(deps: ConnectDeps): Promise<void> {
   const stored = deps.store.get().credentials;
-  // An operator who pasted their own client (override flow) uses it; otherwise the bundled client.
+  // Precedence: a freshly-entered override client, then the operator's stored client, then the
+  // bundled one. The override lets a just-typed client work before it has been persisted.
   const client =
-    stored.clientId && stored.clientSecret
-      ? { clientId: stored.clientId, clientSecret: stored.clientSecret }
-      : deps.bundledClient;
+    deps.override?.clientId && deps.override.clientSecret
+      ? deps.override
+      : stored.clientId && stored.clientSecret
+        ? { clientId: stored.clientId, clientSecret: stored.clientSecret }
+        : deps.bundledClient;
 
   if (!client?.clientId || !client.clientSecret) {
     throw new AppError(
