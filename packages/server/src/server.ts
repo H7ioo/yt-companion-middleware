@@ -171,7 +171,9 @@ async function bootOnce(
     app.use("/api/dashboard/logs", logsRouter(ctx));
     // Live SSE stream so the dashboard reacts instantly instead of polling.
     app.get("/api/dashboard/stream", streamHandler(ctx));
-    // Alias to the same handler so Companion buttons on either path keep working.
+    // Same handler under a dashboard-namespaced base. The split is by caller, not
+    // legacy: /api/action/* is the Companion base, /api/dashboard/action/* is the
+    // dashboard base. Both are intentional and supported (issue 027).
     app.use("/api/dashboard/action", actionRouter(ctx));
 
     cache.start();

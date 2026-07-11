@@ -396,7 +396,7 @@
     },
     {
       id: "action", name: "Action bus", auth: "open",
-      desc: "One-shot control actions. Each performs YouTube's read-modify-write dance internally. LAN-only: no auth. The same routes are also mounted under /api/dashboard/action — either path works.",
+      desc: "One-shot control actions. Each performs YouTube's read-modify-write dance internally. LAN-only: no auth. One handler on two bases, split by caller: /api/action/* is the Companion base, /api/dashboard/action/* is the dashboard base. Both intentional and supported.",
       endpoints: [
         { m:"POST", path:"/api/action/preset", cost:"live", auth:false,
           desc:"Apply a saved preset to the active broadcast. Get an id from <code>GET /api/dashboard/presets</code>.",

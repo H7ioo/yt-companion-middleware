@@ -5,8 +5,8 @@ import { buildDashboardState, changeSignature } from "../core/snapshot.js";
 
 const HEARTBEAT_MS = 25000;
 
-// Both aliases upgrade to the same push stream, matching the dual /api/action and
-// /api/dashboard/action mounting so Companion buttons on either path keep working.
+// Both bases upgrade to the same push stream, matching the by-caller /api/action
+// (Companion) and /api/dashboard/action (dashboard) mounting — both intentional.
 const WS_PATHS = new Set(["/api/feedback/ws", "/api/dashboard/ws"]);
 
 /**

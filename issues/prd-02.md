@@ -116,8 +116,9 @@ documentation/wiring only. Included here for completeness; not a build task.
   UI.
 - All endpoints are served unauthenticated (full LAN-trust — anything on the LAN can
   trigger; accepted for this personal tool).
-- `/api/action` and `/api/dashboard/action` both remain as **unauthenticated aliases** to
-  the same handler, so existing Companion buttons on either path keep working.
+- `/api/action` and `/api/dashboard/action` are both unauthenticated and served by the
+  **same handler**, split by caller (not legacy): `/api/action/*` is the Companion base,
+  `/api/dashboard/action/*` is the dashboard base. Both are intentional and supported.
 - The first-run "generate a token" flow disappears.
 
 ---

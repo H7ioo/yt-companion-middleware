@@ -771,10 +771,11 @@ npm start</pre>
             </p>
           </div>
           <p>
-            Because Companion buttons may have been wired to either path
-            historically, <code>/api/action/*</code> and
-            <code>/api/dashboard/action/*</code> are the
-            <strong>same handler</strong>. Use whichever you like; both work.
+            The action endpoints answer on two bases, split by caller:
+            <code>/api/action/*</code> is the Companion base and
+            <code>/api/dashboard/action/*</code> is the dashboard base. Both run
+            the <strong>same handler</strong> and are intentional — use whichever
+            fits the caller; both are supported.
           </p>
         </section>
 
@@ -961,9 +962,9 @@ npm start</pre>
         <section id="action">
           <h2><span class="no">06</span> Action endpoints</h2>
           <p class="lede">
-            These change your broadcast. Mounted at both
-            <code>/api/action</code> and <code>/api/dashboard/action</code> —
-            same handler, either path.
+            These change your broadcast. Served by one handler on two bases,
+            split by caller — <code>/api/action</code> for Companion and
+            <code>/api/dashboard/action</code> for the dashboard. Both supported.
           </p>
 
           <div class="callout">
@@ -1429,7 +1430,7 @@ npm start</pre>
                 <tr>
                   <td><span class="m post">POST</span></td>
                   <td><code>/api/dashboard/action/*</code></td>
-                  <td>Alias of the action endpoints above.</td>
+                  <td>Dashboard base for the action endpoints above — same handler, by caller.</td>
                 </tr>
               </tbody>
             </table>
