@@ -90,6 +90,27 @@ export interface DashboardState {
   apiEnabled: boolean;
 }
 
+/** Severity of a dashboard activity-log entry (PRD-06 §3). Drives the panel's colour coding. */
+export type LogLevel = "info" | "warn" | "error";
+
+/**
+ * Which subsystem an activity-log entry came from (PRD-06 §3), so the panel can filter by it.
+ * `auth`/`network`/`quota` mirror the failure classification from issue 016; `action` is a
+ * Companion/dashboard write; `system` is server lifecycle and unclassified events.
+ */
+export type LogCategory = "auth" | "network" | "quota" | "action" | "system";
+
+/** One entry in the in-memory activity ring buffer, served by GET /api/dashboard/logs. */
+export interface LogEntry {
+  /** ISO-8601 timestamp of when the event was recorded. */
+  ts: string;
+  level: LogLevel;
+  category: LogCategory;
+  /** The originating error/action code (e.g. an ErrorCode), or null for a bare message. */
+  code: string | null;
+  message: string;
+}
+
 /** Which OAuth credential flow is backing the app (issue 014 Settings connection section). */
 export type OAuthFlow = "bundled" | "override" | "env";
 

@@ -15,6 +15,7 @@ import { PresetForm } from "./components/PresetForm.js";
 import { PresetFillModal } from "./components/PresetFillModal.js";
 import { AdHocModal } from "./components/AdHocModal.js";
 import { CategorySelect } from "./components/CategorySelect.js";
+import { ActivityPanel } from "./components/ActivityPanel.js";
 import { extractVars } from "./lib/template.js";
 
 type Toast = { message: string; kind: "ok" | "err" } | null;
@@ -566,6 +567,9 @@ export function App() {
             </p>
           </div>
         </section>
+
+        {/* Activity — the in-memory event feed (PRD-06 §3). */}
+        <ActivityPanel />
       </main>
 
       {editing ? (

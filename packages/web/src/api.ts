@@ -16,6 +16,9 @@ export type {
   QuotaSnapshot,
   DashboardState,
   SetupStatus,
+  LogEntry,
+  LogLevel,
+  LogCategory,
 } from "@app/shared";
 
 import type {
@@ -28,6 +31,7 @@ import type {
   PrivacyStatus,
   SetupStatus,
   CredentialsState,
+  LogEntry,
 } from "@app/shared";
 
 /** Preset payload for create/update — the full preset minus its server-assigned id. */
@@ -106,6 +110,8 @@ export const api = {
     list: () => req<StreamInfo[]>("/api/dashboard/streams"),
   },
   state: () => req<DashboardState>("/api/dashboard/state"),
+  /** The activity ring buffer (newest-first) for the dashboard Activity panel (PRD-06 §3). */
+  logs: () => req<LogEntry[]>("/api/dashboard/logs"),
   webhook: {
     get: () => req<{ url: string | null }>("/api/dashboard/webhook"),
     save: (url: string | null) =>

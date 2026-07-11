@@ -5,6 +5,7 @@ import { getBroadcast, resolveTarget, toStatus } from "../youtube/broadcasts.js"
 import { isAuthError, isNetworkError, mapYouTubeError } from "../youtube/client.js";
 import { initialHealth, onFailure, onSuccess, type HealthState } from "./health.js";
 import type { StateEvents } from "./events.js";
+import { categoryForCode, levelForCode, type Logger } from "./logger.js";
 
 /**
  * Holds the state served to Companion feedback endpoints (PRD §5.4). All feedback reads
@@ -23,7 +24,19 @@ export class StateCache {
     private readonly store: JsonStore,
     private readonly opts: { refreshIntervalMs: number; healthFailureThreshold: number },
     private readonly events?: StateEvents,
+    private readonly logger?: Logger,
   ) {}
+
+  /** Emit a "connection recovered" line when a refresh clears a previously-unhealthy state. */
+  private logRecovery(wasUnhealthy: boolean): void {
+    if (!wasUnhealthy) return;
+    this.logger?.push({
+      level: "info",
+      category: "system",
+      code: null,
+      message: "Connection to YouTube recovered",
+    });
+  }
 
   /** Current cache snapshot from the store. */
   snapshot(): CacheState {
@@ -35,11 +48,13 @@ export class StateCache {
     // Master switch off: make no YouTube call. The background timer keeps ticking so polling
     // resumes the instant the operator re-enables the API, but while off it costs zero quota.
     if (!this.store.get().service.apiEnabled) return;
+    const wasUnhealthy = this.health.status !== "ok";
     try {
       const target = await resolveTarget(this.yt);
       const broadcast = await getBroadcast(this.yt, target.id);
       const status = toStatus(broadcast);
       this.health = onSuccess(this.health);
+      this.logRecovery(wasUnhealthy);
       await this.writeCache({
         status: { ...status, noTarget: false },
         health: "ok",
@@ -53,6 +68,7 @@ export class StateCache {
       // escalating toward auth_error (PRD §5.4 is about API failures, not empty results).
       if (mapped.code === "NO_TARGET_FOUND") {
         this.health = onSuccess(this.health);
+        this.logRecovery(wasUnhealthy);
         await this.writeCache({
           status: { title: null, privacyStatus: null, isLive: false, noTarget: true },
           health: "ok",
@@ -70,6 +86,12 @@ export class StateCache {
       await this.writeCache({
         health: this.health.status,
         healthMessage: this.health.message,
+      });
+      this.logger?.push({
+        level: levelForCode(mapped.code),
+        category: categoryForCode(mapped.code),
+        code: mapped.code,
+        message: mapped.message,
       });
       console.warn(`[stateCache] refresh failed (${mapped.code}): ${mapped.message}`);
     }

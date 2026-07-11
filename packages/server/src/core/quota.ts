@@ -1,6 +1,10 @@
 import type { youtube_v3 } from "googleapis";
 import type { JsonStore } from "../storage/jsonStore.js";
 import type { StateEvents } from "./events.js";
+import type { Logger } from "./logger.js";
+
+/** Percent of the daily budget at which we log a one-time mid-stream warning. */
+const QUOTA_WARN_PERCENT = 90;
 
 /**
  * Cost-weighted YouTube Data API quota tracking.
@@ -35,11 +39,13 @@ export class QuotaTracker {
   private date = pacificDate();
   private persistTimer: NodeJS.Timeout | null = null;
   private lastBucket = 0;
+  private warned = false;
 
   constructor(
     private readonly store: JsonStore,
     private readonly limit: number,
     private readonly events?: StateEvents,
+    private readonly logger?: Logger,
   ) {}
 
   /** Coarse ~1% budget bucket; used to push a change only when it visibly moves. */
@@ -70,6 +76,16 @@ export class QuotaTracker {
     if (bucket !== this.lastBucket) {
       this.lastBucket = bucket;
       this.events?.emitChange();
+    }
+    // A one-time mid-stream heads-up before the budget runs out and writes start 403-ing.
+    if (!this.warned && bucket >= QUOTA_WARN_PERCENT) {
+      this.warned = true;
+      this.logger?.push({
+        level: "warn",
+        category: "quota",
+        code: "YOUTUBE_QUOTA_LOW",
+        message: `YouTube quota at ${bucket}% of the daily budget`,
+      });
     }
   }
 

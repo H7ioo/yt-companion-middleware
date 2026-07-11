@@ -13,6 +13,7 @@ import { StateCache } from "./core/stateCache.js";
 import { ActionRunner } from "./core/actionRunner.js";
 import { QuotaTracker, instrumentQuota } from "./core/quota.js";
 import { StateEvents } from "./core/events.js";
+import { Logger } from "./core/logger.js";
 import { WebhookDispatcher } from "./core/webhook.js";
 import type { AppContext } from "./routes/context.js";
 import { actionRouter } from "./routes/action.js";
@@ -24,6 +25,7 @@ import { categoriesRouter } from "./routes/categories.js";
 import { streamsRouter } from "./routes/streams.js";
 import { webhookRouter } from "./routes/webhook.js";
 import { serviceRouter } from "./routes/service.js";
+import { logsRouter } from "./routes/logs.js";
 import { setupRouter } from "./routes/setup.js";
 import { streamHandler } from "./routes/stream.js";
 import { attachStateSocket } from "./routes/socket.js";
@@ -101,7 +103,10 @@ async function bootOnce(
 
   if (configured) {
     const events = new StateEvents();
-    const quota = new QuotaTracker(store, config.quotaLimit, events);
+    // In-memory activity feed (PRD-06 §3). Producers below push into it; the dashboard reads it
+    // via GET /api/dashboard/logs. Not persisted — a restart starts the feed fresh.
+    const logger = new Logger();
+    const quota = new QuotaTracker(store, config.quotaLimit, events, logger);
     quota.init();
     // A stable proxy handed to every consumer (cache, runner, routes). Rebuilding on reconnect
     // swaps `activeClient` underneath it, so the YouTube client is replaced in-process with no
@@ -127,9 +132,10 @@ async function bootOnce(
         healthFailureThreshold: config.healthFailureThreshold,
       },
       events,
+      logger,
     );
-    const runner = new ActionRunner(yt, store, cache, events);
-    ctx = { store, runner, cache, yt, quota, events, regionCode: config.regionCode };
+    const runner = new ActionRunner(yt, store, cache, events, logger);
+    ctx = { store, runner, cache, yt, quota, events, logger, regionCode: config.regionCode };
 
     webhooks = new WebhookDispatcher(store, cache, runner, quota, events);
 
@@ -162,6 +168,7 @@ async function bootOnce(
     app.use("/api/dashboard/streams", streamsRouter(ctx));
     app.use("/api/dashboard/webhook", webhookRouter(ctx));
     app.use("/api/dashboard/service", serviceRouter(ctx));
+    app.use("/api/dashboard/logs", logsRouter(ctx));
     // Live SSE stream so the dashboard reacts instantly instead of polling.
     app.get("/api/dashboard/stream", streamHandler(ctx));
     // Alias to the same handler so Companion buttons on either path keep working.
@@ -169,6 +176,12 @@ async function bootOnce(
 
     cache.start();
     webhooks.start();
+    logger.push({
+      level: "info",
+      category: "system",
+      code: null,
+      message: "Middleware started — polling YouTube",
+    });
   } else {
     // Setup mode: report the pending-setup state on the health probe so Companion (and the
     // dashboard) can tell the difference between "misconfigured" and "not yet set up".

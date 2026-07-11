@@ -1144,3 +1144,117 @@ textarea {
   font-size: 12.5px;
   word-break: break-all;
 }
+
+/* ---- Activity feed -------------------------------------------------------- */
+/* An event tape in the rack's own language: tally dot, mono time, category tag. Kept quiet —
+   the status rail is where boldness is spent — so severity reads through colour, not weight. */
+
+.log-filters {
+  flex-wrap: wrap;
+}
+.chip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 100px;
+  border: 1px solid var(--seam-bright);
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.chip:hover {
+  color: var(--ink);
+  border-color: var(--ink-faint);
+}
+.chip--on {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.log-row {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 4px;
+  border-top: 1px solid var(--seam);
+  font-size: 13px;
+}
+.log-row:first-child {
+  border-top: none;
+}
+/* A hairline severity edge — amber for warnings, tally red for errors. */
+.log-row--warn {
+  box-shadow: inset 2px 0 0 rgba(255, 176, 32, 0.55);
+}
+.log-row--error {
+  box-shadow: inset 2px 0 0 var(--live);
+}
+.log-dot {
+  width: 9px;
+  height: 9px;
+  align-self: center;
+}
+.log-dot--info {
+  background: var(--ready);
+  box-shadow: none;
+}
+.log-dot--warn {
+  background: var(--warn);
+  box-shadow: none;
+}
+.log-dot--error {
+  background: var(--live);
+  box-shadow: none;
+}
+.log-time {
+  color: var(--ink-faint);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.log-cat {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+.log-cat--auth,
+.log-cat--network {
+  color: var(--warn);
+}
+.log-cat--quota {
+  color: var(--accent);
+}
+.log-msg {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.log-fix {
+  margin-left: 8px;
+  color: var(--accent);
+  font-size: 12px;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.log-fix:hover {
+  text-decoration: underline;
+}

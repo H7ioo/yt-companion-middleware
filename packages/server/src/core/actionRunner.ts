@@ -7,6 +7,8 @@ import { resolve, presetToPayload, type BroadcastResource, type MetadataPayload 
 import { resolvePresetText, type ResolvedVar } from "./template.js";
 import type { StateCache } from "./stateCache.js";
 import type { StateEvents } from "./events.js";
+import { categoryForCode, levelForCode, type Logger } from "./logger.js";
+import { mapYouTubeError } from "../youtube/client.js";
 
 /**
  * A payload, or a function that builds one from the freshly-GET'd broadcast. The function
@@ -66,6 +68,7 @@ export class ActionRunner {
     private readonly store: JsonStore,
     private readonly cache: StateCache,
     private readonly events?: StateEvents,
+    private readonly logger?: Logger,
   ) {}
 
   isBusy(): boolean {
@@ -169,23 +172,42 @@ export class ActionRunner {
     input: PayloadInput,
     opts: { skipDefaults?: boolean } = {},
   ): Promise<ActionResult> {
-    const target = await resolveTarget(this.yt);
-    const current = await getBroadcast(this.yt, target.id);
-    const payload = typeof input === "function" ? input(current as BroadcastResource) : input;
-    // Capture the current owned fields so the last change can be undone (PRD feature: undo).
-    await this.cache.setUndoSnapshot(snapshotOf(current as BroadcastResource));
-    // skipDefaults suppresses the app-default fallback for category/stream binding (an
-    // explicit payload value still wins) — so a targeted action like privacy-toggle or
-    // undo doesn't drag in the default category/stream it never meant to touch.
-    const defaults = opts.skipDefaults
-      ? { defaultCategory: null, defaultStreamBoundId: null }
-      : this.store.get().defaults;
-    const plan = resolve(current as BroadcastResource, payload, defaults);
-    await applyPlan(this.yt, plan);
+    try {
+      const target = await resolveTarget(this.yt);
+      const current = await getBroadcast(this.yt, target.id);
+      const payload = typeof input === "function" ? input(current as BroadcastResource) : input;
+      // Capture the current owned fields so the last change can be undone (PRD feature: undo).
+      await this.cache.setUndoSnapshot(snapshotOf(current as BroadcastResource));
+      // skipDefaults suppresses the app-default fallback for category/stream binding (an
+      // explicit payload value still wins) — so a targeted action like privacy-toggle or
+      // undo doesn't drag in the default category/stream it never meant to touch.
+      const defaults = opts.skipDefaults
+        ? { defaultCategory: null, defaultStreamBoundId: null }
+        : this.store.get().defaults;
+      const plan = resolve(current as BroadcastResource, payload, defaults);
+      await applyPlan(this.yt, plan);
 
-    const status = { ...toStatus(plan.broadcast), noTarget: false };
-    await this.cache.writeCache({ status, lastRefreshedAt: new Date().toISOString() });
-    return { status, target };
+      const status = { ...toStatus(plan.broadcast), noTarget: false };
+      await this.cache.writeCache({ status, lastRefreshedAt: new Date().toISOString() });
+      this.logger?.push({
+        level: "info",
+        category: "action",
+        code: null,
+        message: `Updated broadcast${status.title ? ` — “${status.title}”` : ""}`,
+      });
+      return { status, target };
+    } catch (err) {
+      // Surface the failure on the activity feed under the category that caused it (an auth/
+      // network/quota write failure lands in that lane; anything else is a generic action error).
+      const mapped = mapYouTubeError(err);
+      this.logger?.push({
+        level: levelForCode(mapped.code),
+        category: mapped.code === "YOUTUBE_ERROR" ? "action" : categoryForCode(mapped.code),
+        code: mapped.code,
+        message: `Action failed: ${mapped.message}`,
+      });
+      throw err;
+    }
   }
 
   /**
