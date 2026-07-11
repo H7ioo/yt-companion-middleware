@@ -55,7 +55,7 @@ Every dropped button stays fully editable afterwards.
 ## Variables
 
 `display_label` (slug → preset id → "Custom"), `live_title`, `active_preset_id`,
-`active_preset_title`, `is_live`, `no_target`, `privacy`, `health`, `health_message`, `busy`,
+`active_preset_title`, `is_live`, `no_target`, `privacy`, `health` (`ok`/`degraded`/`offline`/`auth_error`), `health_message`, `busy`,
 `api_enabled`, `quota_used`, `quota_limit`, `quota_remaining`, `undo_label`, `dashboard_url`.
 
 ## Feedbacks
@@ -65,6 +65,14 @@ Every dropped button stays fully editable afterwards.
   Add one as the button's feedback; a two-state button can toggle slug ↔ title.
 - **On air / Busy / API disabled / Health state is… / Active preset is…** — boolean feedbacks
   that recolor a key. *Active preset is…* highlights the key whose preset is currently applied.
+- **Health color (auto)** — recolors a key to the current middleware health, no config:
+
+  | health | meaning | key color |
+  | --- | --- | --- |
+  | `ok` | Healthy. | Green |
+  | `degraded` | A transient failure, still retrying. | Yellow |
+  | `offline` | Network unreachable (firewall / DNS / no internet) — not an auth problem. | Grey |
+  | `auth_error` | Refresh token dead — needs manual reauth. | Red |
 
 ## Actions
 

@@ -2,6 +2,7 @@ import { InstanceBase, InstanceStatus, Regex, combineRgb, runEntrypoint } from '
 import WebSocket from 'ws'
 import {
 	categoryChoices,
+	healthColor,
 	joinUrl,
 	mapVariables,
 	nextApiEnabled,
@@ -14,7 +15,16 @@ import {
 } from './src/transform.js'
 import { UpgradeScripts } from './src/upgrades.js'
 
-const FEEDBACK_IDS = ['slug_image', 'title_image', 'on_air', 'busy', 'api_disabled', 'health_state', 'active_preset']
+const FEEDBACK_IDS = [
+	'slug_image',
+	'title_image',
+	'on_air',
+	'busy',
+	'api_disabled',
+	'health_state',
+	'health_color',
+	'active_preset',
+]
 
 /**
  * Companion module for the YouTube Live Metadata Control middleware.
@@ -276,7 +286,7 @@ class YtMiddlewareInstance extends InstanceBase {
 			{ variableId: 'is_live', name: 'On air' },
 			{ variableId: 'no_target', name: 'No broadcast target' },
 			{ variableId: 'privacy', name: 'Privacy status' },
-			{ variableId: 'health', name: 'Health (ok/degraded/auth_error)' },
+			{ variableId: 'health', name: 'Health (ok/degraded/offline/auth_error)' },
 			{ variableId: 'health_message', name: 'Health message' },
 			{ variableId: 'busy', name: 'Action in progress' },
 			{ variableId: 'api_enabled', name: 'API master switch enabled' },
@@ -349,11 +359,24 @@ class YtMiddlewareInstance extends InstanceBase {
 						choices: [
 							{ id: 'ok', label: 'ok' },
 							{ id: 'degraded', label: 'degraded' },
+							{ id: 'offline', label: 'offline' },
 							{ id: 'auth_error', label: 'auth_error' },
 						],
 					},
 				],
 				callback: (fb) => this.latest?.health === fb.options.which,
+			},
+			health_color: {
+				type: 'advanced',
+				name: 'Health color (auto)',
+				description:
+					'Recolors the key to match the current middleware health: green ok, amber degraded, slate offline, red auth_error.',
+				options: [],
+				callback: () => {
+					const health = this.latest?.health
+					if (!health) return {}
+					return { bgcolor: healthColor(health), color: combineRgb(255, 255, 255) }
+				},
 			},
 			active_preset: {
 				type: 'boolean',

@@ -114,6 +114,27 @@ export function nextApiEnabled(state) {
 // and unit-testable. `(r << 16) | (g << 8) | b`.
 const rgb = (r, g, b) => (r << 16) | (g << 8) | b;
 
+// Canonical key colour per health state. `offline` (issue 017 / PRD-06 §1.2) is deliberately a
+// muted slate — a "no link" grey, distinct from `degraded` amber and `auth_error` red, so a
+// firewalled rig no longer reads as an auth failure. Unknown states fall back to a dark neutral.
+const HEALTH_COLORS = {
+  ok: rgb(0, 140, 0), // green
+  degraded: rgb(200, 120, 0), // amber
+  offline: rgb(90, 98, 112), // slate grey
+  auth_error: rgb(200, 0, 0), // red
+};
+
+/**
+ * Maps a middleware health state onto its canonical Companion key colour (packed RGB). This is the
+ * single source of truth the health feedbacks recolor from, so every state — including `offline` —
+ * renders a distinct, consistent colour.
+ * @param {string | undefined} status
+ * @returns {number}
+ */
+export function healthColor(status) {
+  return HEALTH_COLORS[status] ?? rgb(60, 66, 78);
+}
+
 /**
  * Builds Companion **preset buttons** (the drag-drop templates in the Presets tab) — one per
  * middleware preset. Each arrives already labelled with the preset's slug/title, already wired to

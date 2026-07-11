@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   categoryChoices,
+  healthColor,
   joinUrl,
   mapVariables,
   nextApiEnabled,
@@ -11,6 +12,8 @@ import {
   toPng64,
   wsUrl,
 } from './transform.js';
+
+const rgb = (r, g, b) => (r << 16) | (g << 8) | b;
 
 describe('mapVariables', () => {
   it('maps the nested DashboardState onto variable values', () => {
@@ -145,6 +148,26 @@ describe('summarizeHealth', () => {
     const r = summarizeHealth(undefined);
     expect(r.ok).toBe(false);
     expect(r.text).toContain('no response');
+  });
+});
+
+describe('healthColor', () => {
+  it('maps each health state to its distinct key color', () => {
+    expect(healthColor('ok')).toBe(rgb(0, 140, 0)); // green
+    expect(healthColor('degraded')).toBe(rgb(200, 120, 0)); // amber
+    expect(healthColor('offline')).toBe(rgb(90, 98, 112)); // slate grey
+    expect(healthColor('auth_error')).toBe(rgb(200, 0, 0)); // red
+  });
+
+  it('gives offline a colour distinct from degraded and auth_error', () => {
+    expect(healthColor('offline')).not.toBe(healthColor('degraded'));
+    expect(healthColor('offline')).not.toBe(healthColor('auth_error'));
+  });
+
+  it('falls back to a neutral colour for unknown/missing states', () => {
+    const neutral = rgb(60, 66, 78);
+    expect(healthColor(undefined)).toBe(neutral);
+    expect(healthColor('bogus')).toBe(neutral);
   });
 });
 
