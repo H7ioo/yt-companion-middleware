@@ -789,6 +789,56 @@ textarea {
   border-left-color: var(--live);
 }
 
+/* ---- Reauth banner (auth_error only) ------------------------------------- */
+
+.reauth {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  background: var(--bg-rack);
+  border: var(--seam-line);
+  border-left: 3px solid var(--live);
+  border-radius: var(--radius);
+}
+.reauth__lamp {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--live);
+  box-shadow: 0 0 0 4px rgba(255, 59, 48, 0.15);
+  animation: reauth-pulse 1.8s ease-in-out infinite;
+}
+.reauth__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.reauth__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink);
+}
+.reauth__note {
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+.reauth__action {
+  margin-left: auto;
+  flex: none;
+}
+
+@keyframes reauth-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(255, 59, 48, 0.15); }
+  50% { box-shadow: 0 0 0 7px rgba(255, 59, 48, 0.05); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reauth__lamp { animation: none; }
+}
+
 @media (max-width: 860px) {
   .shell {
     grid-template-columns: 1fr;

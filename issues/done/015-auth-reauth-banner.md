@@ -11,9 +11,9 @@ page (Docker). On success, health re-evaluates and the banner clears. Offered **
 
 ## Acceptance criteria
 
-- [ ] Banner appears on `auth_error` with a Reconnect action.
-- [ ] Reconnect runs the OAuth flow; a successful reconnect clears the banner on next refresh.
-- [ ] No reauth is offered for `degraded` or `offline`.
+- [x] Banner appears on `auth_error` with a Reconnect action.
+- [x] Reconnect runs the OAuth flow; a successful reconnect clears the banner on next refresh.
+- [x] No reauth is offered for `degraded` or `offline`.
 
 ## Blocked by
 

@@ -9,6 +9,7 @@ import {
   type StreamInfo,
 } from "./api.js";
 import { StatusRail } from "./components/StatusRail.js";
+import { ReauthBanner } from "./components/ReauthBanner.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { PresetForm } from "./components/PresetForm.js";
 import { PresetFillModal } from "./components/PresetFillModal.js";
@@ -301,6 +302,15 @@ export function App() {
       />
 
       <main className="main">
+        {/* Reauth banner — only for a hard auth failure, never degraded/offline (PRD-03 §4). */}
+        {state?.health === "auth_error" ? (
+          <ReauthBanner
+            onReconnected={refreshSession}
+            onOpenSettings={() => setSettingsOpen(true)}
+            flash={flash}
+          />
+        ) : null}
+
         {/* Presets */}
         <section className="panel">
           <div className="panel__head">
