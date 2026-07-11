@@ -1,6 +1,8 @@
 import { useState } from "react";
-import type { Category, DashboardState, PrivacyStatus } from "../api.js";
+import type { Category, DashboardState, PrivacyStatus, StreamInfo } from "../api.js";
 import { CategorySelect } from "./CategorySelect.js";
+import { StreamSelect } from "./StreamSelect.js";
+import { isStaleBinding } from "../lib/streamBinding.js";
 import { useEscape } from "../lib/useEscape.js";
 
 const PRIVACY: PrivacyStatus[] = ["public", "unlisted", "private"];
@@ -8,6 +10,7 @@ const PRIVACY: PrivacyStatus[] = ["public", "unlisted", "private"];
 interface Props {
   state: DashboardState | null;
   categories: Category[];
+  streams: StreamInfo[];
   /** Human label of the app default category/stream, so "inherit default" shows its value. */
   defaultCategoryLabel: string | null;
   defaultStreamLabel: string | null;
@@ -24,6 +27,7 @@ interface Props {
 export function AdHocModal({
   state,
   categories,
+  streams,
   defaultCategoryLabel,
   defaultStreamLabel,
   onCancel,
@@ -33,11 +37,12 @@ export function AdHocModal({
   const [description, setDescription] = useState("");
   const [privacyStatus, setPrivacy] = useState<PrivacyStatus>("public");
   const [category, setCategory] = useState<string | null>(null);
-  const [streamBoundId, setStream] = useState("");
+  const [streamBoundId, setStream] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEscape(onCancel);
 
   const live = state?.status.isLive ?? false;
+  const staleBinding = isStaleBinding(streamBoundId, streams);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,7 +54,7 @@ export function AdHocModal({
         description,
         privacyStatus,
         category,
-        streamBoundId: streamBoundId.trim() || null,
+        streamBoundId,
       });
     } finally {
       setBusy(false);
@@ -108,7 +113,19 @@ export function AdHocModal({
                   — blank inherits default: {defaultStreamLabel ?? "none"}
                 </span>
               </label>
-              <input id="ah-stream" dir="auto" value={streamBoundId} placeholder={`inherits default: ${defaultStreamLabel ?? "none"}`} onChange={(e) => setStream(e.target.value)} />
+              <StreamSelect
+                id="ah-stream"
+                value={streamBoundId}
+                streams={streams}
+                blankLabel={`— inherit default: ${defaultStreamLabel ?? "none"} —`}
+                onChange={setStream}
+              />
+              {staleBinding ? (
+                <p className="field-warn">
+                  ⚠ No live stream on this channel has that ID — the binding will fail when
+                  triggered. Pick one from the list or clear it.
+                </p>
+              ) : null}
             </div>
           </div>
         </div>

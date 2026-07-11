@@ -618,6 +618,7 @@ export function App() {
         <AdHocModal
           state={state}
           categories={categories}
+          streams={streams}
           defaultCategoryLabel={defaultCategoryLabel}
           defaultStreamLabel={defaultStreamLabel}
           onCancel={() => setAdHoc(false)}

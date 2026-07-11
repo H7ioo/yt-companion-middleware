@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import type { Category, Preset, PresetInput, PrivacyStatus, StreamInfo } from "../api.js";
 import { CategorySelect } from "./CategorySelect.js";
+import { StreamSelect } from "./StreamSelect.js";
 import { detectVars, type VarRef } from "../lib/template.js";
+import { isStaleBinding } from "../lib/streamBinding.js";
 import { useEscape } from "../lib/useEscape.js";
 
 const PRIVACY: PrivacyStatus[] = ["public", "unlisted", "private"];
@@ -51,9 +53,7 @@ export function PresetForm({
 
   // Warn (don't block) if the bound stream id isn't among the channel's live streams — a
   // stale/deleted key silently fails at trigger time otherwise. Empty = inherits default.
-  const boundId = form.streamBoundId;
-  const staleBinding =
-    boundId != null && streams.length > 0 && !streams.some((s) => s.id === boundId);
+  const staleBinding = isStaleBinding(form.streamBoundId, streams);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -174,23 +174,13 @@ export function PresetForm({
                   — blank inherits default: {defaultStreamLabel ?? "none"}
                 </span>
               </label>
-              <input
+              <StreamSelect
                 id="pf-stream"
-                dir="auto"
-                list="pf-stream-list"
-                value={form.streamBoundId ?? ""}
-                placeholder={`inherits default: ${defaultStreamLabel ?? "none"}`}
-                aria-invalid={staleBinding}
-                onChange={(e) => set("streamBoundId", e.target.value.trim() || null)}
+                value={form.streamBoundId}
+                streams={streams}
+                blankLabel={`— inherit default: ${defaultStreamLabel ?? "none"} —`}
+                onChange={(value) => set("streamBoundId", value)}
               />
-              <datalist id="pf-stream-list">
-                {streams.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.title}
-                    {s.streamName ? ` · ${s.streamName}` : ""}
-                  </option>
-                ))}
-              </datalist>
               {staleBinding ? (
                 <p className="field-warn">
                   ⚠ No live stream on this channel has that ID — the binding will fail when
