@@ -1,3 +1,4 @@
+import { describeBroadcastState, ACTION_GLOSSARY } from "@app/shared";
 import type { DashboardState, QuotaSnapshot, HealthStatus } from "../api.js";
 import { HealthExplainer } from "./HealthExplainer.js";
 
@@ -46,6 +47,8 @@ export function StatusRail({
 }) {
   const isLive = state?.status.isLive ?? false;
   const noTarget = state?.status.noTarget ?? false;
+  // Canonical broadcast-state copy — never inline "On air"/"Standby" here again (issue 021).
+  const broadcast = describeBroadcastState({ isLive, noTarget });
   const health = state?.health ?? "ok";
   const busy = state?.busy ?? false;
   // Default to armed until the first state lands, so the breaker doesn't flash "paused" on load.
@@ -93,9 +96,9 @@ export function StatusRail({
       <div className="tally">
         <div className="tally__lamp">
           <span className={`lamp ${isLive ? "lamp--live" : "lamp--ready"}`} />
-          <span className="eyebrow">{isLive ? "On air" : "Standby"}</span>
+          <span className="eyebrow">{broadcast.label}</span>
         </div>
-        <div className="tally__state">{isLive ? "LIVE" : "IDLE"}</div>
+        <div className="tally__state">{broadcast.badge}</div>
         <div className="tally__title">
           {noTarget
             ? "No broadcast — create or go live on YouTube"
@@ -150,7 +153,7 @@ export function StatusRail({
               : "Enable the YouTube API to refresh"
           }
         >
-          {refreshing ? "Refreshing…" : "Refresh from YouTube"}
+          {refreshing ? "Refreshing…" : ACTION_GLOSSARY.refreshState.label}
         </button>
         <div style={{ marginTop: 8 }}>
           {state?.lastRefreshedAt

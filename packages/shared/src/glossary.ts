@@ -25,6 +25,58 @@ export interface HealthTerm {
   remedy: HealthRemedy;
 }
 
+/**
+ * The broadcast-state slice of the glossary: what the operator's stream is doing right now.
+ * Distinct from health (can we reach YouTube) — a healthy app can be idle, an offline app was
+ * last seen live. Every surface that names this state — the dashboard tally, the Companion "On Air"
+ * feedback, the guide — draws from {@link describeBroadcastState} so "On Air" never drifts back to
+ * "on air" / "Standby" / "Live" the way it did before issue 021.
+ */
+export interface BroadcastState {
+  /** Display name for the current state ("On Air", "Idle"). */
+  label: string;
+  /** Short uppercase tally badge ("LIVE", "IDLE"). */
+  badge: string;
+}
+
+/** The status flags the dashboard already holds, narrowed to what names the broadcast state. */
+export interface BroadcastStatusFlags {
+  isLive: boolean;
+  noTarget: boolean;
+}
+
+/** Canonical broadcast-state names, keyed for anywhere that can't call the resolver at runtime. */
+export const BROADCAST_STATE = {
+  live: { label: "On Air", badge: "LIVE" },
+  idle: { label: "Idle", badge: "IDLE" },
+} as const satisfies Record<string, BroadcastState>;
+
+/** Resolve the canonical broadcast state from the cached status flags (issue 021). */
+export function describeBroadcastState(status: BroadcastStatusFlags): BroadcastState {
+  return status.isLive ? BROADCAST_STATE.live : BROADCAST_STATE.idle;
+}
+
+/**
+ * The action slice of the glossary: the operator actions PRD-07 §2 (#10) enumerates — apply a
+ * preset, update metadata, toggle privacy, undo, and the two refreshes the guide is careful to
+ * keep apart. `endpoint` is the POST route Companion and the dashboard fire; `refreshLists` is a
+ * client-side re-fetch of the picker lists, not a POST, so its endpoint is null. Naming both here
+ * is what stops "Refresh from YouTube" / "Refresh cache" / "Refresh" drifting across surfaces.
+ */
+export interface ActionTerm {
+  label: string;
+  endpoint: string | null;
+}
+
+export const ACTION_GLOSSARY = {
+  applyPreset: { label: "Apply preset", endpoint: "/api/action/preset" },
+  update: { label: "Update live metadata", endpoint: "/api/action/update" },
+  privacyToggle: { label: "Toggle privacy", endpoint: "/api/action/privacy" },
+  undo: { label: "Undo last change", endpoint: "/api/action/undo" },
+  refreshState: { label: "Refresh from YouTube", endpoint: "/api/action/refresh" },
+  refreshLists: { label: "Refresh lists", endpoint: null },
+} as const satisfies Record<string, ActionTerm>;
+
 export const HEALTH_GLOSSARY: Record<HealthStatus, HealthTerm> = {
   ok: {
     label: "Healthy",

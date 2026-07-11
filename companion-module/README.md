@@ -145,7 +145,7 @@ is fully editable afterwards.
 | Category | What drops |
 |---|---|
 | **Apply preset** | One button **per middleware preset** (regenerated on **Refresh lists**): its slug as the text, the **Apply preset** action bound to that preset, and the **Active preset is…** feedback pointed at it — so the key applies, self-labels, and turns green when it's the one on air. |
-| **State & controls** | Fixed helpers: *Arabic-safe live title (image)*, *Arabic-safe button label (image)*, *On-air indicator*, *Busy indicator*, *Privacy toggle*, *Undo last change*, *Refresh cache*, *Refresh lists*, *Check connection*, *API kill switch (toggle)*. |
+| **State & controls** | Fixed helpers: *Arabic-safe live title (image)*, *Arabic-safe button label (image)*, *On-air indicator*, *Busy indicator*, *Privacy toggle*, *Undo last change*, *Refresh from YouTube*, *Refresh lists*, *Check connection*, *API kill switch (toggle)*. |
 
 > Presets are authored by the module — you can't create new ones from the Companion UI, but you
 > can export your edited buttons as a custom library. Added presets in the dashboard? Run
@@ -159,7 +159,7 @@ Image feedbacks are the reason this module exists; boolean feedbacks recolour ke
 |---|---|---|
 | **Image: button label (slug)** | advanced (`png64`) | Draws the slug/label PNG (Arabic-safe). |
 | **Image: full live title** | advanced (`png64`) | Draws the full broadcast-title PNG (Arabic-safe). |
-| **On air** | boolean | While `is_live`. Default style: red bg. |
+| **On Air** | boolean | While `is_live`. Default style: red bg. |
 | **Busy** | boolean | While an action is in progress. Default: blue bg. |
 | **API disabled** | boolean | When the kill switch is off. Default: grey bg. |
 | **Health state is…** | boolean | When `health` equals the dropdown value (`ok`/`degraded`/`auth_error`). Default: amber bg. |
@@ -177,7 +177,7 @@ so you never need to add a manual refresh after an action.
 | **Privacy: toggle private ↔ public** | — | Flips privacy. |
 | **Privacy: set** | `Status` dropdown | Sets `public` / `unlisted` / `private`. |
 | **Undo last change** | — | Reverts the last change (`$(ytmeta:undo_label)` shows what). |
-| **Refresh cache** | — | Forces the middleware to refresh its cached state. |
+| **Refresh from YouTube** | — | Forces the middleware to refresh its cached state. |
 | **Refresh preset/category/stream lists** | — | Re-fetches the dropdown choices after you edit presets in the dashboard. |
 | **Check middleware connection (YouTube status)** | — | On-demand ping of `/api/feedback/health`: logs reachability + YouTube auth/quota and updates the connection status pill. Bind it to a key to verify the link (and YouTube auth behind it) at any time. |
 | **API master switch (kill switch): set** | `API` (enabled / disabled) | Turns the middleware's master switch on/off (`PUT /api/dashboard/service`). While off, the middleware makes no YouTube calls and rejects actions — stops quota burn on an idle service. |
@@ -197,7 +197,7 @@ so you never need to add a manual refresh after an action.
 
 ### An on-air indicator
 
-Add **On air** feedback to a key (default red). Optionally set the key text to
+Add **On Air** feedback to a key (default red). Optionally set the key text to
 `$(ytmeta:live_title)` or bind the *title* image feedback so it doubles as the live-title display.
 
 ### A preset key that lights up when active

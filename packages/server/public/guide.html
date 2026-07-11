@@ -624,7 +624,7 @@
               broadcast).
             </li>
             <li>
-              <strong>Live</strong> — a stream is active. Edits land on the
+              <strong>On Air</strong> — a stream is active. Edits land on the
               currently active broadcast. If more than one is active, the app
               picks the most recent <code>actualStartTime</code> and logs a
               warning.
@@ -1051,7 +1051,7 @@ npm start</pre>
             <div class="ep__body">
               <p>
                 Force an immediate live GET from YouTube and repopulate the
-                cache, bypassing the TTL. Bind this to a manual "Refresh" key
+                cache, bypassing the TTL. Bind this to a manual "Refresh from YouTube" key
                 for on-demand confirmation right after you change something in
                 YouTube Studio.
               </p>
@@ -1580,7 +1580,7 @@ npm start</pre>
             <p>
               Added or renamed presets in the dashboard? The Presets tab is
               snapshotted when the connection starts. Run the <strong>Refresh
-              preset/category/stream lists</strong> action once (or re-save the
+              lists</strong> action once (or re-save the
               connection) and the new preset buttons appear.
             </p>
           </div>
@@ -1618,7 +1618,7 @@ npm start</pre>
                   <td>Reverts the last change; label shows <code>$(ytmeta:undo_label)</code>.</td>
                 </tr>
                 <tr>
-                  <td><strong>Refresh cache</strong> / <strong>Refresh lists</strong></td>
+                  <td><strong>Refresh from YouTube</strong> / <strong>Refresh lists</strong></td>
                   <td>Force a state refresh / re-pull the preset&amp;category&amp;stream dropdowns.</td>
                 </tr>
                 <tr>
@@ -1725,7 +1725,7 @@ npm start</pre>
                   </td>
                 </tr>
                 <tr>
-                  <td><strong>Refresh cache</strong></td>
+                  <td><strong>Refresh from YouTube</strong></td>
                   <td>—</td>
                   <td>
                     Forces the middleware to re-pull state from YouTube. Rarely
@@ -1734,7 +1734,7 @@ npm start</pre>
                   </td>
                 </tr>
                 <tr>
-                  <td><strong>Refresh preset/category/stream lists</strong></td>
+                  <td><strong>Refresh lists</strong></td>
                   <td>—</td>
                   <td>
                     Re-pulls the dropdown choices <em>and</em> regenerates the
@@ -1800,7 +1800,7 @@ npm start</pre>
                 <tr><td><code>display_label</code></td><td>Button label: slug → preset id → <code>Custom</code> (Latin-safe).</td></tr>
                 <tr><td><code>live_title</code></td><td>Live broadcast title (may be Arabic — use the image feedback to render it).</td></tr>
                 <tr><td><code>active_preset_id</code> / <code>active_preset_title</code></td><td>Id / title of the currently applied preset.</td></tr>
-                <tr><td><code>is_live</code> · <code>no_target</code> · <code>busy</code></td><td>On air / no broadcast target / action in progress.</td></tr>
+                <tr><td><code>is_live</code> · <code>no_target</code> · <code>busy</code></td><td>On Air / no broadcast target / action in progress.</td></tr>
                 <tr><td><code>privacy</code></td><td><code>public</code> / <code>unlisted</code> / <code>private</code>.</td></tr>
                 <tr><td><code>health</code> · <code>health_message</code></td><td><code>ok</code> / <code>degraded</code> / <code>offline</code> / <code>auth_error</code> + detail.</td></tr>
                 <tr><td><code>api_enabled</code></td><td><code>false</code> when the middleware kill-switch is off.</td></tr>
@@ -1820,7 +1820,7 @@ npm start</pre>
               <tbody>
                 <tr><td><strong>Image: button label (slug)</strong></td><td>image</td><td>Draws the slug PNG — Arabic-safe.</td></tr>
                 <tr><td><strong>Image: full live title</strong></td><td>image</td><td>Draws the full title PNG — Arabic-safe.</td></tr>
-                <tr><td><strong>On air</strong></td><td>boolean</td><td>While <code>is_live</code>. Default red.</td></tr>
+                <tr><td><strong>On Air</strong></td><td>boolean</td><td>While <code>is_live</code>. Default red.</td></tr>
                 <tr><td><strong>Busy</strong></td><td>boolean</td><td>While an action applies. Default blue.</td></tr>
                 <tr><td><strong>API disabled</strong></td><td>boolean</td><td>When the kill-switch is off. Default grey.</td></tr>
                 <tr><td><strong>Health state is…</strong></td><td>boolean</td><td>When <code>health</code> equals the chosen value. Default amber.</td></tr>
@@ -1871,7 +1871,7 @@ npm start</pre>
             <p>
               Added a button after the connection was already up and it shows no
               value yet? The WebSocket re-sends state on its heartbeat, or run the
-              <strong>Refresh cache</strong> action / re-save the connection to
+              <strong>Refresh from YouTube</strong> action / re-save the connection to
               force a fresh frame now. See
               <code>companion-module/README.md</code> for full install and
               packaging notes.

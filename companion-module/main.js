@@ -283,7 +283,7 @@ class YtMiddlewareInstance extends InstanceBase {
 			{ variableId: 'live_title', name: 'Live broadcast title (may be Arabic)' },
 			{ variableId: 'active_preset_id', name: 'Active preset id' },
 			{ variableId: 'active_preset_title', name: 'Active preset title' },
-			{ variableId: 'is_live', name: 'On air' },
+			{ variableId: 'is_live', name: 'On Air' },
 			{ variableId: 'no_target', name: 'No broadcast target' },
 			{ variableId: 'privacy', name: 'Privacy status' },
 			{ variableId: 'health', name: 'Health (ok/degraded/offline/auth_error)' },
@@ -323,7 +323,7 @@ class YtMiddlewareInstance extends InstanceBase {
 			},
 			on_air: {
 				type: 'boolean',
-				name: 'On air',
+				name: 'On Air',
 				description: 'True while the broadcast is live.',
 				defaultStyle: { bgcolor: combineRgb(200, 0, 0), color: combineRgb(255, 255, 255) },
 				options: [],
@@ -493,12 +493,12 @@ class YtMiddlewareInstance extends InstanceBase {
 				callback: () => this.postAction('/api/action/undo', {}),
 			},
 			refresh: {
-				name: 'Refresh cache',
+				name: 'Refresh from YouTube',
 				options: [],
 				callback: () => this.postAction('/api/action/refresh', {}),
 			},
 			refresh_lists: {
-				name: 'Refresh preset/category/stream lists',
+				name: 'Refresh lists (presets, categories, streams)',
 				options: [],
 				callback: () => this.refreshLists(),
 			},
@@ -585,8 +585,8 @@ class YtMiddlewareInstance extends InstanceBase {
 			undo_btn: {
 				...util('Undo last change', 'Undo\\n$(ytmeta:undo_label)', combineRgb(120, 80, 0), 'undo'),
 			},
-			refresh_cache_btn: util('Refresh cache', 'Refresh', combineRgb(40, 60, 80), 'refresh'),
-			refresh_lists_btn: util('Refresh preset lists', 'Refresh\\nlists', combineRgb(40, 60, 80), 'refresh_lists'),
+			refresh_cache_btn: util('Refresh from YouTube', 'Refresh', combineRgb(40, 60, 80), 'refresh'),
+			refresh_lists_btn: util('Refresh lists', 'Refresh\\nlists', combineRgb(40, 60, 80), 'refresh_lists'),
 			check_connection_btn: {
 				...util('Check connection', 'Check\\nconn', combineRgb(30, 90, 90), 'check_connection', {
 					feedbackId: 'health_state',
