@@ -96,4 +96,8 @@ export interface SetupStatus {
   hasClientId: boolean;
   hasClientSecret: boolean;
   hasRefreshToken: boolean;
+  /** A bundled OAuth client shipped with this build, so one-click "Connect YouTube" is offered. */
+  hasBundledClient: boolean;
+  /** The host can run the in-app OAuth flow (Electron); false for headless/Docker boots. */
+  canConnect: boolean;
 }

@@ -1,19 +1,53 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api.js";
 
 /**
- * First-run setup for the desktop build. Collects the three YouTube OAuth credentials, saves
- * them, then waits for the server to restart with the API wired before handing off to the
- * dashboard. Shown whenever the server reports it is not yet configured.
+ * First-run setup for the desktop build. The one-click path opens the real Google consent screen
+ * in the system browser and captures the refresh token to the server's store — no token is ever
+ * pasted by hand. When no bundled client ships (Docker/override builds) or the operator wants their
+ * own client, the manual credential fields are revealed instead. Shown whenever the server reports
+ * it is not yet configured.
  */
 export function SetupScreen({ onReady }: { onReady: () => void }) {
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [refreshToken, setRefreshToken] = useState("");
-  const [status, setStatus] = useState<"idle" | "saving" | "waiting">("idle");
+  const [status, setStatus] = useState<"idle" | "connecting" | "saving" | "waiting">("idle");
   const [error, setError] = useState<string | null>(null);
+  // Whether the host can run the one-click flow, and whether a bundled client ships with it.
+  const [canConnect, setCanConnect] = useState(false);
+  const [hasBundled, setHasBundled] = useState(false);
+  // Manual fields start hidden when one-click is available; the disclosure reveals them.
+  const [manual, setManual] = useState(false);
+
+  useEffect(() => {
+    api.setup
+      .status()
+      .then((s) => {
+        setCanConnect(s.canConnect);
+        setHasBundled(s.hasBundledClient);
+        // No one-click path here — go straight to the manual form (today's behaviour).
+        if (!s.canConnect || !s.hasBundledClient) setManual(true);
+      })
+      .catch(() => setManual(true));
+  }, []);
 
   const busy = status !== "idle";
+
+  const connect = async () => {
+    setError(null);
+    setStatus("connecting");
+    try {
+      // The server holds this request open while the user approves in their browser.
+      await api.setup.connect();
+      setStatus("waiting");
+      await waitForReady();
+      onReady();
+    } catch (err) {
+      setError((err as Error).message);
+      setStatus("idle");
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,76 +69,110 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
     }
   };
 
+  const oneClick = canConnect && hasBundled;
+
   return (
     <div className="setup">
-      <form className="setup__card" onSubmit={submit}>
+      <div className="setup__card">
         <div className="setup__head">
           <span className="eyebrow">First-time setup</span>
           <h1 className="setup__title">Connect your YouTube channel</h1>
           <p className="setup__lede">
-            Paste the OAuth credentials for the channel this control surface will drive. They
-            stay on this machine and are only used to talk to the YouTube API.
+            Sign in with the Google account that owns the channel this control surface will drive.
+            Your credentials stay on this machine and are only used to talk to the YouTube API.
           </p>
         </div>
 
-        <div className="field">
-          <label htmlFor="setup-client-id">Client ID</label>
-          <input
-            id="setup-client-id"
-            className="mono"
-            autoFocus
-            value={clientId}
-            placeholder="xxxxxxxx.apps.googleusercontent.com"
-            onChange={(e) => setClientId(e.target.value)}
-            disabled={busy}
-          />
-        </div>
+        {oneClick ? (
+          <div className="setup__connect">
+            <button
+              className="btn btn--primary setup__connect-btn"
+              type="button"
+              onClick={connect}
+              disabled={busy}
+            >
+              {status === "connecting"
+                ? "Waiting for your browser…"
+                : status === "waiting"
+                  ? "Finishing up…"
+                  : "Connect YouTube"}
+            </button>
+            <p className="setup__connect-hint">
+              Opens Google in your browser. You may see a “Google hasn’t verified this app” screen —
+              that’s expected; choose your channel and continue.
+            </p>
+          </div>
+        ) : null}
 
-        <div className="field">
-          <label htmlFor="setup-client-secret">Client secret</label>
-          <input
-            id="setup-client-secret"
-            className="mono"
-            type="password"
-            value={clientSecret}
-            placeholder="GOCSPX-…"
-            onChange={(e) => setClientSecret(e.target.value)}
-            disabled={busy}
-          />
-        </div>
+        {oneClick && !manual ? (
+          <button className="setup__disclosure" type="button" onClick={() => setManual(true)}>
+            Use my own credentials instead
+          </button>
+        ) : null}
 
-        <div className="field">
-          <label htmlFor="setup-refresh-token">Refresh token</label>
-          <input
-            id="setup-refresh-token"
-            className="mono"
-            type="password"
-            value={refreshToken}
-            placeholder="1//…"
-            onChange={(e) => setRefreshToken(e.target.value)}
-            disabled={busy}
-          />
-        </div>
+        {manual ? (
+          <form className="setup__manual" onSubmit={submit}>
+            {oneClick ? <div className="setup__seam">Manual credentials</div> : null}
+
+            <div className="field">
+              <label htmlFor="setup-client-id">Client ID</label>
+              <input
+                id="setup-client-id"
+                className="mono"
+                value={clientId}
+                placeholder="xxxxxxxx.apps.googleusercontent.com"
+                onChange={(e) => setClientId(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="setup-client-secret">Client secret</label>
+              <input
+                id="setup-client-secret"
+                className="mono"
+                type="password"
+                value={clientSecret}
+                placeholder="GOCSPX-…"
+                onChange={(e) => setClientSecret(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="setup-refresh-token">Refresh token</label>
+              <input
+                id="setup-refresh-token"
+                className="mono"
+                type="password"
+                value={refreshToken}
+                placeholder="1//…"
+                onChange={(e) => setRefreshToken(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+
+            <div className="setup__foot">
+              <a className="setup__link" href="/guide" target="_blank" rel="noreferrer">
+                Where do I get these?
+              </a>
+              <button
+                className="btn btn--primary"
+                type="submit"
+                disabled={busy || !clientId.trim() || !clientSecret.trim() || !refreshToken.trim()}
+              >
+                {status === "saving"
+                  ? "Saving…"
+                  : status === "waiting"
+                    ? "Connecting…"
+                    : "Connect channel"}
+              </button>
+            </div>
+          </form>
+        ) : null}
 
         {error ? <p className="setup__error">{error}</p> : null}
-
-        <div className="setup__foot">
-          <a className="setup__link" href="/guide" target="_blank" rel="noreferrer">
-            Where do I get these?
-          </a>
-          <button
-            className="btn btn--primary"
-            type="submit"
-            disabled={busy || !clientId.trim() || !clientSecret.trim() || !refreshToken.trim()}
-          >
-            {status === "saving"
-              ? "Saving…"
-              : status === "waiting"
-                ? "Connecting…"
-                : "Connect channel"}
-          </button>
-        </div>
-      </form>
+      </div>
     </div>
   );
 }

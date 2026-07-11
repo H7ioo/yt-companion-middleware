@@ -9,7 +9,9 @@ export type ErrorCode =
   | "NO_UNDO_AVAILABLE"
   | "SERVICE_DISABLED"
   | "YOUTUBE_ERROR"
-  | "INVALID_REQUEST";
+  | "INVALID_REQUEST"
+  | "OAUTH_FAILED"
+  | "OAUTH_NO_REFRESH_TOKEN";
 
 const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   NO_TARGET_FOUND: "No active broadcast and no persistent container found",
@@ -22,6 +24,9 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   SERVICE_DISABLED: "The YouTube API is switched off from the dashboard — re-enable it to run actions",
   YOUTUBE_ERROR: "YouTube API request failed",
   INVALID_REQUEST: "Invalid request payload",
+  OAUTH_FAILED: "The YouTube sign-in flow did not complete",
+  OAUTH_NO_REFRESH_TOKEN:
+    "Google returned no refresh token — revoke the app at myaccount.google.com/permissions and reconnect",
 };
 
 export class AppError extends Error {

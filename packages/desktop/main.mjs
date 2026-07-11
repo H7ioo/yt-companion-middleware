@@ -116,9 +116,37 @@ function createTray() {
 async function startEmbeddedServer() {
   // Import the compiled server lazily so a build error surfaces as a dialog, not a silent crash.
   const serverUrl = new URL("../server/dist/server.js", import.meta.url);
-  /** @type {{ startServer: () => Promise<ServerHandle> }} */
+  /**
+   * @typedef {{ openBrowser?: (url: string) => void, bundledClient?: { clientId: string, clientSecret: string } }} StartServerOptions
+   * @type {{ startServer: (options?: StartServerOptions) => Promise<ServerHandle> }}
+   */
   const mod = await import(serverUrl.href);
-  serverHandle = await mod.startServer();
+  // Give the server the two host capabilities it can't have on its own: opening the real
+  // system browser for consent (Google blocks embedded webviews) and the build-time bundled
+  // OAuth client. Both power the one-click "Connect YouTube" flow (PRD-03 §2).
+  const bundledClient = await loadBundledClient();
+  serverHandle = await mod.startServer({
+    openBrowser: (url) => void shell.openExternal(url),
+    bundledClient,
+  });
+}
+
+/**
+ * Loads the build-time bundled OAuth client written by scripts/gen-oauth-config.mjs. Returns
+ * undefined when the generated file is absent or empty (local dev / override-only builds), so the
+ * app simply offers no one-click flow rather than crashing.
+ * @returns {Promise<{ clientId: string, clientSecret: string } | undefined>}
+ */
+async function loadBundledClient() {
+  try {
+    const mod = await import(new URL("./generated/oauth.mjs", import.meta.url).href);
+    if (mod.HAS_BUNDLED_CLIENT && mod.BUNDLED_CLIENT_ID && mod.BUNDLED_CLIENT_SECRET) {
+      return { clientId: mod.BUNDLED_CLIENT_ID, clientSecret: mod.BUNDLED_CLIENT_SECRET };
+    }
+  } catch {
+    /* no generated file — override-only build */
+  }
+  return undefined;
 }
 
 app.on("second-instance", showWindow);

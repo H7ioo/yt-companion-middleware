@@ -58,6 +58,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify(creds),
       }),
+    /**
+     * Runs the in-app OAuth flow: the server opens the system browser and waits for consent, so
+     * this request stays open until the user finishes (or the flow errors). No token is returned.
+     */
+    connect: () => req<{ ok: boolean }>("/api/setup/oauth/start", { method: "POST" }),
   },
   presets: {
     list: () => req<Preset[]>("/api/dashboard/presets"),

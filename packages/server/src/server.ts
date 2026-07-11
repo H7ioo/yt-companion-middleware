@@ -3,9 +3,12 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
+import type { youtube_v3 } from "googleapis";
 import { loadConfig, resolveCredentials, isConfigured, type AppConfig } from "./config.js";
+import type { CredentialsState } from "./storage/schema.js";
 import { JsonStore } from "./storage/jsonStore.js";
 import { createYouTubeClient } from "./youtube/client.js";
+import { connectYouTube } from "./youtube/connect.js";
 import { StateCache } from "./core/stateCache.js";
 import { ActionRunner } from "./core/actionRunner.js";
 import { QuotaTracker, instrumentQuota } from "./core/quota.js";
@@ -30,6 +33,18 @@ interface BootHandle {
   close(): Promise<void>;
 }
 
+/**
+ * Capabilities the host process injects. The Electron main process supplies these so the in-app
+ * OAuth flow (PRD-03 §2) can open the system browser; a headless/Docker boot omits them and the
+ * flow is unavailable (operators use env/CLI instead).
+ */
+export interface StartServerOptions {
+  /** Opens a URL in the system browser (shell.openExternal under Electron). */
+  openBrowser?: (url: string) => void | Promise<void>;
+  /** Build-time bundled OAuth client, if the shipped binary carries one (PRD-03 §1.1). */
+  bundledClient?: { clientId: string; clientSecret: string };
+}
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -43,6 +58,7 @@ async function bootOnce(
   config: AppConfig,
   store: JsonStore,
   requestRestart: () => void,
+  options: StartServerOptions = {},
 ): Promise<BootHandle> {
   const creds = resolveCredentials(config, store.get().credentials);
   const configured = isConfigured(creds);
@@ -50,8 +66,30 @@ async function bootOnce(
   const app = express();
   app.use(express.json());
 
+  // How newly-connected credentials take effect. Default is a full reboot (first-run: there is no
+  // credentialed subsystem yet). Once configured, the block below swaps this for a hot rebuild that
+  // keeps the HTTP server — and Companion's connection — up (PRD-03 §2.4, "no server restart").
+  let applyCredentials: (creds: CredentialsState) => void | Promise<void> = () => requestRestart();
+
+  // The in-app OAuth flow needs a way to open the system browser; only the Electron host provides
+  // it. Late-bound `applyCredentials` so the hot-rebuild path (set below) is used once configured.
+  const oauth = options.openBrowser
+    ? {
+        hasBundledClient: Boolean(
+          options.bundledClient?.clientId && options.bundledClient?.clientSecret,
+        ),
+        run: () =>
+          connectYouTube({
+            store,
+            bundledClient: options.bundledClient,
+            openBrowser: options.openBrowser!,
+            applyCredentials: (c) => applyCredentials(c),
+          }),
+      }
+    : undefined;
+
   // Setup endpoints are always available so the desktop app can be configured at runtime.
-  app.use("/api/setup", setupRouter({ store, configured, requestRestart }));
+  app.use("/api/setup", setupRouter({ store, configured, requestRestart, oauth }));
 
   // Pieces that only exist once we have credentials — captured for graceful shutdown.
   let cache: StateCache | null = null;
@@ -63,10 +101,22 @@ async function bootOnce(
     const events = new StateEvents();
     const quota = new QuotaTracker(store, config.quotaLimit, events);
     quota.init();
-    const yt = instrumentQuota(
-      createYouTubeClient({ ...config, youtube: creds }),
-      quota,
-    );
+    // A stable proxy handed to every consumer (cache, runner, routes). Rebuilding on reconnect
+    // swaps `activeClient` underneath it, so the YouTube client is replaced in-process with no
+    // restart and no dangling references (PRD-03 §2.4). Every call site reads `yt.liveBroadcasts`
+    // (etc.) fresh, so the swap is picked up on the next call.
+    let activeClient = instrumentQuota(createYouTubeClient({ ...config, youtube: creds }), quota);
+    const yt = new Proxy({} as youtube_v3.Youtube, {
+      get: (_t, prop) => activeClient[prop as keyof youtube_v3.Youtube],
+    });
+    applyCredentials = (newCreds) => {
+      activeClient = instrumentQuota(
+        createYouTubeClient({ ...config, youtube: newCreds }),
+        quota,
+      );
+      // Re-evaluate health immediately so a successful reconnect clears an auth_error banner.
+      void cache?.refresh();
+    };
     cache = new StateCache(
       yt,
       store,
@@ -191,7 +241,7 @@ async function bootOnce(
  * Starts the middleware server with restart-on-setup support. Returns a handle that shuts the
  * current server down. Used both by the CLI entrypoint and by the Electron main process.
  */
-export async function startServer(): Promise<BootHandle> {
+export async function startServer(options: StartServerOptions = {}): Promise<BootHandle> {
   const config = loadConfig();
   const store = new JsonStore(config.storePath);
   await store.init();
@@ -207,7 +257,7 @@ export async function startServer(): Promise<BootHandle> {
       void (async () => {
         try {
           await current?.close();
-          current = await bootOnce(config, store, requestRestart);
+          current = await bootOnce(config, store, requestRestart, options);
           console.log("[server] restarted after credential change");
         } catch (err) {
           console.error("[server] restart failed:", err);
@@ -218,7 +268,7 @@ export async function startServer(): Promise<BootHandle> {
     }, 250);
   };
 
-  current = await bootOnce(config, store, requestRestart);
+  current = await bootOnce(config, store, requestRestart, options);
 
   return {
     async close() {
