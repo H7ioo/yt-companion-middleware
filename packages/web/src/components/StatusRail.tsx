@@ -3,7 +3,17 @@ import type { DashboardState, QuotaSnapshot } from "../api.js";
 const HEALTH_LABEL: Record<string, string> = {
   ok: "Healthy",
   degraded: "Degraded",
+  offline: "Offline",
   auth_error: "Auth error",
+};
+
+// One lamp class per health state — offline is slate (network), auth_error is red (needs reauth),
+// so the two failure modes never read as the same fault (PRD-06 §2 / issue 019 AC #3).
+const HEALTH_LAMP: Record<string, string> = {
+  ok: "lamp--ready",
+  degraded: "lamp--warn",
+  offline: "lamp--offline",
+  auth_error: "lamp--err",
 };
 
 function QuotaReadout({ quota }: { quota: QuotaSnapshot | undefined }) {
@@ -119,16 +129,8 @@ export function StatusRail({
         <div className="readout">
           <span className="readout__label">Health</span>
           <span className="readout__value">
-            <span
-              className={`lamp ${
-                health === "ok"
-                  ? "lamp--ready"
-                  : health === "degraded"
-                    ? "lamp--warn"
-                    : "lamp--err"
-              }`}
-            />
-            {HEALTH_LABEL[health]}
+            <span className={`lamp ${HEALTH_LAMP[health] ?? "lamp--err"}`} />
+            {HEALTH_LABEL[health] ?? health}
           </span>
         </div>
         <div className="readout">

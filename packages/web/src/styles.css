@@ -17,6 +17,7 @@
   --live: #ff3b30; /* tally red — on air */
   --ready: #29d398; /* signal green — idle/ready */
   --warn: #ffb020; /* degraded */
+  --offline: #7d8794; /* slate — network unreachable, not a login fault */
   --accent: #4c8dff; /* interactive blue */
 
   --radius: 6px;
@@ -239,6 +240,10 @@ body {
 }
 .lamp--err {
   background: var(--live);
+}
+.lamp--offline {
+  background: var(--offline);
+  box-shadow: 0 0 10px 1px rgba(125, 135, 148, 0.4);
 }
 @keyframes pulse {
   50% {
@@ -837,6 +842,106 @@ textarea {
 }
 @media (prefers-reduced-motion: reduce) {
   .reauth__lamp { animation: none; }
+}
+
+/* ---- Firewall guidance (offline only) ------------------------------------ */
+/* Slate, not red: a network fault the operator fixes at the firewall — never a reauth. */
+
+.firewall {
+  padding: 16px 20px;
+  background: var(--bg-rack);
+  border: var(--seam-line);
+  border-left: 3px solid var(--offline);
+  border-radius: var(--radius);
+}
+.firewall__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.firewall__lamp {
+  flex: none;
+  margin-top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--offline);
+  box-shadow: 0 0 0 4px rgba(125, 135, 148, 0.15);
+}
+.firewall__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.firewall__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink);
+}
+.firewall__note {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+.firewall__action {
+  margin-left: auto;
+  flex: none;
+}
+.firewall__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: var(--seam-line);
+}
+.firewall__os-name {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--offline);
+  margin-bottom: 8px;
+}
+.firewall__steps {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.firewall__step {
+  color: var(--ink-dim);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.firewall__cmd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.firewall__cmd code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 4px 8px;
+  background: var(--bg-inset);
+  border: var(--seam-line);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+@media (max-width: 700px) {
+  .firewall__grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 860px) {

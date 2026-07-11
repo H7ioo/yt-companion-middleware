@@ -10,6 +10,7 @@ import {
 } from "./api.js";
 import { StatusRail } from "./components/StatusRail.js";
 import { ReauthBanner } from "./components/ReauthBanner.js";
+import { FirewallGuidance } from "./components/FirewallGuidance.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { PresetForm } from "./components/PresetForm.js";
 import { PresetFillModal } from "./components/PresetFillModal.js";
@@ -310,6 +311,11 @@ export function App() {
             onOpenSettings={() => setSettingsOpen(true)}
             flash={flash}
           />
+        ) : null}
+
+        {/* Firewall guidance — a network-level fault, never reauth (PRD-06 §2, issue 019). */}
+        {state?.health === "offline" ? (
+          <FirewallGuidance applyState={setState} flash={flash} />
         ) : null}
 
         {/* Presets */}
