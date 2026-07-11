@@ -77,7 +77,7 @@ Every dropped button stays fully editable afterwards.
 ## Actions
 
 Apply preset (dropdown + optional template-vars JSON), Update live metadata (title required),
-Privacy toggle, Privacy set, Undo, Refresh cache, Refresh lists — all hit the middleware's
+Privacy toggle, Privacy set, Undo, Refresh from YouTube, Refresh lists — all hit the middleware's
 `/api/action/*` bus (Refresh lists re-fetches the preset/category/stream dropdowns).
 
 **Check middleware connection (YouTube status)** — pings `/api/feedback/health` on demand, logs
