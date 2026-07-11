@@ -4,6 +4,7 @@
 // a type error here until the UI handles it. Do not hand-redeclare these interfaces.
 export type {
   PrivacyStatus,
+  HealthStatus,
   Preset,
   DefaultSettings,
   VarSource,

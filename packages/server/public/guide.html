@@ -1232,28 +1232,39 @@ npm start</pre>
                       <th>Key color</th>
                     </tr>
                   </thead>
+                  <!-- Meaning column is the canonical glossary copy (@app/shared HEALTH_GLOSSARY,
+                       issue 021). Keep in lockstep with the dashboard health explainer. -->
                   <tbody>
                     <tr>
                       <td><code>ok</code></td>
-                      <td>Healthy.</td>
+                      <td>
+                        Reaching YouTube normally — actions and background
+                        polling are working.
+                      </td>
                       <td>Green</td>
                     </tr>
                     <tr>
                       <td><code>degraded</code></td>
-                      <td>A transient failure, still retrying.</td>
+                      <td>
+                        A recent call failed and the app is retrying. This
+                        usually clears on the next poll.
+                      </td>
                       <td>Yellow</td>
                     </tr>
                     <tr>
                       <td><code>offline</code></td>
                       <td>
-                        Network unreachable (firewall / DNS / no internet) —
-                        repeated transport failures, not an auth problem.
+                        Can't reach YouTube at the network layer — a firewall,
+                        DNS, or dropped internet, not a sign-in problem.
                       </td>
                       <td>Grey</td>
                     </tr>
                     <tr>
                       <td><code>auth_error</code></td>
-                      <td>Refresh token dead — needs manual reauth.</td>
+                      <td>
+                        The saved YouTube sign-in stopped working. No retry will
+                        fix it — reconnect to resume actions and status.
+                      </td>
                       <td>Red</td>
                     </tr>
                   </tbody>

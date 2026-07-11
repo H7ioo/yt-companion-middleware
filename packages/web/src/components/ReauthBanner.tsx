@@ -48,7 +48,7 @@ export function ReauthBanner({ onReconnected, onOpenSettings, flash }: Props) {
   };
 
   return (
-    <div className="reauth" role="alert">
+    <div id="reauth" className="reauth" role="alert">
       <span className="reauth__lamp" aria-hidden="true" />
       <div className="reauth__meta">
         <span className="eyebrow">Connection</span>

@@ -47,7 +47,7 @@ export function FirewallGuidance({ applyState, flash }: Props) {
   };
 
   return (
-    <section className="firewall" role="alert" aria-labelledby="firewall-title">
+    <section id="firewall" className="firewall" role="alert" aria-labelledby="firewall-title">
       <div className="firewall__head">
         <span className="firewall__lamp" aria-hidden="true" />
         <div className="firewall__meta">
