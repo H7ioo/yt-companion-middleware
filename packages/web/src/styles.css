@@ -4,6 +4,18 @@
    status rail; everything else stays quiet.
    ========================================================================= */
 
+/* Self-hosted display face (issue 022 / PRD-07 §1). Archivo ships as a single variable woff2;
+   we bundle the latin subset and expose the full weight range so the 600/700/800 headings render
+   in the packaged Electron build with no network — a Google Fonts link would fall back to Arial
+   offline. Vite fingerprints ./fonts/archivo-latin-var.woff2 into dist/assets at build time. */
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url(./fonts/archivo-latin-var.woff2) format("woff2");
+}
+
 :root {
   --bg: #0e1013;
   --bg-rack: #16191e;
