@@ -18,6 +18,21 @@ export function isHttpUrl(value: string): boolean {
   }
 }
 
+/**
+ * Builds the absolute Companion deep-link `GET /fill?preset=<id>[&redirect=<url>]`.
+ * Absolute so it pastes straight into a Companion HTTP action; a non-http(s)
+ * redirect is dropped to mirror what {@link parseFillRoute} would accept.
+ */
+export function buildFillUrl(
+  origin: string,
+  presetId: string,
+  redirect?: string | null,
+): string {
+  const params = new URLSearchParams({ preset: presetId });
+  if (redirect && isHttpUrl(redirect)) params.set("redirect", redirect);
+  return `${origin.replace(/\/$/, "")}/fill?${params.toString()}`;
+}
+
 export function parseFillRoute(loc: { pathname: string; search: string }): FillRoute | null {
   if (loc.pathname !== "/fill") return null;
   const params = new URLSearchParams(loc.search);

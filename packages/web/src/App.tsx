@@ -18,6 +18,7 @@ import { AdHocModal } from "./components/AdHocModal.js";
 import { CategorySelect } from "./components/CategorySelect.js";
 import { ActivityPanel } from "./components/ActivityPanel.js";
 import { extractVars } from "./lib/template.js";
+import { buildFillUrl } from "./lib/fillRoute.js";
 
 type Toast = { message: string; kind: "ok" | "err" } | null;
 
@@ -401,7 +402,21 @@ export function App() {
                     </div>
                     <div
                       className="mapping"
-                      title="Copy for the Companion JSON payload"
+                      title="Fill-route deep link — paste into a Companion HTTP GET action"
+                    >
+                      <code>{buildFillUrl(location.origin, p.id)}</code>
+                      <button
+                        className="btn btn--ghost btn--sm"
+                        onClick={() =>
+                          copy(buildFillUrl(location.origin, p.id), "Fill URL")
+                        }
+                      >
+                        Copy URL
+                      </button>
+                    </div>
+                    <div
+                      className="mapping"
+                      title="Direct-API JSON payload for the Companion body"
                     >
                       <code>{`{ "presetId": "${p.id}" }`}</code>
                       <button
@@ -410,7 +425,7 @@ export function App() {
                           copy(`{ "presetId": "${p.id}" }`, "Payload")
                         }
                       >
-                        Copy
+                        Copy JSON
                       </button>
                     </div>
                     <div className="card__actions">

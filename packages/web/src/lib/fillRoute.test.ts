@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isHttpUrl, parseFillRoute } from "./fillRoute.js";
+import { buildFillUrl, isHttpUrl, parseFillRoute } from "./fillRoute.js";
 
 describe("parseFillRoute", () => {
   it("returns null for a non-/fill path", () => {
@@ -34,6 +34,46 @@ describe("parseFillRoute", () => {
     expect(
       parseFillRoute({ pathname: "/fill", search: `?preset=p1&redirect=${encodeURIComponent(redirect)}` }),
     ).toEqual({ presetId: "p1", redirect });
+  });
+});
+
+describe("buildFillUrl", () => {
+  it("builds an absolute fill URL from origin and preset id", () => {
+    expect(buildFillUrl("http://192.168.1.9:8000", "p1")).toBe(
+      "http://192.168.1.9:8000/fill?preset=p1",
+    );
+  });
+
+  it("trims a trailing slash on the origin", () => {
+    expect(buildFillUrl("http://host:8000/", "p1")).toBe(
+      "http://host:8000/fill?preset=p1",
+    );
+  });
+
+  it("url-encodes a preset id with special characters", () => {
+    expect(buildFillUrl("http://host", "a b&c")).toBe(
+      "http://host/fill?preset=a+b%26c",
+    );
+  });
+
+  it("appends an http(s) redirect", () => {
+    expect(
+      buildFillUrl("http://host", "p1", "https://companion.local/done"),
+    ).toBe("http://host/fill?preset=p1&redirect=https%3A%2F%2Fcompanion.local%2Fdone");
+  });
+
+  it("drops a non-http(s) redirect", () => {
+    expect(buildFillUrl("http://host", "p1", "javascript:alert(1)")).toBe(
+      "http://host/fill?preset=p1",
+    );
+  });
+
+  it("round-trips through parseFillRoute", () => {
+    const url = new URL(buildFillUrl("http://host", "p1"));
+    expect(parseFillRoute({ pathname: url.pathname, search: url.search })).toEqual({
+      presetId: "p1",
+      redirect: null,
+    });
   });
 });
 
