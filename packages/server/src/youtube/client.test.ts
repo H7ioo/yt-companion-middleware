@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapYouTubeError, isAuthError } from "./client.js";
+import { mapYouTubeError, isAuthError, isNetworkError } from "./client.js";
 import { AppError } from "../core/errors.js";
 
 /** A GaxiosError-shaped object with a status and optional reason list. */
@@ -43,6 +43,23 @@ describe("mapYouTubeError", () => {
 
   it("reads the status from a top-level `code` when there is no response", () => {
     expect(mapYouTubeError({ code: 401, message: "no creds" }).code).toBe("YOUTUBE_AUTH_ERROR");
+  });
+
+  it.each(["ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "ECONNRESET"])(
+    "maps a Node network code %s to NETWORK_ERROR, not auth",
+    (code) => {
+      const err = mapYouTubeError({ code, message: `connect ${code}` });
+      expect(err.code).toBe("NETWORK_ERROR");
+      expect(err.message).toBe(`connect ${code}`);
+    },
+  );
+});
+
+describe("isNetworkError", () => {
+  it("is true only for an AppError with code NETWORK_ERROR", () => {
+    expect(isNetworkError(new AppError("NETWORK_ERROR"))).toBe(true);
+    expect(isNetworkError(new AppError("YOUTUBE_AUTH_ERROR"))).toBe(false);
+    expect(isNetworkError(new Error("plain"))).toBe(false);
   });
 });
 

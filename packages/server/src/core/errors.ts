@@ -9,6 +9,7 @@ export type ErrorCode =
   | "NO_UNDO_AVAILABLE"
   | "SERVICE_DISABLED"
   | "YOUTUBE_ERROR"
+  | "NETWORK_ERROR"
   | "INVALID_REQUEST"
   | "OAUTH_FAILED"
   | "OAUTH_NO_REFRESH_TOKEN";
@@ -23,6 +24,8 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   NO_UNDO_AVAILABLE: "No previous state to undo — no change has been made yet",
   SERVICE_DISABLED: "The YouTube API is switched off from the dashboard — re-enable it to run actions",
   YOUTUBE_ERROR: "YouTube API request failed",
+  NETWORK_ERROR:
+    "Could not reach YouTube — likely a firewall or network problem, not a login problem",
   INVALID_REQUEST: "Invalid request payload",
   OAUTH_FAILED: "The YouTube sign-in flow did not complete",
   OAUTH_NO_REFRESH_TOKEN:

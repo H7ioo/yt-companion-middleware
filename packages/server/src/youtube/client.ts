@@ -15,6 +15,19 @@ export function createYouTubeClient(config: AppConfig): youtube_v3.Youtube {
   return google.youtube({ version: "v3", auth: oauth2 });
 }
 
+/**
+ * Node/undici error codes that mean "the request never reached YouTube" — a firewall, dead
+ * DNS, or no internet. These must be classified apart from auth so a blocked outbound 443
+ * does not masquerade as a revoked token (PRD-06 §0).
+ */
+const NETWORK_ERROR_CODES = new Set([
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNRESET",
+]);
+
 /** Maps a googleapis/GaxiosError into one of the PRD §7 error codes. */
 export function mapYouTubeError(err: unknown): AppError {
   if (err instanceof AppError) return err;
@@ -25,6 +38,12 @@ export function mapYouTubeError(err: unknown): AppError {
     response?: { status?: number; data?: { error?: { errors?: Array<{ reason?: string }> } } };
     message?: string;
   };
+
+  // A transport-level failure carries a string code and no HTTP response — classify it before
+  // any status math (Number("ECONNREFUSED") is NaN and would fall through to YOUTUBE_ERROR).
+  if (typeof anyErr.code === "string" && NETWORK_ERROR_CODES.has(anyErr.code)) {
+    return new AppError("NETWORK_ERROR", anyErr.message);
+  }
 
   const status = Number(anyErr.response?.status ?? anyErr.status ?? anyErr.code);
   const reasons = anyErr.response?.data?.error?.errors?.map((e) => e.reason ?? "") ?? [];
@@ -49,4 +68,9 @@ export function mapYouTubeError(err: unknown): AppError {
 /** True when the error should escalate health toward auth_error (not retryable). */
 export function isAuthError(err: unknown): boolean {
   return err instanceof AppError && err.code === "YOUTUBE_AUTH_ERROR";
+}
+
+/** True for a transport-level failure (firewall / DNS / no internet), which drives `offline`. */
+export function isNetworkError(err: unknown): boolean {
+  return err instanceof AppError && err.code === "NETWORK_ERROR";
 }

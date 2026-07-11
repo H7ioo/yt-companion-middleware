@@ -2,7 +2,7 @@ import type { youtube_v3 } from "googleapis";
 import type { JsonStore } from "../storage/jsonStore.js";
 import type { CacheState } from "../storage/schema.js";
 import { getBroadcast, resolveTarget, toStatus } from "../youtube/broadcasts.js";
-import { isAuthError, mapYouTubeError } from "../youtube/client.js";
+import { isAuthError, isNetworkError, mapYouTubeError } from "../youtube/client.js";
 import { initialHealth, onFailure, onSuccess, type HealthState } from "./health.js";
 import type { StateEvents } from "./events.js";
 
@@ -61,8 +61,9 @@ export class StateCache {
         });
         return;
       }
+      const kind = isAuthError(mapped) ? "auth" : isNetworkError(mapped) ? "network" : "transient";
       this.health = onFailure(this.health, {
-        isAuthError: isAuthError(mapped),
+        kind,
         threshold: this.opts.healthFailureThreshold,
         message: mapped.message,
       });

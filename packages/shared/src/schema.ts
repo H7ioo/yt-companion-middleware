@@ -33,7 +33,7 @@ export const defaultSettingsSchema = z.object({
 });
 export type DefaultSettings = z.infer<typeof defaultSettingsSchema>;
 
-export const healthStatusSchema = z.enum(["ok", "degraded", "auth_error"]);
+export const healthStatusSchema = z.enum(["ok", "degraded", "offline", "auth_error"]);
 export type HealthStatus = z.infer<typeof healthStatusSchema>;
 
 /**
