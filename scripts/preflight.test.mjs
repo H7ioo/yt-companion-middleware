@@ -15,6 +15,7 @@ describe("STEPS", () => {
       "typecheck:electron",
       "test",
       "build:all",
+      "smoke",
       "companion:package",
       "pack",
     ]);

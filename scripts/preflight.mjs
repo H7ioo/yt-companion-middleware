@@ -4,8 +4,9 @@
 //
 // Mirrors everything the Release workflow does EXCEPT the OS-specific packaging: typecheck (server
 // + companion) and typecheck:electron, the full vitest suite (workspaces + companion-module), the
-// shared/web/server build, the Companion package (whose prepackage guard re-checks the
-// package.json/manifest.json version sync), and an electron-builder `--dir` pack.
+// shared/web/server build, the release smoke test (boots the built server, probes health), the
+// Companion package (whose prepackage guard re-checks the package.json/manifest.json version sync),
+// and an electron-builder `--dir` pack.
 //
 // The pack is the point: it exercises the electron-builder files/asarUnpack globs, which otherwise
 // only fail on a tag push. `--dir` packs for the host OS, so this needs no Wine on Linux — the real
@@ -32,6 +33,7 @@ export const STEPS = [
   { id: "typecheck:electron", why: "electron entry types", command: ["npm", "run", "typecheck:electron"] },
   { id: "test", why: "all vitest suites, companion included", command: ["npm", "run", "test"] },
   { id: "build:all", why: "shared + web + server build", command: ["npm", "run", "build:all"] },
+  { id: "smoke", why: "the built server actually boots and serves health", command: ["npm", "run", "smoke"] },
   { id: "companion:package", why: "module .tgz + version-sync guard", command: ["npm", "run", "companion:package"] },
   { id: "pack", why: "electron-builder --dir: config/glob errors", command: ["npm", "run", "desktop:pack"] },
 ];

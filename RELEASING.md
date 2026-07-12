@@ -39,13 +39,22 @@ npm run preflight          # add --no-pack to skip the slow electron pack
 ```
 
 One command, mirroring everything CI does **except the OS-specific packaging** — typecheck (server,
-companion, electron entry), the full test suite, `build:all`, `companion:package` (which re-runs the
-version-sync guard), and an `electron-builder --dir` pack. It fails fast on the first broken step and
-needs no Wine: the `--dir` pack targets the host OS, but it still exercises the electron-builder
-`files`/`asarUnpack` globs, which is the config that otherwise only fails on a tag push.
+companion, electron entry), the full test suite, `build:all`, the **release smoke test**,
+`companion:package` (which re-runs the version-sync guard), and an `electron-builder --dir` pack. It
+fails fast on the first broken step and needs no Wine: the `--dir` pack targets the host OS, but it
+still exercises the electron-builder `files`/`asarUnpack` globs, which is the config that otherwise
+only fails on a tag push.
 
-What it **cannot** catch is the Windows build itself. Prove that remotely without publishing: run the
-`Release` workflow via **workflow_dispatch** and confirm it's green (see the note below) — then tag.
+The smoke test (`npm run smoke`, also runnable on its own after `build:all`) boots the **built**
+server — once with no credentials (setup mode) and once with dummy ones (the full route table) — and
+asserts `GET /api/feedback/health` answers 200 with the right shape. It is the only step that runs
+the shipped `dist/`, so it is what catches a build that compiles but won't boot. The same three
+checks — typecheck, tests, smoke — run as the `checks` job in CI, and the desktop/companion builds
+are gated on them.
+
+What preflight **cannot** catch is the Windows build itself. Prove that remotely without publishing:
+run the `Release` workflow via **workflow_dispatch** and confirm it's green (see the note below) —
+then tag.
 
 ## Cut the release
 
@@ -60,6 +69,8 @@ What it **cannot** catch is the Windows build itself. Prove that remotely withou
    ```
 
 4. CI (`Release` workflow) then:
+   - **checks** job (ubuntu-latest): typecheck, the full test suite, and the release smoke test.
+     Both build jobs below are gated on it, so a red test never becomes a Release.
    - **desktop** job (windows-latest): stamps the app version from the tag, builds the installer
      + portable exe.
    - **companion** job (ubuntu-latest): packages the module `.tgz` (re-checks version sync).
