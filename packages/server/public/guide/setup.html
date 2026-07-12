@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Install & run · Operator Manual</title>
+    <link rel="stylesheet" href="./assets/guide.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <div>
+          <div class="tally">
+            <span class="led"></span> On Air · Operator Manual
+          </div>
+          <p class="kicker">YouTube Live Middleware · v2</p>
+          <h1>Get it running, and<br />know why it has no login.</h1>
+          <p>
+            Install and start the middleware, then understand the trust model it assumes: a private LAN, where the dashboard and every endpoint are open to anyone who can reach the port.
+          </p>
+        </div>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <!-- Rendered by assets/nav.js from the shared page manifest. -->
+      <nav class="toc" aria-label="Contents"></nav>
+
+      <main>
+<section id="setup">
+          <h2><span class="no">02</span> Install &amp; run</h2>
+          <p class="lede">
+            Node 20+, one OAuth refresh token, a JSON file on disk. That's the
+            whole footprint.
+          </p>
+
+          <h3>Configure the environment</h3>
+          <p>
+            Copy <code>.env.example</code> to <code>.env</code> and fill it in.
+            The YouTube refresh token is obtained once through Google's OAuth
+            consent flow and stays server-side — it is never exposed to
+            Companion or any browser.
+          </p>
+          <pre><span class="c"># YouTube OAuth 2.0 (Google Cloud Console → OAuth client)</span>
+<span class="k">YT_CLIENT_ID</span>=<span class="s">your-client-id.apps.googleusercontent.com</span>
+<span class="k">YT_CLIENT_SECRET</span>=<span class="s">your-client-secret</span>
+<span class="k">YT_REFRESH_TOKEN</span>=<span class="s">your-refresh-token</span>
+
+<span class="k">PORT</span>=<span class="n">8080</span>
+<span class="k">DATA_DIR</span>=<span class="s">./data</span>            <span class="c"># JSON store; mount as a Docker volume</span>
+<span class="k">REFRESH_INTERVAL_SECONDS</span>=<span class="n">60</span>
+<span class="k">HEALTH_FAILURE_THRESHOLD</span>=<span class="n">3</span>   <span class="c"># fails in a row before health escalates</span>
+<span class="k">YT_REGION_CODE</span>=<span class="s">US</span>            <span class="c"># drives the assignable category list</span>
+<span class="k">YT_QUOTA_LIMIT</span>=<span class="n">10000</span>          <span class="c"># daily quota budget, shown on the dashboard</span></pre>
+
+          <h3>Run it</h3>
+          <pre><span class="c"># development — API on :8080 (tsx watch, auto-restart)</span>
+npm install
+npm run dev
+
+<span class="c"># hot-reloading dashboard (separate terminal, Vite dev server)</span>
+npm --prefix web run dev
+
+<span class="c"># production — build the SPA + server, then serve both from :8080</span>
+npm run build:all
+npm start</pre>
+          <p>
+            <code>npm run dev</code> runs the API only. In development the
+            dashboard is served by Vite on its own port (proxying
+            <code>/api</code> and <code>/guide</code> back to :8080); the
+            production build bundles the SPA so <code>npm start</code> serves
+            everything from a single port.
+          </p>
+          <p>
+            Open <code>http://&lt;host&gt;:8080</code> for the dashboard,
+            <code>/docs</code> for the interactive API console, and this page at
+            <code>/guide</code>. The API lives under <code>/api</code>.
+          </p>
+
+          <div class="callout">
+            <p>
+              <strong>Storage.</strong> Presets, default settings, the webhook
+              URL, and cached state all live in a single JSON file under
+              <code>DATA_DIR</code>. Writes are atomic (temp file, then rename)
+              so a crash mid-write can't corrupt it. Mount that directory as a
+              Docker volume and your config survives redeploys.
+            </p>
+          </div>
+        </section>
+
+<section id="auth">
+          <h2><span class="no">03</span> No login (LAN-trust)</h2>
+          <p class="lede">
+            There is no token, no header, no login screen. Anything on your LAN
+            can trigger the app — and that is the intended design.
+          </p>
+          <p>
+            The threat model is a personal tool on a private network: the worry
+            is a random device on the same LAN casually hitting an endpoint, not
+            a determined attacker. If someone already has access to this host,
+            API auth wouldn't have saved you anyway. So the Bearer token from
+            earlier versions is <strong>gone</strong> — no
+            <code>Authorization</code> header to set in Companion, nothing to
+            regenerate.
+          </p>
+          <div class="callout warn">
+            <p>
+              <strong>Do not port-forward this to the internet.</strong> Every
+              action and feedback endpoint is unauthenticated. Keep it on the
+              LAN (or behind a VPN) and you're within the model; expose it
+              publicly and anyone can rewrite your broadcast.
+            </p>
+          </div>
+          <p>
+            The action endpoints answer on two bases, split by caller:
+            <code>/api/action/*</code> is the Companion base and
+            <code>/api/dashboard/action/*</code> is the dashboard base. Both run
+            the <strong>same handler</strong> and are intentional — use whichever
+            fits the caller; both are supported.
+          </p>
+        </section>
+
+        <footer>
+          LAN-only. No auth. Keep it off the open internet.<br />
+          Interactive API console at <code>/docs</code> · dashboard at
+          <code>/</code>.
+        </footer>
+      </main>
+    </div>
+
+    <script src="./assets/nav.js"></script>
+  </body>
+</html>

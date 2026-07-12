@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>How it works · Operator Manual</title>
+    <link rel="stylesheet" href="./assets/guide.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <div>
+          <div class="tally">
+            <span class="led"></span> On Air · Operator Manual
+          </div>
+          <p class="kicker">YouTube Live Middleware · v2</p>
+          <h1>Wiring the Stream Deck to<br />your YouTube broadcast.</h1>
+          <p>
+            A LAN-only gateway that turns YouTube's multi-step live-metadata dance into single button presses on Bitfocus Companion — with cached state feedback, templated presets, and a browser round-trip for buttons that can't pop a dialog. This is the operator's guide to running it and patching it into Companion.
+          </p>
+        </div>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <!-- Rendered by assets/nav.js from the shared page manifest. -->
+      <nav class="toc" aria-label="Contents"></nav>
+
+      <main>
+<section id="overview">
+          <h2><span class="no">01</span> How it works</h2>
+          <p class="lede">
+            One broadcast target at a time, edited safely, mirrored into a cache
+            that Companion can poll for free.
+          </p>
+
+          <h3>Two states, one target</h3>
+          <p>
+            The app always points at a single broadcast and figures out which
+            one on every trigger:
+          </p>
+          <ul>
+            <li>
+              <strong>Idle</strong> — no live stream. Edits land on your
+              channel's persistent broadcast container (the default "upcoming"
+              broadcast).
+            </li>
+            <li>
+              <strong>On Air</strong> — a stream is active. Edits land on the
+              currently active broadcast. If more than one is active, the app
+              picks the most recent <code>actualStartTime</code> and logs a
+              warning.
+            </li>
+          </ul>
+          <p>
+            Brand-new channel with no container at all? The action fails cleanly
+            with <code>NO_TARGET_FOUND</code> rather than inventing one.
+          </p>
+
+          <div class="callout tip">
+            <p>
+              <strong>Read-modify-write, always.</strong> The app never
+              blind-overwrites metadata. Every trigger does <code>GET</code> →
+              merge your changes over the live object → <code>PUT</code> the
+              whole thing back. Fields it doesn't manage — thumbnail, game ID,
+              everything else — pass through untouched, so nothing you set in
+              YouTube Studio gets wiped mid-stream.
+            </p>
+          </div>
+
+          <h3>What a trigger resolves</h3>
+          <ol>
+            <li>
+              <code>title</code>, <code>description</code>,
+              <code>privacyStatus</code> — from the preset or ad-hoc payload.
+            </li>
+            <li>
+              <code>category</code> — preset override → else app default → else
+              left as-is.
+            </li>
+            <li>
+              <code>streamBoundId</code> (stream key binding) — same order:
+              preset override → app default → as-is.
+            </li>
+            <li>Everything else — copied straight from the live object.</li>
+          </ol>
+
+          <h3>The state cache</h3>
+          <p>
+            Every feedback endpoint is served from an in-memory cache,
+            <em>never</em> a live YouTube call. The cache refreshes after every
+            successful action and on a background timer
+            (<code>REFRESH_INTERVAL_SECONDS</code>, default 60s) to catch
+            out-of-band changes like a stream you ended from YouTube Studio.
+            Companion can poll every 5 seconds and spend zero YouTube quota.
+          </p>
+        </section>
+
+        <footer>
+          LAN-only. No auth. Keep it off the open internet.<br />
+          Interactive API console at <code>/docs</code> · dashboard at
+          <code>/</code>.
+        </footer>
+      </main>
+    </div>
+
+    <script src="./assets/nav.js"></script>
+  </body>
+</html>

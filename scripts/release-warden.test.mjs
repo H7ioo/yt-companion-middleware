@@ -64,7 +64,7 @@ describe("release-warden audit scope", () => {
     // Doc freshness against the diff.
     expect(agent).toContain("README.md");
     expect(agent).toContain("companion-module/companion/HELP.md");
-    expect(agent).toContain("packages/server/public/guide.html");
+    expect(agent).toContain("packages/server/public/guide/");
     // Semver intent.
     expect(agent).toMatch(/semver/i);
     // Preflight + main state.

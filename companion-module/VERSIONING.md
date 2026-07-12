@@ -80,4 +80,4 @@ npm run companion:package       # → companion-module/yt-companion-middleware-<
 - [ ] New behaviour is covered by tests; `npm run companion:test` passes.
 - [ ] `npm run companion:package` produces a `.tgz` named for the **new** version.
 - [ ] Reference tables in `README.md`, `companion/HELP.md`, and the site guide
-      (`public/guide.html`) reflect the change.
+      (`packages/server/public/guide/`) reflect the change.

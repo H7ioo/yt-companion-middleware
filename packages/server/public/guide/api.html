@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HTTP API · Operator Manual</title>
+    <link rel="stylesheet" href="./assets/guide.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <div>
+          <div class="tally">
+            <span class="led"></span> On Air · Operator Manual
+          </div>
+          <p class="kicker">YouTube Live Middleware · v2</p>
+          <h1>Every endpoint,<br />and every way it fails.</h1>
+          <p>
+            The action, feedback and dashboard routes, and the error codes they answer with. Actions always return HTTP 200 — the outcome is in the body.
+          </p>
+        </div>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <!-- Rendered by assets/nav.js from the shared page manifest. -->
+      <nav class="toc" aria-label="Contents"></nav>
+
+      <main>
+<section id="action">
+          <h2><span class="no">06</span> Action endpoints</h2>
+          <p class="lede">
+            These change your broadcast. Served by one handler on two bases,
+            split by caller — <code>/api/action</code> for Companion and
+            <code>/api/dashboard/action</code> for the dashboard. Both supported.
+          </p>
+
+          <div class="callout">
+            <p>
+              <strong>Everything returns HTTP&nbsp;200.</strong> Success or
+              failure is in the body (<code>success: true|false</code>), so
+              Companion's HTTP module never has to branch on status codes. On
+              failure the body carries <code>error.code</code> and
+              <code>error.message</code> — bind the message to a variable to
+              flash it on a key.
+            </p>
+          </div>
+
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m post">POST</span
+              ><span class="path">/api/action/preset</span>
+            </div>
+            <div class="ep__body">
+              <p>
+                Fire a preset. Pass optional <code>vars</code> to fill template
+                variables.
+              </p>
+              <h4>Request</h4>
+              <pre>{ <span class="p">"presetId"</span>: <span class="s">"gaming_main"</span>, <span class="p">"vars"</span>: { <span class="p">"lesson"</span>: <span class="s">"41"</span> } }</pre>
+              <h4>Response</h4>
+              <pre>{
+  <span class="p">"success"</span>: <span class="k">true</span>,
+  <span class="p">"resolvedVars"</span>: [
+    { <span class="p">"name"</span>: <span class="s">"lesson"</span>, <span class="p">"value"</span>: <span class="s">"41"</span>, <span class="p">"source"</span>: <span class="s">"provided"</span> }
+  ]
+}</pre>
+              <p>
+                <code>source</code> is one of <span class="pill">provided</span>
+                <span class="pill">default</span>
+                <span class="pill">fallback</span>. A variable in a field that
+                fell back reports <code>fallback</code>. If a required variable
+                is unresolved and its field has no fallback, you get
+                <code>success:false</code> with
+                <code>MISSING_TEMPLATE_VARS</code>.
+              </p>
+            </div>
+          </div>
+
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m post">POST</span
+              ><span class="path">/api/action/update</span>
+            </div>
+            <div class="ep__body">
+              <p>
+                Ad-hoc override, bypassing presets. All fields except
+                <code>title</code> optional; omitted category / stream binding
+                fall back to app defaults.
+              </p>
+              <pre>{
+  <span class="p">"title"</span>: <span class="s">"Custom Input Title"</span>,
+  <span class="p">"description"</span>: <span class="s">"Custom description text"</span>,
+  <span class="p">"privacyStatus"</span>: <span class="s">"public"</span>,
+  <span class="p">"category"</span>: <span class="s">"20"</span>,
+  <span class="p">"streamBoundId"</span>: <span class="s">"abcd-1234-streamkey"</span>
+}</pre>
+            </div>
+          </div>
+
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m post">POST</span
+              ><span class="path">/api/action/privacy</span>
+            </div>
+            <div class="ep__body">
+              <p>Flip privacy only, leaving everything else untouched.</p>
+              <pre>{ <span class="p">"status"</span>: <span class="s">"private"</span> }  <span class="c">// public | unlisted | private</span></pre>
+            </div>
+          </div>
+
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m post">POST</span
+              ><span class="path">/api/action/undo</span>
+            </div>
+            <div class="ep__body">
+              <p>
+                Revert the last action. Empty body. Returns
+                <code>NO_UNDO_AVAILABLE</code> when there's nothing to undo.
+              </p>
+            </div>
+          </div>
+
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m post">POST</span
+              ><span class="path">/api/action/refresh</span>
+            </div>
+            <div class="ep__body">
+              <p>
+                Force an immediate live GET from YouTube and repopulate the
+                cache, bypassing the TTL. Bind this to a manual "Refresh from YouTube" key
+                for on-demand confirmation right after you change something in
+                YouTube Studio.
+              </p>
+            </div>
+          </div>
+
+          <h3>Concurrency</h3>
+          <p>
+            A single global <code>busy</code> flag serializes actions. A request
+            that arrives while busy is queued (depth 1) and runs next; a second
+            one that arrives while the slot is full is rejected with
+            <code>BUSY_TRY_AGAIN</code>. This covers the realistic "click, then
+            a catch-up click" without a full queue.
+          </p>
+        </section>
+
+<section id="feedback">
+          <h2><span class="no">07</span> Feedback endpoints</h2>
+          <p class="lede">
+            Read-only, cache-served, zero YouTube quota. Poll these from
+            Companion as often as you like.
+          </p>
+
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m get">GET</span
+              ><span class="path">/api/feedback/status</span>
+            </div>
+            <div class="ep__body">
+              <pre>{ <span class="p">"title"</span>: <span class="s">"Late Night Gaming Live!"</span>, <span class="p">"privacyStatus"</span>: <span class="s">"public"</span>, <span class="p">"isLive"</span>: <span class="k">true</span> }</pre>
+              <p>
+                The core state for on-screen key text and an on-air indicator.
+              </p>
+            </div>
+          </div>
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m get">GET</span
+              ><span class="path">/api/feedback/busy</span>
+            </div>
+            <div class="ep__body">
+              <pre>{ <span class="p">"busy"</span>: <span class="k">true</span> }</pre>
+              <p>
+                Drives a "processing" color or blink while an action is in
+                flight.
+              </p>
+            </div>
+          </div>
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m get">GET</span
+              ><span class="path">/api/feedback/active-preset</span>
+            </div>
+            <div class="ep__body">
+              <pre>{
+  <span class="p">"activePresetId"</span>: <span class="s">"gaming_main"</span>,
+  <span class="p">"activePreset"</span>: {
+    <span class="p">"id"</span>: <span class="s">"gaming_main"</span>,
+    <span class="p">"title"</span>: <span class="s">"Late Night Gaming — {game}"</span>,
+    <span class="p">"description"</span>: <span class="s">"Come hang out."</span>,
+    <span class="p">"privacyStatus"</span>: <span class="s">"public"</span>,
+    <span class="p">"category"</span>: <span class="s">"20"</span>,
+    <span class="p">"streamBoundId"</span>: <span class="k">null</span>,
+    <span class="p">"titleFallback"</span>: <span class="k">null</span>,
+    <span class="p">"descriptionFallback"</span>: <span class="k">null</span>
+  },
+  <span class="p">"title"</span>: <span class="s">"Late Night Gaming Live!"</span>,
+  <span class="p">"displayLabel"</span>: <span class="s">"Gaming"</span>,       <span class="c">// slug → id → "Custom"</span>
+  <span class="p">"slugPng"</span>: <span class="s">"iVBORw0KGgo…"</span>,      <span class="c">// base64 PNG of displayLabel</span>
+  <span class="p">"titlePng"</span>: <span class="s">"iVBORw0KGgo…"</span>,     <span class="c">// base64 PNG of the live title, or null</span>
+  <span class="p">"privacyStatus"</span>: <span class="s">"public"</span>,
+  <span class="p">"isLive"</span>: <span class="k">true</span>,
+  <span class="p">"noTarget"</span>: <span class="k">false</span>,
+  <span class="p">"busy"</span>: <span class="k">false</span>,
+  <span class="p">"health"</span>: <span class="s">"ok"</span>,
+  <span class="p">"quotaRemaining"</span>: <span class="n">8760</span>
+}</pre>
+              <div class="callout tip">
+                <strong>Arabic (and other non-Latin) button text.</strong>
+                Companion's bundled fonts have no Arabic glyphs and do no RTL
+                shaping, so an Arabic <code>title</code> bound as plain button
+                text renders as <strong>boxes (tofu)</strong>. Two fields fix that:
+                <ul>
+                  <li>
+                    <code>displayLabel</code> — a short, Latin-safe label: the
+                    active preset's <strong>slug</strong>, or its <strong>id</strong>
+                    when the slug is blank, or <code>"Custom"</code> when no preset
+                    is active. Bind it as ordinary button text.
+                  </li>
+                  <li>
+                    <code>slugPng</code> / <code>titlePng</code> — the label and
+                    the full live title <strong>pre-rendered to a PNG</strong> with
+                    an Arabic-capable font (shaped + joined), as base64 with
+                    <em>no</em> <code>data:</code> prefix. Feed either into a
+                    button's image. A common setup binds <code>slugPng</code> and
+                    lets a button press <strong>toggle</strong> to
+                    <code>titlePng</code>, since the whole title rarely fits a key.
+                    <code>titlePng</code> is <code>null</code> when nothing is on air.
+                  </li>
+                </ul>
+                The slug itself may be Arabic — it rides the PNG. The PNGs are
+                rendered only when their text changes and cached, so polling stays
+                cheap. Prefer the raw <code>/slug.png</code> and
+                <code>/title.png</code> endpoints below if your button pulls an
+                image by URL instead of reading base64.
+              </div>
+              <p>
+                A <strong>superset</strong> feedback endpoint. It carries the
+                <strong>active preset's saved definition</strong> in
+                <code>activePreset</code> (its own title, description, privacy,
+                category, stream binding and fallbacks) — so Companion can label
+                or inspect the applied preset without a second call to
+                <code>/api/dashboard/presets</code>. It's <code>null</code> when
+                no preset is active or it was since deleted.
+              </p>
+              <p>
+                It also folds in the core status, on-air, busy and health
+                signals, so you can bind a whole button — text, color, health
+                lamp, active-preset highlight — from this <strong>one</strong>
+                poll instead of hitting <code>/status</code>,
+                <code>/busy</code> and <code>/health</code> separately. Note
+                the top-level <code>title</code> is the <em>live broadcast</em>
+                title (what's on air now); <code>activePreset.title</code> is
+                the preset's configured template. The narrow endpoints stay for
+                buttons that need just one field.
+              </p>
+            </div>
+          </div>
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m get">GET</span
+              ><span class="path">/api/feedback/slug.png</span>
+            </div>
+            <div class="ep__body">
+              <p>
+                The button <strong>label</strong> (slug → id → <code>"Custom"</code>)
+                rendered as a <strong>288×288 PNG image</strong> — a 72px logical
+                button face drawn <strong>supersampled 4×</strong> (72 × 4 = 288) so
+                Companion downscales it crisply on larger key surfaces. White text
+                with a dark outline so it stays legible over any button colour. For buttons
+                that pull an image <em>by URL</em> rather than reading
+                <code>slugPng</code> base64 out of the state. Always draws something.
+                Returns <code>image/png</code>; changes only when the label changes.
+              </p>
+            </div>
+          </div>
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m get">GET</span
+              ><span class="path">/api/feedback/title.png</span>
+            </div>
+            <div class="ep__body">
+              <p>
+                The <strong>full live broadcast title</strong> rendered as a 288×288
+                PNG (same 72px-supersampled-4× scheme as <code>slug.png</code>;
+                Arabic shaped + joined, wrapped, ellipsized if it overflows).
+                Same idea as <code>slug.png</code>, for the whole title. Returns
+                <code>404</code> when nothing is on air (no title to draw).
+              </p>
+            </div>
+          </div>
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m get">GET</span
+              ><span class="path">/api/feedback/health</span>
+            </div>
+            <div class="ep__body">
+              <pre>{
+  <span class="p">"status"</span>: <span class="s">"ok"</span>,          <span class="c">// ok | degraded | offline | auth_error</span>
+  <span class="p">"authenticated"</span>: <span class="k">true</span>,
+  <span class="p">"message"</span>: <span class="k">null</span>,
+  <span class="p">"quotaUsed"</span>: <span class="n">1240</span>, <span class="p">"quotaLimit"</span>: <span class="n">10000</span>, <span class="p">"quotaRemaining"</span>: <span class="n">8760</span>
+}</pre>
+              <div class="tw">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>status</th>
+                      <th>Meaning</th>
+                      <th>Key color</th>
+                    </tr>
+                  </thead>
+                  <!-- Meaning column is the canonical glossary copy (@app/shared HEALTH_GLOSSARY,
+                       issue 021). Keep in lockstep with the dashboard health explainer. -->
+                  <tbody>
+                    <tr>
+                      <td><code>ok</code></td>
+                      <td>
+                        Reaching YouTube normally — actions and background
+                        polling are working.
+                      </td>
+                      <td>Green</td>
+                    </tr>
+                    <tr>
+                      <td><code>degraded</code></td>
+                      <td>
+                        A recent call failed and the app is retrying. This
+                        usually clears on the next poll.
+                      </td>
+                      <td>Yellow</td>
+                    </tr>
+                    <tr>
+                      <td><code>offline</code></td>
+                      <td>
+                        Can't reach YouTube at the network layer — a firewall,
+                        DNS, or dropped internet, not a sign-in problem.
+                      </td>
+                      <td>Grey</td>
+                    </tr>
+                    <tr>
+                      <td><code>auth_error</code></td>
+                      <td>
+                        The saved YouTube sign-in stopped working. No retry will
+                        fix it — reconnect to resume actions and status.
+                      </td>
+                      <td>Red</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p>
+                Health only escalates after
+                <code>HEALTH_FAILURE_THRESHOLD</code> consecutive failures, so a
+                single network blip won't flash your key red. This endpoint is
+                also served unauthenticated at the top level as a liveness
+                check.
+              </p>
+            </div>
+          </div>
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m get">GET</span
+              ><span class="path">/api/feedback/stream</span>
+            </div>
+            <div class="ep__body">
+              <p>
+                Server-Sent Events stream of state changes — an alternative to
+                polling for any custom integration that prefers push. Emits an
+                initial <code>state</code> event on connect, then one per
+                meaningful change.
+              </p>
+            </div>
+          </div>
+          <div class="ep">
+            <div class="ep__bar">
+              <span class="m ws">WS</span
+              ><span class="path">/api/feedback/ws</span>
+            </div>
+            <div class="ep__body">
+              <p>
+                <strong>WebSocket</strong> push of the same state changes —
+                <strong>Bitfocus Companion's WebSocket module prefers this over
+                SSE.</strong> Connect and you get a <code>state</code> frame
+                immediately, then one on every meaningful change (deduped
+                server-side). Frame envelope matches the change webhook:
+              </p>
+              <pre>{ <span class="p">"event"</span>: <span class="s">"state"</span>, <span class="p">"state"</span>: { <span class="p">"status"</span>: { … }, <span class="p">"activePresetId"</span>: <span class="s">"gaming_main"</span>, <span class="p">"displayLabel"</span>: <span class="s">"Gaming"</span>, <span class="p">"slugPng"</span>: <span class="s">"…"</span>, <span class="p">"titlePng"</span>: <span class="s">"…"</span>, … } }</pre>
+              <p>
+                Also mounted at <code>/api/dashboard/ws</code> (same handler). SSE
+                and 5-second polling remain fully supported — WebSocket is an
+                additional transport, not a replacement. Pick one per client.
+              </p>
+              <p>
+                <strong>Resync.</strong> The connection persists across button edits,
+                so a button added <em>after</em> the socket connected would otherwise
+                stay blank until the next change. Two safety nets fix that: state is
+                re-sent on the <strong>~25s heartbeat</strong>, and <strong>any inbound
+                frame forces an immediate resend</strong>. Send any text or hex from the
+                connection (e.g. a Companion "send message" action on button press) and
+                the server replies with the current <code>state</code> at once — no need
+                to reconnect.
+              </p>
+            </div>
+          </div>
+        </section>
+
+<section id="dashboard-api">
+          <h2><span class="no">08</span> Dashboard endpoints</h2>
+          <p class="lede">
+            What the web UI talks to. You can script these directly too.
+          </p>
+          <div class="tw">
+            <table>
+              <thead>
+                <tr>
+                  <th>Method</th>
+                  <th>Path</th>
+                  <th>Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="m get">GET</span></td>
+                  <td><code>/api/dashboard/presets</code></td>
+                  <td>List presets.</td>
+                </tr>
+                <tr>
+                  <td><span class="m post">POST</span></td>
+                  <td><code>/api/dashboard/presets</code></td>
+                  <td>Create a preset.</td>
+                </tr>
+                <tr>
+                  <td><span class="m put">PUT</span></td>
+                  <td><code>/api/dashboard/presets/:id</code></td>
+                  <td>Update a preset.</td>
+                </tr>
+                <tr>
+                  <td><span class="m del">DEL</span></td>
+                  <td><code>/api/dashboard/presets/:id</code></td>
+                  <td>Delete a preset.</td>
+                </tr>
+                <tr>
+                  <td><span class="m get">GET</span></td>
+                  <td><code>/api/dashboard/presets/export</code></td>
+                  <td>Export all presets (backward-compatible JSON).</td>
+                </tr>
+                <tr>
+                  <td><span class="m post">POST</span></td>
+                  <td><code>/api/dashboard/presets/import</code></td>
+                  <td>Import presets from a backup.</td>
+                </tr>
+                <tr>
+                  <td>
+                    <span class="m get">GET</span> /
+                    <span class="m put">PUT</span>
+                  </td>
+                  <td><code>/api/dashboard/settings</code></td>
+                  <td>Read / write app-level defaults.</td>
+                </tr>
+                <tr>
+                  <td><span class="m get">GET</span></td>
+                  <td><code>/api/dashboard/state</code></td>
+                  <td>Full current state snapshot.</td>
+                </tr>
+                <tr>
+                  <td><span class="m get">GET</span></td>
+                  <td><code>/api/dashboard/categories</code></td>
+                  <td>Assignable YouTube categories for the region.</td>
+                </tr>
+                <tr>
+                  <td><span class="m get">GET</span></td>
+                  <td><code>/api/dashboard/streams</code></td>
+                  <td>Available stream bindings (keys).</td>
+                </tr>
+                <tr>
+                  <td>
+                    <span class="m get">GET</span> /
+                    <span class="m put">PUT</span>
+                  </td>
+                  <td><code>/api/dashboard/webhook</code></td>
+                  <td>Read / set the change webhook URL.</td>
+                </tr>
+                <tr>
+                  <td><span class="m get">GET</span></td>
+                  <td><code>/api/dashboard/stream</code></td>
+                  <td>SSE state stream (same as <code>/api/feedback/stream</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="m ws">WS</span></td>
+                  <td><code>/api/dashboard/ws</code></td>
+                  <td>WebSocket state push (same as <code>/api/feedback/ws</code>).</td>
+                </tr>
+                <tr>
+                  <td><span class="m post">POST</span></td>
+                  <td><code>/api/dashboard/action/*</code></td>
+                  <td>Dashboard base for the action endpoints above — same handler, by caller.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout tip">
+            <p>
+              <strong>Import / export stays backward compatible.</strong> The
+              template fields (<code>titleFallback</code>,
+              <code>descriptionFallback</code>) are optional and nullable — old
+              backups and old presets parse and behave identically.
+            </p>
+          </div>
+        </section>
+
+<section id="errors">
+          <h2><span class="no">09</span> Error codes</h2>
+          <p class="lede">
+            Delivered in the body with HTTP 200. Shape:
+            <code>{ success:false, error:{ code, message } }</code>.
+          </p>
+          <div class="tw">
+            <table>
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Meaning</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>NO_TARGET_FOUND</code></td>
+                  <td>No active broadcast and no persistent container.</td>
+                </tr>
+                <tr>
+                  <td><code>INVALID_PRESET</code></td>
+                  <td><code>presetId</code> not found.</td>
+                </tr>
+                <tr>
+                  <td><code>MISSING_TEMPLATE_VARS</code></td>
+                  <td>
+                    A required variable is unresolved and its field has no
+                    fallback. Lists the names.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>BUSY_TRY_AGAIN</code></td>
+                  <td>An action is in flight and the queue slot is full.</td>
+                </tr>
+                <tr>
+                  <td><code>NO_UNDO_AVAILABLE</code></td>
+                  <td>Nothing to undo.</td>
+                </tr>
+                <tr>
+                  <td><code>YOUTUBE_AUTH_ERROR</code></td>
+                  <td>YouTube rejected the request over token issues.</td>
+                </tr>
+                <tr>
+                  <td><code>YOUTUBE_QUOTA_EXCEEDED</code></td>
+                  <td>Daily API quota exhausted.</td>
+                </tr>
+                <tr>
+                  <td><code>YOUTUBE_ERROR</code></td>
+                  <td>Any other YouTube API failure.</td>
+                </tr>
+                <tr>
+                  <td><code>INVALID_REQUEST</code></td>
+                  <td>
+                    Malformed body — the message names the first bad field.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <footer>
+          LAN-only. No auth. Keep it off the open internet.<br />
+          Interactive API console at <code>/docs</code> · dashboard at
+          <code>/</code>.
+        </footer>
+      </main>
+    </div>
+
+    <script src="./assets/nav.js"></script>
+  </body>
+</html>

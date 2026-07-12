@@ -3,7 +3,7 @@
 One source of truth for the user-facing words this product uses. The machine-readable copy lives
 in [`src/glossary.ts`](./src/glossary.ts) and is imported by every runtime surface that can
 (dashboard, server). Surfaces that can't import at runtime — the static operator guide
-(`packages/server/public/guide.html`) and the Companion module (`companion-module/`, a separate
+(`packages/server/public/guide/`) and the Companion module (`companion-module/`, a separate
 bundle) — mirror these terms **by hand**. When a term changes here, grep those two and update them.
 
 ## Health states

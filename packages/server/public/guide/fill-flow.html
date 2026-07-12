@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Redirect / fill flow · Operator Manual</title>
+    <link rel="stylesheet" href="./assets/guide.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <div>
+          <div class="tally">
+            <span class="led"></span> On Air · Operator Manual
+          </div>
+          <p class="kicker">YouTube Live Middleware · v2</p>
+          <h1>The button that<br />can't pop a dialog.</h1>
+          <p>
+            A Stream Deck key has no keyboard. The fill flow trades one browser round-trip for the text entry Companion cannot do on its own.
+          </p>
+        </div>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <!-- Rendered by assets/nav.js from the shared page manifest. -->
+      <nav class="toc" aria-label="Contents"></nav>
+
+      <main>
+<section id="companion-redirect">
+          <h2><span class="no">14</span> Companion · the redirect / fill flow</h2>
+          <p class="lede">
+            Companion keys can't prompt for input — so for a preset that needs
+            the operator to type a value, don't reach for a custom API. Use
+            Companion's built-in <strong>Open URL</strong> action: the key opens
+            a browser fill page, which POSTs the preset and bounces back to
+            Companion when it's done.
+          </p>
+
+          <h3>How it flows</h3>
+          <div class="flow">
+            <div class="node">
+              <span class="tag">Companion</span>
+              <b>Press key</b>
+              <span class="d"
+                >Button's action is "open URL", not an HTTP call.</span
+              >
+            </div>
+            <div class="arrow">→</div>
+            <div class="node">
+              <span class="tag">Browser</span>
+              <b>Fill page</b>
+              <span class="d"
+                >Opens <code>/fill?preset=…&amp;redirect=…</code> with the
+                preset preselected.</span
+              >
+            </div>
+            <div class="arrow">→</div>
+            <div class="node ok">
+              <span class="tag">POST</span>
+              <b>Apply</b>
+              <span class="d"
+                >Submit fires <code>/api/dashboard/action/preset</code>.</span
+              >
+            </div>
+            <div class="arrow">→</div>
+            <div class="node back">
+              <span class="tag">Return</span>
+              <b>Bounce back</b>
+              <span class="d"
+                >On success <code>window.location = redirect</code> → back to
+                Companion.</span
+              >
+            </div>
+          </div>
+
+          <h3>Wire the button</h3>
+          <p>
+            Give the key the built-in <strong>Open URL</strong> action (not a
+            module action). Point it at the app's fill route — the module already
+            exposes the base URL as <code>$(ytmeta:dashboard_url)</code> — with a
+            <code>redirect</code> back to Companion's own URL (its web control, or
+            a <code>companion://</code> deep link — any <code>http(s)</code> URL
+            is accepted, no allowlist):
+          </p>
+          <pre><span class="p">Open URL</span>
+$(ytmeta:dashboard_url)/fill?preset=<span class="s">lesson_stream</span>&amp;redirect=<span class="s">http://&lt;COMPANION_IP&gt;:8000/</span></pre>
+          <p>
+            To just open the dashboard, drop the path: <strong>Open URL</strong> →
+            <code>$(ytmeta:dashboard_url)</code>.
+          </p>
+
+          <h4>What the operator sees</h4>
+          <ul>
+            <li>
+              The fill popup opens with the preset already selected, last-used
+              values prefilled, and a live preview.
+            </li>
+            <li>
+              <strong>On success</strong> the page navigates straight to the
+              <code>redirect</code> URL — the operator lands back in Companion.
+            </li>
+            <li>
+              <strong>On failure</strong> the page stays put and shows the
+              error, so nothing bounces until the action actually went through.
+            </li>
+            <li>
+              A preset with <strong>no variables</strong> opened this way fires
+              and bounces immediately — no popup at all.
+            </li>
+          </ul>
+
+          <div class="callout tip">
+            <p>
+              <strong>When to use which.</strong> Fixed preset → the
+              <strong>Apply preset</strong> action or its drag-drop preset button
+              (§11–12). Needs a value typed each time and has no fallback → this
+              redirect flow. Needs a value but has a sensible fallback → either
+              works; <strong>Apply preset</strong> just uses the fallback when you
+              leave <code>Template vars</code> blank.
+            </p>
+          </div>
+        </section>
+
+        <footer>
+          LAN-only. No auth. Keep it off the open internet.<br />
+          Interactive API console at <code>/docs</code> · dashboard at
+          <code>/</code>.
+        </footer>
+      </main>
+    </div>
+
+    <script src="./assets/nav.js"></script>
+  </body>
+</html>

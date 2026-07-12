@@ -7,7 +7,7 @@ import type { HealthStatus } from "./schema.js";
  * re-writing it, so "degraded" reads the same everywhere and can never drift.
  *
  * This module is the health-state slice of that glossary. Keep the `meaning` text in lockstep with
- * the guide's health table (packages/server/public/guide.html, §07); the guide is static HTML and
+ * the guide's health table (packages/server/public/guide/api.html, §07); the guide is static HTML and
  * can't import this at runtime, so the two are aligned by hand and this map is the authority.
  */
 

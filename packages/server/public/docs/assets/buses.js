@@ -1,0 +1,123 @@
+/**
+ * Every endpoint the control surface documents, grouped into buses. This is the data the console
+ * renders and tests against — one page per bus, all of them from this one list, so an endpoint is
+ * described in exactly one place. Loaded as a plain <script src> before console.js.
+ *
+ * t: "path" | "text" | "textarea" | "select" | "json"
+ */
+window.BUSES = [
+  {
+    id: "feedback", name: "Feedback bus", auth: "open",
+    desc: "Cached state for Companion to poll every ~5s. Served from the in-app cache, never a live YouTube call, so polling costs zero quota. LAN-only: no auth.",
+    endpoints: [
+      { m:"GET", path:"/api/feedback/health", cost:"cached", auth:false,
+        desc:"Liveness + auth + quota budget. A plain liveness probe.",
+        resp:'{ status, authenticated, message, quotaUsed, quotaLimit, quotaRemaining }' },
+      { m:"GET", path:"/api/feedback/status", cost:"cached", auth:false,
+        desc:"Current broadcast title, privacy, and whether it is live.",
+        resp:'{ title, privacyStatus, isLive }' },
+      { m:"GET", path:"/api/feedback/busy", cost:"cached", auth:false,
+        desc:"Whether an action is in flight — drive a Stream Deck button color from this.",
+        resp:'{ busy }' },
+      { m:"GET", path:"/api/feedback/active-preset", cost:"cached", auth:false,
+        desc:"Superset endpoint: the active preset's id <em>and its saved definition</em>, plus the core status/health/busy signals — so one poll can drive a whole button (text, on-air color, health lamp, highlight) and read the applied preset's own title/privacy/category. <code>activePreset</code> is null when none is active or it was deleted.",
+        resp:'{ activePresetId, activePreset: { id, title, description, privacyStatus, category, streamBoundId, titleFallback, descriptionFallback } | null, title, privacyStatus, isLive, noTarget, busy, health, quotaRemaining }' },
+      { m:"SSE", path:"/api/feedback/stream", cost:"cached", auth:false, sse:true,
+        desc:"Server-Sent Events push of full dashboard state on every change — an alternative to polling. Lower latency for the go-live transition." },
+      { m:"WS", path:"/api/feedback/ws", cost:"cached", auth:false, ws:true,
+        desc:"WebSocket push of the same full dashboard state — the transport Bitfocus Companion prefers. A <code>{ event:'state', state }</code> frame on connect, then one per change. State is also re-sent on the ~25s heartbeat, and any inbound frame (send any text/hex) forces an immediate resend — so a button added after connect can pull the current state instead of waiting for the next change." },
+    ]
+  },
+  {
+    id: "action", name: "Action bus", auth: "open",
+    desc: "One-shot control actions. Each performs YouTube's read-modify-write dance internally. LAN-only: no auth. One handler on two bases, split by caller: /api/action/* is the Companion base, /api/dashboard/action/* is the dashboard base. Both intentional and supported.",
+    endpoints: [
+      { m:"POST", path:"/api/action/preset", cost:"live", auth:false,
+        desc:"Apply a saved preset to the active broadcast. Get an id from <code>GET /api/dashboard/presets</code>.",
+        body:[ {k:"presetId", t:"text", req:true, hint:"preset id"} ] },
+      { m:"POST", path:"/api/action/update", cost:"live", auth:false,
+        desc:"Ad-hoc metadata override. Only <code>title</code> is required; blank optional fields inherit app defaults.",
+        body:[
+          {k:"title", t:"text", req:true},
+          {k:"description", t:"textarea"},
+          {k:"privacyStatus", t:"select", opts:["","public","unlisted","private"]},
+          {k:"category", t:"text", hint:"category id — blank inherits default"},
+          {k:"streamBoundId", t:"text", hint:"stream id — blank inherits default"},
+        ] },
+      { m:"POST", path:"/api/action/privacy", cost:"live", auth:false,
+        desc:"Flip visibility mid-stream. Choose an explicit status, or leave it as <code>toggle</code> to swap private↔public. Does not re-apply the default category or re-bind the stream.",
+        body:[ {k:"status", t:"select", opts:["(toggle)","public","unlisted","private"], hint:"(toggle) flips private↔public"} ] },
+      { m:"POST", path:"/api/action/undo", cost:"live", auth:false,
+        desc:"Restore the title / description / privacy / stream binding captured before the last change. Returns <code>NO_UNDO_AVAILABLE</code> if nothing has changed yet.",
+        body:[] },
+      { m:"POST", path:"/api/action/refresh", cost:"live", auth:false,
+        desc:"Force an immediate cache refresh from YouTube instead of waiting for the poll interval.",
+        body:[] },
+    ]
+  },
+  {
+    id: "presets", name: "Preset store", auth: "open",
+    desc: "Preset CRUD plus bulk import/export, used by the dashboard. LAN-trust: no token required.",
+    endpoints: [
+      { m:"GET", path:"/api/dashboard/presets", cost:"local", auth:false,
+        desc:"List every saved preset." },
+      { m:"POST", path:"/api/dashboard/presets", cost:"local", auth:false,
+        desc:"Create a preset. Returns the stored preset with its new id.",
+        body:[
+          {k:"title", t:"text", req:true},
+          {k:"description", t:"textarea"},
+          {k:"privacyStatus", t:"select", opts:["public","unlisted","private"], req:true},
+          {k:"category", t:"text", hint:"category id — blank = default"},
+          {k:"streamBoundId", t:"text", hint:"stream id — blank = default"},
+        ] },
+      { m:"PUT", path:"/api/dashboard/presets/:id", cost:"local", auth:false,
+        desc:"Replace a preset by id.",
+        pathParams:[ {k:"id", req:true} ],
+        body:[
+          {k:"title", t:"text", req:true},
+          {k:"description", t:"textarea"},
+          {k:"privacyStatus", t:"select", opts:["public","unlisted","private"], req:true},
+          {k:"category", t:"text"},
+          {k:"streamBoundId", t:"text"},
+        ] },
+      { m:"DELETE", path:"/api/dashboard/presets/:id", cost:"local", auth:false,
+        desc:"Delete a preset by id.",
+        pathParams:[ {k:"id", req:true} ] },
+      { m:"GET", path:"/api/dashboard/presets/export", cost:"local", auth:false,
+        desc:"Download all presets as a portable, versioned backup." },
+      { m:"POST", path:"/api/dashboard/presets/import", cost:"local", auth:false,
+        desc:"Restore or clone presets. <code>replace</code> swaps the whole set and keeps ids; <code>merge</code> appends copies with fresh ids. Invalid items are rejected without touching the existing set.",
+        raw:{ hint:"Paste an exported backup's presets array, or hand-write one.",
+          sample:'{\n  "mode": "merge",\n  "presets": [\n    { "title": "Sunday Service", "description": "", "privacyStatus": "public", "category": null, "streamBoundId": null }\n  ]\n}' } },
+    ]
+  },
+  {
+    id: "config", name: "Config bus", auth: "open",
+    desc: "App-level defaults, the outbound webhook, and YouTube lookups (categories / streams). Dashboard-only, no auth.",
+    endpoints: [
+      { m:"GET", path:"/api/dashboard/state", cost:"local", auth:false,
+        desc:"Full dashboard snapshot: status, active preset, health, quota, and the pending undo label." },
+      { m:"GET", path:"/api/dashboard/settings", cost:"local", auth:false,
+        desc:"Current default category and default stream binding." },
+      { m:"PUT", path:"/api/dashboard/settings", cost:"local", auth:false,
+        desc:"Set the app-level defaults that presets inherit when a field is blank.",
+        body:[
+          {k:"defaultCategory", t:"text", hint:"category id, or blank to clear"},
+          {k:"defaultStreamBoundId", t:"text", hint:"stream id, or blank to clear"},
+        ] },
+      { m:"GET", path:"/api/dashboard/webhook", cost:"local", auth:false,
+        desc:"The configured outbound state-change webhook URL, or null." },
+      { m:"PUT", path:"/api/dashboard/webhook", cost:"local", auth:false,
+        desc:"Set (or clear) the URL that receives <code>POST { event, state }</code> on every state change. Send an empty string to clear.",
+        body:[ {k:"url", t:"text", hint:"https://… — empty string clears it"} ] },
+      { m:"GET", path:"/api/dashboard/categories", cost:"live", auth:false,
+        desc:"Assignable YouTube video categories for the configured region. Cached for the process lifetime." },
+      { m:"GET", path:"/api/dashboard/streams", cost:"live", auth:false,
+        desc:"The channel's live streams (ingestion keys), used to validate a preset's stream binding. 30s cache." },
+      { m:"SSE", path:"/api/dashboard/stream", cost:"local", auth:false, sse:true,
+        desc:"Unauthenticated SSE push of dashboard state — the dashboard's fallback transport." },
+      { m:"WS", path:"/api/dashboard/ws", cost:"local", auth:false, ws:true,
+        desc:"WebSocket push of dashboard state (same handler as /api/feedback/ws) — the dashboard's preferred transport, with SSE then polling as fallbacks. Re-sends state on the ~25s heartbeat and on any inbound frame, so a late-added consumer converges without a state change." },
+    ]
+  },
+];

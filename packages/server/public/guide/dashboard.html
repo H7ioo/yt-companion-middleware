@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The web interface · Operator Manual</title>
+    <link rel="stylesheet" href="./assets/guide.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <div>
+          <div class="tally">
+            <span class="led"></span> On Air · Operator Manual
+          </div>
+          <p class="kicker">YouTube Live Middleware · v2</p>
+          <h1>The dashboard, and the<br />templates behind the presets.</h1>
+          <p>
+            What the browser UI does, and how a preset's placeholders resolve — including the fallback chain that decides what a blank field inherits.
+          </p>
+        </div>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <!-- Rendered by assets/nav.js from the shared page manifest. -->
+      <nav class="toc" aria-label="Contents"></nav>
+
+      <main>
+<section id="web">
+          <h2><span class="no">04</span> The web interface</h2>
+          <p class="lede">
+            Everything you configure lives in the dashboard. Companion only ever
+            fires what you set up here.
+          </p>
+
+          <h3>Presets</h3>
+          <p>
+            A preset is a named bundle of broadcast metadata you can fire in one
+            press. Create / edit / <strong>duplicate</strong> / delete from the
+            grid. Each preset carries:
+          </p>
+          <ul>
+            <li><strong>Title, description, privacy</strong> — always set.</li>
+            <li>
+              <strong>Title / description fallback</strong> — optional
+              whole-sentence alternates used when a field has an unresolved
+              variable (see §05). Leave blank to make the variable required.
+            </li>
+            <li>
+              <strong>Category</strong> and <strong>stream binding</strong> —
+              optional overrides. Leave blank and the preset shows "inherits
+              default"; the app-level default fills in at trigger time.
+            </li>
+          </ul>
+          <p>
+            As you type a <code>{variable}</code> into the title or description,
+            a chip appears under that field naming the variable (and its inline
+            default, if any) — immediate confirmation that it's now a fill-in the
+            popup will prompt for.
+          </p>
+          <p>
+            Every preset displays its <code>id</code> for copy-paste into a
+            Companion button payload. <strong>Duplicate</strong> clones a preset
+            (title suffixed "(copy)") so you can spin a variant without retyping.
+            Delete one and any Companion button still pointing at it simply gets
+            <code>INVALID_PRESET</code> on its next press — no cascade, no
+            cleanup.
+          </p>
+
+          <h4>Backup &amp; restore</h4>
+          <p>
+            <strong>Export</strong> downloads every preset as a JSON file;
+            <strong>Import</strong> reads one back. Import offers
+            <strong>replace</strong> (restore a backup, keeping IDs) or
+            <strong>merge</strong> (append the file's presets as copies with
+            fresh IDs) — handy for cloning a set between hosts.
+          </p>
+
+          <h3>App-level defaults</h3>
+          <p>
+            The Settings panel sets <code>defaultCategory</code> and
+            <code>defaultStreamBoundId</code>. These are the baseline used
+            whenever a preset or ad-hoc update doesn't override them.
+          </p>
+
+          <h3>Ad-hoc update</h3>
+          <p>
+            Need to push a one-off change without making a preset? The ad-hoc
+            modal takes title, description, privacy, and optional category /
+            stream-binding overrides, and shows a badge telling you whether the
+            change will hit the idle container or a live broadcast.
+          </p>
+
+          <h3>State rail</h3>
+          <p>
+            A live readout of what the app currently sees: on-air state, the
+            on-screen title, health, whether the runner is busy, and remaining
+            YouTube quota — the same signals Companion binds to its keys.
+          </p>
+
+          <h3>Change webhook (optional)</h3>
+          <p>
+            Set an outbound URL and the app POSTs to it whenever state changes —
+            handy for pushing to a chat channel or another automation. Clear the
+            field to disable it.
+          </p>
+        </section>
+
+<section id="templates">
+          <h2><span class="no">05</span> Templates &amp; fallback</h2>
+          <p class="lede">
+            Put <code>{variables}</code> in a preset's title or description and
+            reuse one preset with different specifics every stream — with a
+            graceful answer for when a value is missing.
+          </p>
+
+          <h3>Writing variables</h3>
+          <div class="tw">
+            <table>
+              <thead>
+                <tr>
+                  <th>Syntax</th>
+                  <th>Meaning</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>{lesson}</code></td>
+                  <td>
+                    A fill-in variable, auto-detected from the text. No separate
+                    declaration.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>{lesson|1}</code></td>
+                  <td>
+                    Inline default — <code>1</code> is substituted in place when
+                    you don't supply a value, keeping the sentence intact.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>{{</code> / <code>}}</code></td>
+                  <td>
+                    Escape for a literal <code>{</code> or <code>}</code>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Variables are allowed <strong>only</strong> in
+            <code>title</code> and <code>description</code>. A preset with no
+            <code>{…}</code> behaves exactly as it always did and fires
+            immediately.
+          </p>
+
+          <h3>Per-field fallback</h3>
+          <p>
+            Each of title and description can carry an optional
+            <strong>fallback</strong>: a complete alternate string used when
+            that field has any unresolved variable. It replaces the whole
+            sentence, not just the gap — so the line still reads naturally.
+          </p>
+          <pre><span class="p">title</span>    <span class="s">"أنوار الصحيح الدرس {lesson} - عبد الوهاب"</span>
+<span class="p">fallback</span> <span class="s">"أنوار الصحيح - عبد الوهاب"</span></pre>
+          <p>
+            When <code>lesson</code> is unresolved, the literal
+            <code>الدرس</code> disappears along with it — you get the clean
+            fallback rather than a dangling label.
+          </p>
+
+          <h3>Resolution order (per field, independent)</h3>
+          <ol>
+            <li>
+              Every variable resolves (supplied value → inline default) →
+              render the <strong>primary</strong> text. (The fill popup prefills
+              inputs with your last-used values, but that only pre-fills the
+              "supplied value" step — the engine itself has no last-used tier.)
+            </li>
+            <li>
+              Something unresolved <em>and</em> the field has a fallback →
+              render the <strong>fallback</strong>; those variables report
+              <code>source: "fallback"</code>.
+            </li>
+            <li>
+              Something unresolved <em>and</em> no fallback → reject with
+              <code>MISSING_TEMPLATE_VARS</code>, listing the missing names.
+            </li>
+          </ol>
+          <p>
+            Title and description are evaluated separately — one falling back
+            never drags the other with it.
+          </p>
+
+          <h3>The fill popup</h3>
+          <p>
+            Selecting a templated preset in the dashboard opens a fill popup
+            instead of firing: one input per detected variable, the inline
+            default / fallback shown as greyed placeholder, last-used values
+            prefilled per preset, and a live read-only preview of the resolved
+            title and description that updates as you type. Submit fires the
+            action; a variable-less preset skips all of this and fires on click.
+          </p>
+        </section>
+
+        <footer>
+          LAN-only. No auth. Keep it off the open internet.<br />
+          Interactive API console at <code>/docs</code> · dashboard at
+          <code>/</code>.
+        </footer>
+      </main>
+    </div>
+
+    <script src="./assets/nav.js"></script>
+  </body>
+</html>

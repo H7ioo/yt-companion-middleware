@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Companion module · Operator Manual</title>
+    <link rel="stylesheet" href="./assets/guide.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <div>
+          <div class="tally">
+            <span class="led"></span> On Air · Operator Manual
+          </div>
+          <p class="kicker">YouTube Live Middleware · v2</p>
+          <h1>Patching it into<br />Bitfocus Companion.</h1>
+          <p>
+            Install the module, drag the presets onto a page, and read the state the keys light up with — every action, feedback and variable the module exposes.
+          </p>
+        </div>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <!-- Rendered by assets/nav.js from the shared page manifest. -->
+      <nav class="toc" aria-label="Contents"></nav>
+
+      <main>
+<section id="companion-conn">
+          <h2><span class="no">10</span> Companion · install &amp; connect</h2>
+          <p class="lede">
+            This repo ships a <strong>dedicated Companion module</strong>
+            (<code>companion-module/</code>). It holds a live WebSocket to the
+            middleware — instant push, zero YouTube quota — and puts the
+            middleware's presets, actions, feedbacks and Arabic-safe title/slug
+            images on your keys. Prefer it over the Generic HTTP module.
+          </p>
+
+          <h3>Install the module (Companion 4+)</h3>
+          <p>
+            Modules are plugins you install independently. Build a package once
+            with a single command <strong>from the repo root</strong> — it
+            installs the module's deps and bundles the <code>.tgz</code>, no
+            <code>cd</code>, no restart:
+          </p>
+          <pre><span class="p">npm</span> run companion:package   <span class="c">#</span> → companion-module/yt-companion-middleware-&lt;version&gt;.tgz</pre>
+          <p>
+            In Companion open <strong>Modules → Import module package</strong>
+            and pick that <code>.tgz</code>. <em>For development</em> instead
+            point <strong>Settings → Developer modules path</strong> at a folder
+            holding (or symlinking) <code>companion-module/</code> (run
+            <code>npm run companion:install</code> once first), then restart
+            Companion — edits hot-reload.
+          </p>
+
+          <h3>Add the connection</h3>
+          <ol>
+            <li>
+              <strong>Connections → Add connection</strong>, search
+              <strong>yt-companion-middleware</strong>, add it.
+            </li>
+            <li>
+              Set <strong>Middleware base URL</strong> to
+              <code>http://&lt;APP_IP&gt;:8080</code> (same host as the
+              dashboard). HTTPS is fine — the module derives <code>wss://</code>
+              itself. Save.
+            </li>
+          </ol>
+          <p>
+            There is no token to set — the middleware is unauthenticated
+            (LAN-only), so the module has no <strong>Bearer token</strong> field.
+          </p>
+          <div class="callout tip">
+            <p>
+              Watch the status pill: it goes <strong>Connecting → OK</strong>
+              once the WebSocket is up. Stuck on <strong>Connection
+              failure</strong> means a wrong/unreachable URL or a rejected token
+              — fix it and it reconnects on its own. Confirm live: set any key's
+              text to <code>$(ytmeta:display_label)</code>.
+            </p>
+          </div>
+        </section>
+
+<section id="companion-presets">
+          <h2><span class="no">11</span> Companion · presets (drag-drop)</h2>
+          <p class="lede">
+            The module publishes ready-made buttons in Companion's
+            <strong>Presets</strong> tab — the answer to "I want a key that
+            applies a preset <em>and</em> labels itself." Drag one onto a key and
+            it arrives already labelled, already wired, already lit when active.
+            No JSON, no manual action.
+          </p>
+
+          <h3>Category · <em>Apply preset</em></h3>
+          <p>
+            One button <strong>per middleware preset</strong>, generated from
+            your dashboard. Each drops with:
+          </p>
+          <ul>
+            <li>its <strong>slug</strong> as the button text (Latin-safe label);</li>
+            <li>the <strong>Apply preset</strong> action already bound to that preset's id;</li>
+            <li>
+              the <strong>Active preset is…</strong> feedback already pointed at
+              the same preset, so the key turns green whenever that preset is the
+              one on air.
+            </li>
+          </ul>
+          <div class="callout">
+            <p>
+              Added or renamed presets in the dashboard? The Presets tab is
+              snapshotted when the connection starts. Run the <strong>Refresh
+              lists</strong> action once (or re-save the
+              connection) and the new preset buttons appear.
+            </p>
+          </div>
+
+          <h3>Category · <em>State &amp; controls</em></h3>
+          <p>Fixed helper buttons you'll usually want one of each:</p>
+          <div class="tw">
+            <table>
+              <thead>
+                <tr><th>Preset button</th><th>What it drops</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Arabic-safe live title (image)</strong></td>
+                  <td>The full broadcast title drawn as a PNG — renders Arabic correctly (no tofu).</td>
+                </tr>
+                <tr>
+                  <td><strong>Arabic-safe button label (image)</strong></td>
+                  <td>The short slug/label as a PNG image.</td>
+                </tr>
+                <tr>
+                  <td><strong>On-air indicator</strong></td>
+                  <td>Shows <code>$(ytmeta:live_title)</code>, turns red while live.</td>
+                </tr>
+                <tr>
+                  <td><strong>Busy indicator</strong></td>
+                  <td>Shows the active label, turns blue while an action is applying.</td>
+                </tr>
+                <tr>
+                  <td><strong>Privacy toggle</strong></td>
+                  <td>Flips private ↔ public; label shows the current <code>$(ytmeta:privacy)</code>.</td>
+                </tr>
+                <tr>
+                  <td><strong>Undo last change</strong></td>
+                  <td>Reverts the last change; label shows <code>$(ytmeta:undo_label)</code>.</td>
+                </tr>
+                <tr>
+                  <td><strong>Refresh from YouTube</strong> / <strong>Refresh lists</strong></td>
+                  <td>Force a state refresh / re-pull the preset&amp;category&amp;stream dropdowns.</td>
+                </tr>
+                <tr>
+                  <td><strong>API kill switch (toggle)</strong></td>
+                  <td>Flips the middleware's master switch on/off; greys out while off.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="deck" role="img" aria-label="Example Stream Deck layout">
+            <div class="key live">
+              <span class="ico">●</span><span class="lbl">ON AIR</span>
+            </div>
+            <div class="key on">
+              <span class="ico">✓</span><span class="lbl">khutbah</span>
+            </div>
+            <div class="key">
+              <span class="ico">🔒</span><span class="lbl">Privacy</span>
+            </div>
+            <div class="key">
+              <span class="ico">↶</span><span class="lbl">Undo</span>
+            </div>
+          </div>
+          <div class="callout tip">
+            <p>
+              Presets are just a <strong>starting point</strong> — every dropped
+              button is fully editable afterwards (add a second feedback, swap
+              the text for an image, change colors). Presets are authored by the
+              module; you can't create new ones from the UI, but you can export
+              your edited buttons as a custom library.
+            </p>
+          </div>
+        </section>
+
+<section id="companion-actions">
+          <h2><span class="no">12</span> Companion · every action, with suggested usage</h2>
+          <p class="lede">
+            All actions POST to the middleware's <code>/api/action/*</code> bus;
+            state comes back over the WebSocket, so you never add a manual
+            refresh after one. Add them under a key's <strong>Press</strong> (or
+            any step). Fields marked <em>supports <code>$(…)</code></em> accept
+            Companion variables.
+          </p>
+
+          <div class="tw">
+            <table>
+              <thead>
+                <tr><th>Action</th><th>Options</th><th>Suggested usage</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Apply preset</strong></td>
+                  <td><code>Preset</code> (dropdown); <code>Template vars</code> (JSON, optional, supports <code>$(…)</code>)</td>
+                  <td>
+                    The everyday "switch what's on air" key. For a fixed preset,
+                    just pick it — or drag its ready-made button from the Presets
+                    tab. For a preset with placeholders, pass a JSON object like
+                    <code>{"lesson":"41"}</code>; pull the value from a Companion
+                    variable if you have one. No value and no fallback? Use the
+                    redirect/fill flow (§14) so the operator types it in a
+                    browser first.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Update live metadata</strong></td>
+                  <td><code>Title</code> (required, <code>$(…)</code>); <code>Description</code>; <code>Privacy</code>; <code>Category</code>; <code>Bound stream</code></td>
+                  <td>
+                    Ad-hoc edit without a preset. Leave Privacy/Category/Bound
+                    stream on "unchanged" to keep current values; only
+                    <code>Title</code> is always sent. Great bound to a variable,
+                    e.g. <code>$(internal:custom_myTitle)</code>, for a
+                    type-then-push workflow.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Privacy: toggle private ↔ public</strong></td>
+                  <td>—</td>
+                  <td>
+                    A one-key "go public / go private" panic switch. Pair it with
+                    the <em>Privacy toggle</em> preset so the key label always
+                    shows the current state.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Privacy: set</strong></td>
+                  <td><code>Status</code> (public / unlisted / private)</td>
+                  <td>
+                    Three explicit keys when you want a dedicated public /
+                    unlisted / private button rather than a toggle.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Undo last change</strong></td>
+                  <td>—</td>
+                  <td>
+                    Reverts the last metadata change.
+                    <code>$(ytmeta:undo_label)</code> on the key tells the
+                    operator what "undo" will revert before they press it.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Refresh from YouTube</strong></td>
+                  <td>—</td>
+                  <td>
+                    Forces the middleware to re-pull state from YouTube. Rarely
+                    needed (push keeps you current) — use it if you changed
+                    something in YouTube Studio directly and want it reflected now.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Refresh lists</strong></td>
+                  <td>—</td>
+                  <td>
+                    Re-pulls the dropdown choices <em>and</em> regenerates the
+                    Presets tab after you add/rename presets in the dashboard.
+                    Bind it to a spare key or press it from the button editor.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>API master switch (kill switch): set / toggle</strong></td>
+                  <td><em>set:</em> <code>API</code> (enabled / disabled); <em>toggle:</em> —</td>
+                  <td>
+                    Turns the middleware's master switch on/off. While off it
+                    makes no YouTube calls and rejects actions — a one-key way to
+                    stop quota burn on an idle service. Pair the <em>toggle</em>
+                    with the <strong>API disabled</strong> feedback so the key
+                    shows on/off; the drop-in <em>API kill switch</em> preset
+                    already does.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout">
+            <p>
+              <strong>Opening the dashboard or a fill page is not a module
+              action</strong> — use Companion's built-in <strong>Open URL</strong>
+              with <code>$(ytmeta:dashboard_url)</code> (see §14). A rejected
+              action (token required, empty title, etc.) is logged in Companion's
+              <strong>Log</strong> tab as a <code>rejected</code>/<code>failed</code>
+              line, not raised on the key.
+            </p>
+          </div>
+        </section>
+
+<section id="companion-feedback">
+          <h2><span class="no">13</span> Companion · state on the keys</h2>
+          <p class="lede">
+            The module exposes state two ways: <strong>variables</strong> you
+            bind to key text, and <strong>feedbacks</strong> that recolor a key
+            or draw an image. Both update the instant the WebSocket pushes a new
+            frame — no polling, no quota.
+          </p>
+
+          <h3>Variables — <code>$(ytmeta:&lt;id&gt;)</code></h3>
+          <div class="tw">
+            <table>
+              <thead>
+                <tr><th>Variable</th><th>Meaning</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>display_label</code></td><td>Button label: slug → preset id → <code>Custom</code> (Latin-safe).</td></tr>
+                <tr><td><code>live_title</code></td><td>Live broadcast title (may be Arabic — use the image feedback to render it).</td></tr>
+                <tr><td><code>active_preset_id</code> / <code>active_preset_title</code></td><td>Id / title of the currently applied preset.</td></tr>
+                <tr><td><code>is_live</code> · <code>no_target</code> · <code>busy</code></td><td>On Air / no broadcast target / action in progress.</td></tr>
+                <tr><td><code>privacy</code></td><td><code>public</code> / <code>unlisted</code> / <code>private</code>.</td></tr>
+                <tr><td><code>health</code> · <code>health_message</code></td><td><code>ok</code> / <code>degraded</code> / <code>offline</code> / <code>auth_error</code> + detail.</td></tr>
+                <tr><td><code>api_enabled</code></td><td><code>false</code> when the middleware kill-switch is off.</td></tr>
+                <tr><td><code>quota_used</code> · <code>quota_limit</code> · <code>quota_remaining</code></td><td>YouTube quota counters.</td></tr>
+                <tr><td><code>undo_label</code></td><td>What <strong>Undo</strong> would revert.</td></tr>
+                <tr><td><code>dashboard_url</code></td><td>The configured base URL — use with the built-in <strong>Open URL</strong> action.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Feedbacks</h3>
+          <div class="tw">
+            <table>
+              <thead>
+                <tr><th>Feedback</th><th>Type</th><th>Fires / draws</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><strong>Image: button label (slug)</strong></td><td>image</td><td>Draws the slug PNG — Arabic-safe.</td></tr>
+                <tr><td><strong>Image: full live title</strong></td><td>image</td><td>Draws the full title PNG — Arabic-safe.</td></tr>
+                <tr><td><strong>On Air</strong></td><td>boolean</td><td>While <code>is_live</code>. Default red.</td></tr>
+                <tr><td><strong>Busy</strong></td><td>boolean</td><td>While an action applies. Default blue.</td></tr>
+                <tr><td><strong>API disabled</strong></td><td>boolean</td><td>When the kill-switch is off. Default grey.</td></tr>
+                <tr><td><strong>Health state is…</strong></td><td>boolean</td><td>When <code>health</code> equals the chosen value. Default amber.</td></tr>
+                <tr><td><strong>Active preset is…</strong></td><td>boolean</td><td>When the chosen preset is the active one — highlights its key. Default green.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="deck" role="img" aria-label="Keys showing live state">
+            <div class="key live">
+              <span class="ico">●</span><span class="lbl">ON AIR</span>
+            </div>
+            <div class="key on">
+              <span class="ico">✓</span><span class="lbl">Gaming</span>
+            </div>
+            <div class="key busy">
+              <span class="ico">◐</span><span class="lbl">Working…</span>
+            </div>
+            <div class="key">
+              <span class="ico">◍</span><span class="lbl">Health OK</span>
+            </div>
+          </div>
+
+          <h3 id="arabic">Arabic (non-Latin) titles on a key</h3>
+          <p>
+            Companion's bundled fonts have <strong>no Arabic glyphs and do no RTL
+            shaping</strong>, so an Arabic <code>live_title</code> bound as plain
+            key text renders as <strong>boxes (tofu)</strong>. This module is the
+            fix: the middleware pre-renders the label and the full title to PNGs
+            with a bundled Arabic font (shaped + joined), and the module turns
+            them into the two <strong>image feedbacks</strong> above —
+            <strong>Image: button label (slug)</strong> and
+            <strong>Image: full live title</strong>.
+          </p>
+          <div class="callout tip">
+            <p>
+              <strong>Two-step toggle.</strong> A full title rarely fits a key, so
+              make it a <strong>two-step button</strong>: step 1 carries the
+              <em>slug</em> image feedback, step 2 the <em>title</em> image —
+              one press flips between the short label and the full title.
+            </p>
+            <p>
+              <strong>Latin-safe fallback.</strong> If a preset's slug is Latin,
+              you can skip the image entirely and just bind the key text to
+              <code>$(ytmeta:display_label)</code>.
+            </p>
+          </div>
+          <div class="callout">
+            <p>
+              Added a button after the connection was already up and it shows no
+              value yet? The WebSocket re-sends state on its heartbeat, or run the
+              <strong>Refresh from YouTube</strong> action / re-save the connection to
+              force a fresh frame now. See
+              <code>companion-module/README.md</code> for full install and
+              packaging notes.
+            </p>
+          </div>
+        </section>
+
+        <footer>
+          LAN-only. No auth. Keep it off the open internet.<br />
+          Interactive API console at <code>/docs</code> · dashboard at
+          <code>/</code>.
+        </footer>
+      </main>
+    </div>
+
+    <script src="./assets/nav.js"></script>
+  </body>
+</html>

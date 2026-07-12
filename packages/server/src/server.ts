@@ -18,6 +18,7 @@ import { WebhookDispatcher } from "./core/webhook.js";
 import type { AppContext } from "./routes/context.js";
 import { mountApiRoutes } from "./app.js";
 import { setupRouter } from "./routes/setup.js";
+import { mountDocsRoutes } from "./routes/docs.js";
 import { attachStateSocket } from "./routes/socket.js";
 
 /** A running HTTP server that can be gracefully torn down (used for restart-on-setup). */
@@ -161,14 +162,8 @@ async function bootOnce(
     });
   }
 
-  // Interactive API console — a self-contained page that documents every route and can
-  // fire test requests against this server (same-origin, so the fetch tester just works).
-  const docsPage = path.resolve(here, "../public/docs.html");
-  app.get("/docs", (_req, res) => res.sendFile(docsPage));
-
-  // Operator manual — API + web UI + Bitfocus Companion setup, including the redirect flow.
-  const guidePage = path.resolve(here, "../public/guide.html");
-  app.get("/guide", (_req, res) => res.sendFile(guidePage));
+  // Operator manual (/guide) and the interactive API console (/docs) — static, offline-safe pages.
+  mountDocsRoutes(app, path.resolve(here, "../public"));
 
   // Serve the built React dashboard, if present.
   const webDist = path.resolve(here, "../../web/dist");

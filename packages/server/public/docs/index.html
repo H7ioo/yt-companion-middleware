@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Control Surface · YouTube Live Middleware API</title>
+<link rel="stylesheet" href="./assets/console.css" />
+</head>
+<body>
+  <header class="master">
+    <div class="master__bar">
+      <div class="brand"><b>◉</b> LIVE&nbsp;METADATA&nbsp;CONTROL <span class="brand__sub">/ control surface</span></div>
+    </div>
+
+    <div class="tally" id="tally" aria-label="Live stream state">
+      <div class="lamp" id="lamp-air"><span class="lamp__led"></span><span class="lamp__txt"><span class="lamp__k">Broadcast</span><span class="lamp__v" id="v-air">—</span></span></div>
+      <div class="lamp" id="lamp-health"><span class="lamp__led"></span><span class="lamp__txt"><span class="lamp__k">Health</span><span class="lamp__v" id="v-health">unknown</span></span></div>
+      <div class="lamp" id="lamp-busy"><span class="lamp__led"></span><span class="lamp__txt"><span class="lamp__k">Runner</span><span class="lamp__v" id="v-busy">—</span></span></div>
+      <div class="lamp" id="lamp-title"><span class="lamp__led is-off"></span><span class="lamp__txt"><span class="lamp__k">On&nbsp;screen</span><span class="lamp__v" id="v-title">—</span></span></div>
+      <div class="lamp" id="lamp-quota"><span class="lamp__led"></span><span class="lamp__txt"><span class="lamp__k">Quota</span><span class="lamp__v" id="v-quota">—</span></span></div>
+    </div>
+
+    <div class="patch">
+      <div class="field">
+        <label for="base">Base URL</label>
+        <input id="base" spellcheck="false" autocomplete="off" />
+      </div>
+      <button class="btn" id="ping">Ping health</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <nav class="rail" id="rail" aria-label="Endpoint index"></nav>
+    <div id="buses"></div>
+  </main>
+
+  <footer class="foot">
+    All action endpoints return <code>HTTP 200</code> with <code>success</code>/<code>error</code> in the body (PRD §7).
+    The tally strip and this tester talk to whatever <code>Base URL</code> is set above — by default, this server.
+    Feedback reads are served from cache (zero YouTube quota); “live” strips spend quota on a real API call.
+  </footer>
+
+<script src="./assets/buses.js"></script>
+<script src="./assets/console.js"></script>
+</body>
+</html>

@@ -126,7 +126,7 @@ never edits and never tags. Run it per shippable slice, not just before a releas
 
 - [ ] Companion module changed? → `companion:bump` in the same PR, versions in sync, tests pass.
 - [ ] Upgrade script appended for any Companion rename/removal.
-- [ ] Docs (`README.md`, `companion-module/companion/HELP.md`, `packages/server/public/guide.html`) reflect behaviour changes.
+- [ ] Docs (`README.md`, `companion-module/companion/HELP.md`, `packages/server/public/guide/`) reflect behaviour changes.
 - [ ] `main` is green and pulled locally.
 - [ ] `npm run preflight` is green.
 - [ ] `workflow_dispatch` run of `Release` is green (the real Windows build, no publish).

@@ -51,7 +51,7 @@ For each behaviour change in the diff, check the doc that should describe it act
 - `README.md` — setup, capability, endpoint list.
 - `companion-module/companion/HELP.md` — anything an operator sees in Companion (actions,
   feedbacks, variables, presets).
-- `packages/server/public/guide.html` — the in-app guide.
+- `packages/server/public/guide/` — the in-app operator manual (one page per topic).
 
 Flag stale docs concretely: "diff adds `GET /api/dashboard/logs`; README's endpoint table does not
 list it." Do not fix them.
@@ -87,7 +87,7 @@ each non-PASS item with one indented line of evidence: what you found, and where
 
 - [P] Companion module changed? → `companion:bump` in the same PR, versions in sync, tests pass.
 - [P] Upgrade script appended for any Companion rename/removal.
-- [P] Docs (`README.md`, `companion-module/companion/HELP.md`, `packages/server/public/guide.html`) reflect behaviour changes.
+- [P] Docs (`README.md`, `companion-module/companion/HELP.md`, `packages/server/public/guide/`) reflect behaviour changes.
 - [P] `main` is green and pulled locally.
 - [P] `npm run preflight` is green.
 - [H] `workflow_dispatch` run of `Release` is green (the real Windows build, no publish).
