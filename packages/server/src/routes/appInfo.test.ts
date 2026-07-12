@@ -60,16 +60,28 @@ describe("GET /api/dashboard/app", () => {
     expect(body.updateNotes).toBeNull();
   });
 
-  it("serves the OFFERED version's notes so the operator sees what they'd get", async () => {
+  it("surfaces the OFFERED version's notes from the update feed, not the bundled changelog (PRD-10 §3)", async () => {
+    // The feed threads the offered version's notes onto the updater state; the app-info route
+    // must prefer those — the bundled changelog cannot describe a version this build predates.
+    const updates: UpdateHost = {
+      getState: () => ({ status: "downloaded", version: "2.2.0", notes: "Streaming-safe auto-update." }),
+      installAndRestart: () => true,
+    };
+    const url = await boot({ updates });
+    const { body } = await call(`${url}/api/dashboard/app`);
+    expect(body.update).toMatchObject({ status: "downloaded", version: "2.2.0" });
+    expect(body.updateNotes).toBe("Streaming-safe auto-update.");
+    expect(body.notes.version).toBe("2.1.0"); // still the running version's own notes
+  });
+
+  it("has no update notes when the feed carried none, even for a known changelog version", async () => {
     const updates: UpdateHost = {
       getState: () => ({ status: "downloaded", version: "2.2.0" }),
       installAndRestart: () => true,
     };
     const url = await boot({ updates });
     const { body } = await call(`${url}/api/dashboard/app`);
-    expect(body.update).toEqual({ status: "downloaded", version: "2.2.0" });
-    expect(body.updateNotes.sections).toEqual([{ title: "Added", items: ["**desktop:** auto-update"] }]);
-    expect(body.notes.version).toBe("2.1.0"); // still the running version's notes
+    expect(body.updateNotes).toBeNull();
   });
 
   it("returns null notes rather than the wrong ones when the changelog has no such version", async () => {

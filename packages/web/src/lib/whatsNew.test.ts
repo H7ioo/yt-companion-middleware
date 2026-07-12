@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { shouldAnnounce, readLastSeen, markSeen, splitScope, describeUpdate } from "./whatsNew.js";
+import type { AppInfo } from "../api.js";
+import {
+  shouldAnnounce,
+  readLastSeen,
+  markSeen,
+  splitScope,
+  describeUpdate,
+  hasUpdateNotes,
+} from "./whatsNew.js";
 
 describe("shouldAnnounce", () => {
   it("announces after a version change — the first launch on a new build", () => {
@@ -80,5 +88,18 @@ describe("describeUpdate", () => {
     expect(banner?.title).toBe("Update v2.2.0 ready to install");
     expect(banner?.installable).toBe(true);
     expect(banner?.note).toMatch(/off air/i);
+  });
+});
+
+describe("hasUpdateNotes (banner 'What's in it' affordance, PRD-10 §3)", () => {
+  const info = (updateNotes: AppInfo["updateNotes"]): Pick<AppInfo, "updateNotes"> => ({ updateNotes });
+
+  it("offers the affordance when the offered version carries feed notes", () => {
+    expect(hasUpdateNotes(info("Streaming-safe auto-update."))).toBe(true);
+  });
+
+  it("hides the affordance when there are no notes to show", () => {
+    expect(hasUpdateNotes(info(null))).toBe(false);
+    expect(hasUpdateNotes(info("   "))).toBe(false);
   });
 });

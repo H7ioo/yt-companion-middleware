@@ -190,7 +190,7 @@ async function startEmbeddedServer() {
   // Import the compiled server lazily so a build error surfaces as a dialog, not a silent crash.
   const serverUrl = new URL("../server/dist/server.js", import.meta.url);
   /**
-   * @typedef {{ status: string, version?: string, error?: string }} UpdateState
+   * @typedef {{ status: string, version?: string, error?: string, notes?: string }} UpdateState
    * @typedef {{
    *   openBrowser?: (url: string) => void,
    *   bundledClient?: { clientId: string, clientSecret: string },

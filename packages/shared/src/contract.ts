@@ -152,6 +152,13 @@ export interface UpdateState {
   version?: string;
   /** Why the last check failed. Advisory — the app keeps running on its current version. */
   error?: string;
+  /**
+   * Release notes for the offered version, taken from the update feed itself (plain text). The
+   * feed is the only place the newer version's notes exist — the bundled changelog, by
+   * construction, cannot describe a version this build predates (PRD-10 §3). Omitted when the
+   * feed carried none.
+   */
+  notes?: string;
 }
 
 /** One "### Added"-style group inside a release's notes. */
@@ -177,6 +184,11 @@ export interface AppInfo {
   /** Notes for the running version, or null when the changelog has no section for it. */
   notes: ReleaseNotes | null;
   update: UpdateState;
-  /** Notes for the version on offer, so the operator sees what they'd get before installing. */
-  updateNotes: ReleaseNotes | null;
+  /**
+   * Plain-text notes for the version on offer, so the operator sees what they'd get before
+   * installing. Sourced from the update feed (see {@link UpdateState.notes}), not the bundled
+   * changelog — the running build cannot ship a newer version's notes (PRD-10 §3). null when the
+   * feed carried none or no update is offered.
+   */
+  updateNotes: string | null;
 }

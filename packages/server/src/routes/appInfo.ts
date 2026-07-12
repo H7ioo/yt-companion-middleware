@@ -32,11 +32,13 @@ export function appInfoRouter({ version, changelog, updates }: AppInfoDeps): Rou
     const update: UpdateState = updates?.getState() ?? { status: "unsupported" };
     const info: AppInfo = {
       version,
+      // The running version's What's New — the bundled changelog is exactly right here: it always
+      // matches the binary in front of the operator and works offline.
       notes: findRelease(changelog, version),
       update,
-      // Only offer notes for a version actually on the table: a stale "downloaded" version from a
-      // previous check must not show notes for something else.
-      updateNotes: findRelease(changelog, update.version),
+      // The offered version's notes come from the update feed, threaded through the updater state.
+      // The bundled changelog can never carry them — this build predates that version (PRD-10 §3).
+      updateNotes: update.notes ?? null,
     };
     res.json(info);
   });

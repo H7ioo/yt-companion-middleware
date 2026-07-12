@@ -1,4 +1,4 @@
-import type { UpdateState } from "../api.js";
+import type { AppInfo, UpdateState } from "../api.js";
 
 const SEEN_KEY = "ytc.lastSeenVersion";
 
@@ -67,4 +67,13 @@ export function describeUpdate(
 
 function formatVersion(version: string | undefined): string {
   return version ? `v${version.replace(/^v/, "")}` : "";
+}
+
+/**
+ * Whether the update banner should offer its "What's in it" affordance: only when the offered
+ * version actually carries notes from the update feed (PRD-10 §3). Kept out of the component so the
+ * decision is unit-testable without a DOM — the banner's node test suite has no renderer.
+ */
+export function hasUpdateNotes(info: Pick<AppInfo, "updateNotes">): boolean {
+  return typeof info.updateNotes === "string" && info.updateNotes.trim().length > 0;
 }

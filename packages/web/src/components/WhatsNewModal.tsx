@@ -3,7 +3,12 @@ import { splitScope } from "../lib/whatsNew.js";
 import { useEscape } from "../lib/useEscape.js";
 
 interface Props {
-  notes: ReleaseNotes | null;
+  /**
+   * The running version's notes are structured {@link ReleaseNotes} from the bundled changelog;
+   * the offered version's notes arrive as plain text from the update feed (PRD-10 §3). Either
+   * renders here.
+   */
+  notes: ReleaseNotes | string | null;
   /** "running" = what you are on now; "offered" = what an install would give you. */
   kind: "running" | "offered";
   onClose: () => void;
@@ -21,25 +26,36 @@ interface Props {
 export function WhatsNewModal({ notes, kind, onClose }: Props) {
   useEscape(onClose);
 
+  // Plain-text feed notes (offered version) vs. structured changelog notes (running version).
+  const structured = notes !== null && typeof notes !== "string" ? notes : null;
+  const plain = typeof notes === "string" ? notes.trim() : "";
+
   return (
     <div className="overlay" onMouseDown={onClose}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <div className="panel__head">
           <h2>{kind === "offered" ? "In the update" : "What's new"}</h2>
-          {notes ? (
+          {structured ? (
             <span className="whatsnew__stamp mono">
-              v{notes.version} <span aria-hidden="true">·</span> {notes.date}
+              v{structured.version} <span aria-hidden="true">·</span> {structured.date}
             </span>
           ) : null}
         </div>
 
         <div className="panel__body whatsnew">
-          {!notes || notes.sections.length === 0 ? (
+          {plain ? (
+            // Feed notes arrive as plain text; each blank-line-separated block is a paragraph.
+            plain.split(/\n{2,}/).map((para, i) => (
+              <p className="whatsnew__para" key={i} dir="auto">
+                {para}
+              </p>
+            ))
+          ) : !structured || structured.sections.length === 0 ? (
             <p className="whatsnew__empty">
               No release notes shipped with this version.
             </p>
           ) : (
-            notes.sections.map((section) => (
+            structured.sections.map((section) => (
               <section className="whatsnew__section" key={section.title}>
                 <span className="eyebrow">{section.title}</span>
                 <ul className="whatsnew__list">

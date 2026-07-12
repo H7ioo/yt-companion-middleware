@@ -10,8 +10,11 @@
 // without Electron; main.mjs supplies the real one.
 
 /**
+ * The shape here mirrors @app/shared's UpdateState contract (the server route and web banner
+ * consume it); keep the two in sync. `notes` carries the offered version's release notes as plain
+ * text, taken from the update feed (PRD-10 §3).
  * @typedef {"unsupported" | "checking" | "idle" | "downloading" | "downloaded" | "error"} UpdateStatus
- * @typedef {{ status: UpdateStatus, version?: string, error?: string }} UpdateState
+ * @typedef {{ status: UpdateStatus, version?: string, error?: string, notes?: string }} UpdateState
  * @typedef {(level: "info" | "error", message: string) => void} LogFn
  * @typedef {{
  *   autoDownload: boolean,
@@ -34,6 +37,31 @@ export function isUpdateSupported({ isPackaged, platform, env = {} }) {
   if (platform !== "win32") return false;
   if (env.PORTABLE_EXECUTABLE_DIR) return false; // electron-builder marks the portable exe with this
   return true;
+}
+
+/**
+ * Coerces electron-updater's `releaseNotes` into plain text for the update banner. The feed can
+ * deliver a single string or an array of `{ version, note }` objects (one per intermediate
+ * release); either way we want one plain string. HTML tags are stripped when trivially present
+ * (GitHub sometimes wraps notes in `<p>`), otherwise the text passes through unchanged. Returns
+ * undefined for empty/absent notes so the state simply omits the field (PRD-10 §3).
+ * @param {unknown} releaseNotes
+ * @returns {string | undefined}
+ */
+export function normalizeNotes(releaseNotes) {
+  if (releaseNotes == null) return undefined;
+  let text;
+  if (typeof releaseNotes === "string") {
+    text = releaseNotes;
+  } else if (Array.isArray(releaseNotes)) {
+    text = releaseNotes
+      .map((n) => (n && typeof n === "object" && "note" in n ? String(n.note ?? "") : String(n ?? "")))
+      .join("\n\n");
+  } else {
+    return undefined;
+  }
+  const stripped = text.replace(/<[^>]+>/g, "").trim();
+  return stripped.length > 0 ? stripped : undefined;
 }
 
 /**
@@ -70,7 +98,7 @@ export function createUpdateController({
 
   updater.on("update-available", (info) => {
     log("info", `Update available (v${info?.version}) — downloading in the background`);
-    setState({ status: "downloading", version: info?.version });
+    setState({ status: "downloading", version: info?.version, notes: normalizeNotes(info?.releaseNotes) });
   });
 
   updater.on("update-not-available", () => {
@@ -80,7 +108,7 @@ export function createUpdateController({
 
   updater.on("update-downloaded", (info) => {
     log("info", `Update v${info?.version} downloaded — install on request`);
-    setState({ status: "downloaded", version: info?.version });
+    setState({ status: "downloaded", version: info?.version, notes: normalizeNotes(info?.releaseNotes) });
   });
 
   updater.on("error", fail);

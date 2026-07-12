@@ -1,7 +1,7 @@
 // @ts-check
 import { describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "node:events";
-import { isUpdateSupported, createUpdateController } from "./updater.mjs";
+import { isUpdateSupported, createUpdateController, normalizeNotes } from "./updater.mjs";
 
 /** Minimal stand-in for electron-updater's autoUpdater (an EventEmitter + the calls we make). */
 function fakeUpdater() {
@@ -42,6 +42,31 @@ describe("isUpdateSupported", () => {
   });
 });
 
+describe("normalizeNotes", () => {
+  it("passes a plain string through, trimmed", () => {
+    expect(normalizeNotes("  Fixed a bug.  ")).toBe("Fixed a bug.");
+  });
+
+  it("joins an array of {note} objects into one string", () => {
+    const notes = [
+      { version: "2.2.0", note: "Added auto-update." },
+      { version: "2.1.0", note: "Fixed the health probe." },
+    ];
+    expect(normalizeNotes(notes)).toBe("Added auto-update.\n\nFixed the health probe.");
+  });
+
+  it("strips trivial HTML tags GitHub may wrap notes in", () => {
+    expect(normalizeNotes("<p>Fixed a bug.</p>")).toBe("Fixed a bug.");
+  });
+
+  it("omits (undefined) empty, null, or unusable notes", () => {
+    expect(normalizeNotes(null)).toBeUndefined();
+    expect(normalizeNotes(undefined)).toBeUndefined();
+    expect(normalizeNotes("   ")).toBeUndefined();
+    expect(normalizeNotes(42)).toBeUndefined();
+  });
+});
+
 describe("createUpdateController", () => {
   it("checks on launch and downloads in the background, but never installs on quit", async () => {
     const { updater, ctl } = controller();
@@ -69,6 +94,35 @@ describe("createUpdateController", () => {
     updater.emit("update-downloaded", { version: "2.1.0" });
     expect(ctl.getState()).toMatchObject({ status: "downloaded", version: "2.1.0" });
     expect(onState).toHaveBeenCalled();
+  });
+
+  it("threads the feed's release notes onto the state (PRD-10 §3)", async () => {
+    const { updater, ctl } = controller();
+    await ctl.start();
+
+    updater.emit("update-available", { version: "2.1.0", releaseNotes: "Fixes the health probe." });
+    expect(ctl.getState()).toMatchObject({
+      status: "downloading",
+      version: "2.1.0",
+      notes: "Fixes the health probe.",
+    });
+
+    // A structured feed (array of per-release {note}) is coerced to one plain string.
+    updater.emit("update-downloaded", {
+      version: "2.1.0",
+      releaseNotes: [{ version: "2.1.0", note: "<p>Fixes the health probe.</p>" }],
+    });
+    expect(ctl.getState()).toMatchObject({
+      status: "downloaded",
+      notes: "Fixes the health probe.",
+    });
+  });
+
+  it("omits notes when the feed carries none", async () => {
+    const { updater, ctl } = controller();
+    await ctl.start();
+    updater.emit("update-available", { version: "2.1.0" });
+    expect(ctl.getState().notes).toBeUndefined();
   });
 
   it("goes back to idle when the running version is current", async () => {

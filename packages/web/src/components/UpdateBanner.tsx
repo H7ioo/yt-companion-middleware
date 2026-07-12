@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { AppInfo } from "../api.js";
 import { api } from "../api.js";
-import { describeUpdate } from "../lib/whatsNew.js";
+import { describeUpdate, hasUpdateNotes } from "../lib/whatsNew.js";
 
 interface Props {
   info: AppInfo;
@@ -44,7 +44,7 @@ export function UpdateBanner({ info, onShowNotes, flash }: Props) {
         <span className="update__note">{banner.note}</span>
       </div>
       <div className="update__actions">
-        {info.updateNotes ? (
+        {hasUpdateNotes(info) ? (
           <button type="button" className="btn btn--ghost" onClick={onShowNotes}>
             What&rsquo;s in it
           </button>
