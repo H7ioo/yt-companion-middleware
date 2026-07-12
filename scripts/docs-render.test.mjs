@@ -1,50 +1,13 @@
 // @ts-check
 import { describe, it, expect } from "vitest";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { JSDOM, VirtualConsole } from "jsdom";
+import { render } from "./docs-dom.mjs";
 
 /**
  * The doc sites are the only browser code with no framework and no build step behind it: a typo in
  * `nav.js` or `console.js` is invisible to typecheck, invisible to the static page tests, and shows
- * up as an empty sidebar in front of an operator. So run the pages for real, in a DOM, and assert
- * the two shared scripts render what the split depends on.
+ * up as an empty sidebar in front of an operator. So run the pages for real, in a DOM (see
+ * `docs-dom.mjs`), and assert the two shared scripts render what the split depends on.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const publicDir = path.resolve(here, "..", "packages", "server", "public");
-
-/** Load a doc page with its scripts executed, resolving relative `./assets/*` against disk. */
-function render(/** @type {string} */ page) {
-  const file = path.join(publicDir, page);
-  const dir = path.dirname(file);
-  let html = fs.readFileSync(file, "utf8");
-  // jsdom will not fetch `./assets/x.js` off the filesystem, so inline the scripts it would load.
-  html = html.replace(/<script src="\.\/([^"]+)"><\/script>/g, (_m, src) => {
-    return `<script>${fs.readFileSync(path.join(dir, src), "utf8")}</script>`;
-  });
-  const virtualConsole = new VirtualConsole();
-  /** @type {string[]} */
-  const errors = [];
-  virtualConsole.on("jsdomError", (e) => errors.push(String(e)));
-  // Serve it from the URL it really lives at: both scripts read location to decide which page
-  // they are on, and the console needs a non-opaque origin for localStorage.
-  const dom = new JSDOM(html, {
-    runScripts: "dangerously",
-    virtualConsole,
-    url: `http://localhost:8080/${page}`,
-    beforeParse(window) {
-      // Electron and every target browser have it; jsdom does not. The scroll-spy it drives is
-      // decoration — stub it so a missing API doesn't masquerade as a broken page.
-      // @ts-expect-error — minimal stand-in for the one method nav.js calls.
-      window.IntersectionObserver = class {
-        observe() {}
-        disconnect() {}
-      };
-    },
-  });
-  return { doc: dom.window.document, errors };
-}
 
 describe("guide pages render", () => {
   it("builds the shared sidebar on every page, with the current page expanded into sections", () => {

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stream Deck layouts · Operator Manual</title>
+    <link rel="stylesheet" href="./assets/guide.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <div>
+          <div class="tally">
+            <span class="led"></span> On Air · Operator Manual
+          </div>
+          <p class="kicker">YouTube Live Middleware · v2</p>
+          <h1>Laying out<br />the keys.</h1>
+          <p>
+            Three arrangements that work, drawn as live button faces. Flip the state below the way a
+            service would — go on air, lose the network, press a preset — and watch the keys react.
+            Nothing here talks to YouTube: the faces are driven by mock state in your browser.
+          </p>
+        </div>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <!-- Rendered by assets/nav.js from the shared page manifest. -->
+      <nav class="toc" aria-label="Contents"></nav>
+
+      <main>
+        <section id="layouts">
+          <h2><span class="no">16</span> Stream Deck layouts</h2>
+          <p class="lede">
+            A layout is a page of keys you can run a whole service from without thinking. These three
+            cover the cases this app was built for.
+          </p>
+
+          <p>
+            The keys below are <strong>simulations</strong> — the same colours and words the
+            Companion module puts on a real deck, painted from a mock state you control. Press a
+            preset key to make it the active one; use the panel to change what the app is doing
+            underneath.
+          </p>
+
+          <div class="deck-panel" role="group" aria-label="Mock state controls">
+            <div class="deck-panel__row">
+              <span class="deck-panel__lbl">Broadcast</span>
+              <button type="button" class="tgl" data-toggle="live" aria-pressed="false">
+                Go on air
+              </button>
+              <button type="button" class="tgl" data-toggle="busy" aria-pressed="false">
+                Action in flight
+              </button>
+              <button type="button" class="tgl" data-toggle="api" aria-pressed="false">
+                API kill switch
+              </button>
+            </div>
+            <div class="deck-panel__row">
+              <span class="deck-panel__lbl">Health</span>
+              <button type="button" class="tgl" data-health="ok">Healthy</button>
+              <button type="button" class="tgl" data-health="degraded">Degraded</button>
+              <button type="button" class="tgl" data-health="offline">Offline</button>
+              <button type="button" class="tgl" data-health="auth_error">Auth error</button>
+              <button type="button" class="tgl tgl--ghost" data-reset>Reset</button>
+            </div>
+            <p class="deck-state" aria-live="polite"></p>
+          </div>
+
+          <div class="deck-sim" data-deck="preset-wall"></div>
+          <div class="deck-sim" data-deck="single-service"></div>
+          <div class="deck-sim" data-deck="tech-desk"></div>
+
+          <div class="callout tip">
+            <p>
+              <strong>Read the lamps, not the log.</strong> The health key is the one to keep on
+              every page: it recolours itself — green healthy, amber degraded, slate offline, red
+              auth error — so a stream that has quietly stopped updating announces itself from across
+              the room. <a href="./api.html#feedback">What each state means</a>.
+            </p>
+          </div>
+
+          <h3>Why these three</h3>
+          <ul>
+            <li>
+              <strong>Preset wall</strong> — the default. Every preset is one press away, and the
+              bottom row is state: on air, busy, undo, health. Nothing on this page can lose you a
+              broadcast, which is the point.
+            </li>
+            <li>
+              <strong>One-service page</strong> — for a volunteer who runs one thing and shouldn't
+              have to choose. The Arabic title renders as an image key
+              (<a href="./companion.html#arabic">Companion's fonts can't draw Arabic text</a>).
+            </li>
+            <li>
+              <strong>Tech desk</strong> — the two refreshes are separate keys and are never given
+              the same name: <em>Refresh from YouTube</em> re-reads the broadcast,
+              <em>Refresh lists</em> re-pulls the presets and category pickers.
+            </li>
+          </ul>
+
+          <p>
+            Every key here comes from the module's <strong>Presets</strong> tab pre-wired — drag,
+            drop, done. See
+            <a href="./companion.html#companion-presets">Presets (drag-drop)</a>.
+          </p>
+        </section>
+
+        <footer>
+          LAN-only. No auth. Keep it off the open internet.<br />
+          Interactive API console at <code>/docs</code> · dashboard at
+          <code>/</code>.
+        </footer>
+      </main>
+    </div>
+
+    <script src="./assets/nav.js"></script>
+    <script src="./assets/layouts.js"></script>
+  </body>
+</html>

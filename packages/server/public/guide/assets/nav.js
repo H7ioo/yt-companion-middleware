@@ -65,6 +65,12 @@
       title: "Redirect / fill flow",
       sections: [["companion-redirect", "Redirect / fill flow"]],
     },
+    {
+      file: "layouts.html",
+      group: "Companion module",
+      title: "Stream Deck layouts",
+      sections: [["layouts", "Stream Deck layouts"]],
+    },
   ];
 
   var current =

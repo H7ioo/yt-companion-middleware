@@ -44,6 +44,7 @@ describe("guide pages", () => {
       "dashboard.html",
       "fill-flow.html",
       "index.html",
+      "layouts.html",
       "setup.html",
     ]);
     expect(fs.existsSync(path.join(publicDir, "guide.html"))).toBe(false);

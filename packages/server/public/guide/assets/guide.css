@@ -585,3 +585,151 @@ nav.pager .pager__next {
   margin-left: auto;
   text-align: right;
 }
+/* ---- interactive layouts (layouts.html) ---- */
+/* The mock deck is meant to read as hardware sitting in the same rack as the rest of the page:
+   a bench console of state switches above, key faces below whose colour is written inline by
+   layouts.js (the canonical Companion feedback colours — never a palette invented here). */
+.deck-panel {
+  position: sticky;
+  top: 12px;
+  z-index: 5;
+  background: linear-gradient(180deg, var(--raised), var(--panel));
+  border: 1px solid var(--hair);
+  border-radius: 12px;
+  padding: 14px 16px 10px;
+  margin: 24px 0 28px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.deck-panel__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.deck-panel__lbl {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  width: 84px;
+  flex: none;
+}
+.tgl {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  background: #12171d;
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+  padding: 6px 11px;
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    transform 0.06s ease;
+}
+.tgl:hover {
+  color: var(--ink);
+  border-color: #3c4a5a;
+}
+.tgl:active {
+  transform: translateY(1px);
+}
+.tgl:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+.tgl.is-on {
+  color: var(--rack);
+  background: var(--amber);
+  border-color: var(--amber);
+  box-shadow: 0 0 12px rgba(245, 166, 35, 0.35);
+}
+.tgl--ghost {
+  margin-left: auto;
+  color: var(--faint);
+}
+.deck-state {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  margin: 6px 0 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hair);
+  letter-spacing: 0.04em;
+}
+.deck-sim {
+  margin: 0 0 34px;
+}
+.deck-head h4 {
+  font-size: 15px;
+  margin: 0 0 4px;
+  letter-spacing: 0.01em;
+}
+.deck-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  max-width: 62ch;
+}
+.deck--sim {
+  max-width: 520px;
+  gap: 10px;
+  margin: 14px 0 0;
+}
+.key--sim {
+  /* A Stream Deck key: soft rubber face, hairline bezel, and a colour written by the widget. */
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  border-radius: 10px;
+  gap: 3px;
+  font: inherit;
+  cursor: default;
+  transition:
+    background-color 0.18s ease,
+    box-shadow 0.18s ease;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -8px 14px rgba(0, 0, 0, 0.28),
+    0 3px 8px rgba(0, 0, 0, 0.5);
+}
+button.key--sim {
+  cursor: pointer;
+}
+button.key--sim:active {
+  transform: translateY(1px);
+}
+button.key--sim:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 3px;
+}
+.key__text {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 1.15;
+}
+.key__sub {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+  opacity: 0.72;
+}
+@media (prefers-reduced-motion: reduce) {
+  .key--sim,
+  .tgl {
+    transition: none;
+  }
+}
+@media (max-width: 560px) {
+  .deck-panel {
+    position: static;
+  }
+  .deck-panel__lbl {
+    width: 100%;
+  }
+}
