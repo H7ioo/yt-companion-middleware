@@ -132,3 +132,51 @@ export interface SetupStatus {
    */
   redirectUri: string;
 }
+
+/**
+ * What the desktop updater is doing right now (PRD-09 §A.1, issue 038). `unsupported` covers every
+ * host that has no update feed at all — Docker, the portable exe, a dev run — and means the UI
+ * should say nothing about updates.
+ */
+export type UpdateStatus =
+  | "unsupported"
+  | "checking"
+  | "idle"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+export interface UpdateState {
+  status: UpdateStatus;
+  /** The version being offered, once one is known. */
+  version?: string;
+  /** Why the last check failed. Advisory — the app keeps running on its current version. */
+  error?: string;
+}
+
+/** One "### Added"-style group inside a release's notes. */
+export interface ReleaseSection {
+  title: string;
+  items: string[];
+}
+
+/** One release's changelog entry, parsed from the bundled CHANGELOG.md (PRD-09 §B.2). */
+export interface ReleaseNotes {
+  version: string;
+  date: string;
+  sections: ReleaseSection[];
+}
+
+/**
+ * GET /api/dashboard/app — what the app is running, what it could run next, and the notes for
+ * both. Read from the bundled changelog, so it works offline and always matches the binary.
+ */
+export interface AppInfo {
+  /** Version of the running app. */
+  version: string;
+  /** Notes for the running version, or null when the changelog has no section for it. */
+  notes: ReleaseNotes | null;
+  update: UpdateState;
+  /** Notes for the version on offer, so the operator sees what they'd get before installing. */
+  updateNotes: ReleaseNotes | null;
+}

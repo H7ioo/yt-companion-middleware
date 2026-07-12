@@ -39,7 +39,11 @@ jobs:
     needs: checks
     runs-on: windows-latest
     steps:
+      # Full history + tags: desktop:build regenerates CHANGELOG.md and bundles it into the app
+      # (PRD-09 §B.2). A shallow clone has no tags, so the bundled changelog would come out empty.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:

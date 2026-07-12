@@ -18,6 +18,8 @@ import { WebhookDispatcher } from "./core/webhook.js";
 import type { AppContext } from "./routes/context.js";
 import { mountApiRoutes } from "./app.js";
 import { setupRouter } from "./routes/setup.js";
+import { appInfoRouter, type UpdateHost } from "./routes/appInfo.js";
+import { loadChangelog } from "./core/changelog.js";
 import { mountDocsRoutes } from "./routes/docs.js";
 import { attachStateSocket } from "./routes/socket.js";
 
@@ -36,9 +38,29 @@ export interface StartServerOptions {
   openBrowser?: (url: string) => void | Promise<void>;
   /** Build-time bundled OAuth client, if the shipped binary carries one (PRD-03 §1.1). */
   bundledClient?: { clientId: string; clientSecret: string };
+  /** Version of the host app, shown in What's New. Falls back to the server's own (PRD-09 §B.2). */
+  appVersion?: string;
+  /** Where the bundled CHANGELOG.md lives; the Electron host points at the copy in the asar. */
+  changelogPath?: string;
+  /** The desktop updater, when the host has one. Absent on Docker/CLI — no updates are offered. */
+  updates?: UpdateHost;
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The server's own version, used when no host supplies one (Docker/CLI). The Electron host passes
+ * app.getVersion() instead, which is the version the installer stamped — the one the changelog and
+ * the update feed talk about.
+ */
+function packageVersion(): string {
+  try {
+    const pkg = fs.readFileSync(path.resolve(here, "..", "package.json"), "utf8");
+    return (JSON.parse(pkg) as { version?: string }).version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
 
 /**
  * Boots the Express app once against the current config + store. When credentials are present
@@ -85,6 +107,18 @@ async function bootOnce(
 
   // Setup endpoints are always available so the desktop app can be configured at runtime.
   app.use("/api/setup", setupRouter({ store, configured, requestRestart, oauth }));
+
+  // Version + changelog + update state (PRD-09 §B.2). Mounted here, not in mountApiRoutes, because
+  // it must answer in setup mode too: the first launch after an update is often the first launch
+  // full stop, and the What's New panel has nothing to do with having YouTube connected.
+  app.use(
+    "/api/dashboard/app",
+    appInfoRouter({
+      version: options.appVersion ?? packageVersion(),
+      changelog: loadChangelog(options.changelogPath),
+      updates: options.updates,
+    }),
+  );
 
   // Pieces that only exist once we have credentials — captured for graceful shutdown.
   let cache: StateCache | null = null;

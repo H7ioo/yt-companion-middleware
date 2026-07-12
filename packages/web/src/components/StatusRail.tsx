@@ -38,12 +38,18 @@ export function StatusRail({
   refreshing,
   onToggleApi,
   onOpenSettings,
+  version,
+  onShowWhatsNew,
 }: {
   state: DashboardState | null;
   onRefresh: () => void;
   refreshing: boolean;
   onToggleApi: (next: boolean) => void;
   onOpenSettings: () => void;
+  /** Running app version, once the app info lands. Null on hosts that never report one. */
+  version: string | null;
+  /** Reopens What's New for the running build — the on-demand path (PRD-09 §B.2). */
+  onShowWhatsNew: () => void;
 }) {
   const isLive = state?.status.isLive ?? false;
   const noTarget = state?.status.noTarget ?? false;
@@ -166,6 +172,18 @@ export function StatusRail({
         <a className="rail__docs" href="/docs" target="_blank" rel="noreferrer">
           API console <span aria-hidden="true">&rarr;</span>
         </a>
+        {/* The build stamp doubles as the way back into What's New — like the firmware label on a
+            rack unit, it says what you are running and is where you go to ask what changed. */}
+        {version ? (
+          <button
+            type="button"
+            className="rail__version"
+            onClick={onShowWhatsNew}
+            title="What's new in this version"
+          >
+            v{version}
+          </button>
+        ) : null}
       </div>
     </aside>
   );

@@ -1443,3 +1443,131 @@ textarea {
 .health__link:hover {
   text-decoration: underline;
 }
+
+/* ---- Update banner (an update is on offer) ------------------------------- */
+/* Blue, not red: an available update is information. Red in this rack means "YouTube is gone" and
+   must never mean anything else — an operator glancing at the screen mid-stream reads colour first. */
+
+.update {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  background: var(--bg-rack);
+  border: var(--seam-line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+}
+.update__lamp {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(76, 141, 255, 0.14);
+}
+.update__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.update__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink);
+}
+.update__note {
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+.update__actions {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  gap: 8px;
+}
+
+/* ---- What's New (release notes for the running/offered build) ------------- */
+/* Set as a service log: mono version stamp, sections as labelled channels on hairline seams. */
+
+.whatsnew {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-height: 58vh;
+  overflow-y: auto;
+}
+.whatsnew__stamp {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+.whatsnew__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: var(--seam-line);
+}
+.whatsnew__section:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+.whatsnew__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.whatsnew__list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--ink);
+  line-height: 1.45;
+}
+.whatsnew__scope {
+  flex: none;
+  padding: 1px 6px;
+  border: var(--seam-line);
+  border-radius: 3px;
+  background: var(--bg-inset);
+  color: var(--ink-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.whatsnew__empty {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 14px;
+}
+
+/* Version chip in the rail — the app's own build stamp, and the way back into What's New. */
+.rail__version {
+  margin-top: auto;
+  align-self: flex-start;
+  padding: 4px 8px;
+  border: var(--seam-line);
+  border-radius: 3px;
+  background: var(--bg-inset);
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.rail__version:hover {
+  color: var(--ink-dim);
+  border-color: var(--seam-bright);
+}
+.rail__version:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

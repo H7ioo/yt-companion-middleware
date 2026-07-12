@@ -20,6 +20,11 @@ export type {
   LogEntry,
   LogLevel,
   LogCategory,
+  AppInfo,
+  ReleaseNotes,
+  ReleaseSection,
+  UpdateState,
+  UpdateStatus,
 } from "@app/shared";
 
 import type {
@@ -33,6 +38,7 @@ import type {
   SetupStatus,
   CredentialsState,
   LogEntry,
+  AppInfo,
 } from "@app/shared";
 
 /** Preset payload for create/update — the full preset minus its server-assigned id. */
@@ -216,5 +222,12 @@ export const api = {
         "/api/dashboard/action/refresh",
         { method: "POST" },
       ),
+  },
+  /** Version, bundled release notes, and what the desktop updater is doing (PRD-09 §B.2). */
+  app: {
+    info: () => req<AppInfo>("/api/dashboard/app"),
+    /** Installs the staged update and restarts. Only ever called from an explicit operator click. */
+    install: () =>
+      req<{ installing: boolean }>("/api/dashboard/app/update/install", { method: "POST" }),
   },
 };

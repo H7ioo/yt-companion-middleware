@@ -7,6 +7,7 @@ import {
   type Preset,
   type PresetInput,
   type StreamInfo,
+  type AppInfo,
 } from "./api.js";
 import { StatusRail } from "./components/StatusRail.js";
 import { ReauthBanner } from "./components/ReauthBanner.js";
@@ -17,8 +18,11 @@ import { PresetFillModal } from "./components/PresetFillModal.js";
 import { AdHocModal } from "./components/AdHocModal.js";
 import { CategorySelect } from "./components/CategorySelect.js";
 import { ActivityPanel } from "./components/ActivityPanel.js";
+import { UpdateBanner } from "./components/UpdateBanner.js";
+import { WhatsNewModal } from "./components/WhatsNewModal.js";
 import { extractVars } from "./lib/template.js";
 import { buildFillUrl } from "./lib/fillRoute.js";
+import { shouldAnnounce, readLastSeen, markSeen } from "./lib/whatsNew.js";
 
 type Toast = { message: string; kind: "ok" | "err" } | null;
 
@@ -42,6 +46,9 @@ export function App() {
   const [filling, setFilling] = useState<Preset | null>(null);
   const [adHoc, setAdHoc] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
+  /** Which release notes the panel is showing, if any: the running build's, or the offered one's. */
+  const [whatsNew, setWhatsNew] = useState<"running" | "offered" | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
   const importInput = useRef<HTMLInputElement>(null);
@@ -69,6 +76,31 @@ export function App() {
       .then(setStreams)
       .catch(() => {});
   }, [loadPresets]);
+
+  // Version + bundled release notes + updater state (PRD-09 §B.2). Polled slowly rather than
+  // pushed: the updater downloads in the background over minutes, and this is the least urgent
+  // thing on the screen — it must never compete with live state for attention or bandwidth.
+  useEffect(() => {
+    let active = true;
+    const tick = () =>
+      api.app
+        .info()
+        .then((info) => {
+          if (!active) return;
+          setAppInfo(info);
+          // Announce a version change exactly once — a new build has been installed since this
+          // browser last looked. Never on a fresh install (shouldAnnounce).
+          if (shouldAnnounce(info.version, readLastSeen())) setWhatsNew("running");
+          markSeen(info.version);
+        })
+        .catch(() => {});
+    void tick();
+    const id = window.setInterval(tick, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(id);
+    };
+  }, []);
 
   // Live state via SSE; fall back to 5s polling if the stream drops.
   useEffect(() => {
@@ -302,9 +334,20 @@ export function App() {
         refreshing={refreshing}
         onToggleApi={toggleApi}
         onOpenSettings={() => setSettingsOpen(true)}
+        version={appInfo?.version ?? null}
+        onShowWhatsNew={() => setWhatsNew("running")}
       />
 
       <main className="main">
+        {/* Update banner — the ONLY way an update installs: an explicit click, never mid-stream. */}
+        {appInfo ? (
+          <UpdateBanner
+            info={appInfo}
+            onShowNotes={() => setWhatsNew("offered")}
+            flash={flash}
+          />
+        ) : null}
+
         {/* Reauth banner — only for a hard auth failure, never degraded/offline (PRD-03 §4). */}
         {state?.health === "auth_error" ? (
           <ReauthBanner
@@ -634,6 +677,14 @@ export function App() {
           onSaveSettings={saveSettings}
           flash={flash}
           onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
+
+      {whatsNew ? (
+        <WhatsNewModal
+          notes={whatsNew === "offered" ? (appInfo?.updateNotes ?? null) : (appInfo?.notes ?? null)}
+          kind={whatsNew}
+          onClose={() => setWhatsNew(null)}
         />
       ) : null}
 

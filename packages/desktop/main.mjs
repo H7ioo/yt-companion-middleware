@@ -190,7 +190,14 @@ async function startEmbeddedServer() {
   // Import the compiled server lazily so a build error surfaces as a dialog, not a silent crash.
   const serverUrl = new URL("../server/dist/server.js", import.meta.url);
   /**
-   * @typedef {{ openBrowser?: (url: string) => void, bundledClient?: { clientId: string, clientSecret: string } }} StartServerOptions
+   * @typedef {{ status: string, version?: string, error?: string }} UpdateState
+   * @typedef {{
+   *   openBrowser?: (url: string) => void,
+   *   bundledClient?: { clientId: string, clientSecret: string },
+   *   appVersion?: string,
+   *   changelogPath?: string,
+   *   updates?: { getState: () => UpdateState, installAndRestart: () => boolean },
+   * }} StartServerOptions
    * @type {{ startServer: (options?: StartServerOptions) => Promise<ServerHandle> }}
    */
   const mod = await import(serverUrl.href);
@@ -201,6 +208,15 @@ async function startEmbeddedServer() {
   serverHandle = await mod.startServer({
     openBrowser: (url) => void shell.openExternal(url),
     bundledClient,
+    // What's New + the update banner are served by the dashboard, so the server needs the two
+    // things only the host knows: which version this binary is, and what the updater is doing
+    // (PRD-09 §B.2). The updater is read through a getter because it is created after the server.
+    appVersion: app.getVersion(),
+    changelogPath: path.resolve(here, "..", "..", "CHANGELOG.md"),
+    updates: {
+      getState: () => updates?.getState() ?? { status: "unsupported" },
+      installAndRestart: () => updates?.installAndRestart() ?? false,
+    },
   });
 }
 
