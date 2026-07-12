@@ -45,7 +45,18 @@ describe("mapYouTubeError", () => {
     expect(mapYouTubeError({ code: 401, message: "no creds" }).code).toBe("YOUTUBE_AUTH_ERROR");
   });
 
-  it.each(["ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "ECONNRESET"])(
+  it.each([
+    "ECONNREFUSED",
+    "ETIMEDOUT",
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "ECONNRESET",
+    // The host/route/abort outage family added in PRD-10 §2 — dropped Wi-Fi and strict firewalls
+    // surface these, and they must classify as network (→ offline) rather than a transient error.
+    "EHOSTUNREACH",
+    "ENETUNREACH",
+    "ECONNABORTED",
+  ])(
     "maps a Node network code %s to NETWORK_ERROR, not auth",
     (code) => {
       const err = mapYouTubeError({ code, message: `connect ${code}` });

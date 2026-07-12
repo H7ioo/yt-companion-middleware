@@ -26,6 +26,9 @@ const NETWORK_ERROR_CODES = new Set([
   "ENOTFOUND",
   "EAI_AGAIN",
   "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ECONNABORTED",
 ]);
 
 /** Maps a googleapis/GaxiosError into one of the PRD §7 error codes. */
