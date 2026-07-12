@@ -101,6 +101,21 @@ export function summarizeHealth(health) {
 }
 
 /**
+ * Formats a failed action's error into the single string bound to the `last_error` variable, so an
+ * operator can put the latest failure (e.g. `INVALID_PRESET`, `MISSING_TEMPLATE_VARS`) on a key for
+ * on-stream debugging. Prefers `CODE: message`; falls back to whichever half is present, then a
+ * generic label. Tolerates a missing/partial envelope (a transport failure carries only a message).
+ * @param {{ code?: unknown, message?: unknown } | undefined | null} error
+ * @returns {string}
+ */
+export function formatLastError(error) {
+  const code = typeof error?.code === 'string' ? error.code.trim() : '';
+  const message = typeof error?.message === 'string' ? error.message.trim() : '';
+  if (code && message) return `${code}: ${message}`;
+  return code || message || 'unknown error';
+}
+
+/**
  * Given the latest DashboardState, returns what the API master switch (kill switch) should become
  * on a toggle: enable when it is currently off, otherwise disable. An unknown/missing state is
  * treated as "on", so a first toggle turns it off.

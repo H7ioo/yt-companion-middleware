@@ -1,6 +1,6 @@
 {
   "name": "companion-module-yt-companion-middleware",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "type": "module",
   "main": "main.js",
   "description": "Companion module for the YouTube Live Metadata Control middleware — Arabic-safe title/label images and the action bus.",

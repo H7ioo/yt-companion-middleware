@@ -7,6 +7,7 @@ import { InstanceBase, InstanceStatus, Regex, combineRgb, runEntrypoint } from '
 import WebSocket from 'ws'
 import {
 	categoryChoices,
+	formatLastError,
 	healthColor,
 	joinUrl,
 	mapVariables,
@@ -104,7 +105,9 @@ class YtMiddlewareInstance extends InstanceBase {
 		this.defineFeedbacks()
 		this.defineActions()
 		this.definePresets()
-		this.setVariableValues({ dashboard_url: this.config.url })
+		// last_error starts blank and is only ever set by a failed action — state frames never clear it,
+		// so a key bound to it stays empty until something actually fails (issue 029).
+		this.setVariableValues({ dashboard_url: this.config.url, last_error: '' })
 		await this.refreshLists()
 		this.connectWs()
 	}
@@ -183,10 +186,16 @@ class YtMiddlewareInstance extends InstanceBase {
 			const json = /** @type {any} */ (await res.json().catch(() => ({})))
 			if (json && json.success === false) {
 				this.log('warn', `${path} rejected: ${json.error?.code ?? 'unknown'} ${json.error?.message ?? ''}`)
+				// Surface the rejection on the `last_error` variable so an operator can bind it to a key
+				// for on-stream debugging (e.g. INVALID_PRESET, MISSING_TEMPLATE_VARS) — issue 029.
+				this.setVariableValues({ last_error: formatLastError(json.error) })
 			}
 			// No poll here: the server pushes a fresh state frame over the WS after every mutation.
 		} catch (err) {
-			this.log('error', `${path} failed: ${errText(err)}`)
+			const message = errText(err)
+			this.log('error', `${path} failed: ${message}`)
+			// A transport failure is still a failed action: record it on `last_error` too.
+			this.setVariableValues({ last_error: formatLastError({ message: `${path} failed: ${message}` }) })
 		}
 	}
 
@@ -361,6 +370,7 @@ class YtMiddlewareInstance extends InstanceBase {
 			{ variableId: 'quota_limit', name: 'YouTube quota limit' },
 			{ variableId: 'quota_remaining', name: 'YouTube quota remaining' },
 			{ variableId: 'undo_label', name: 'Undo target label' },
+			{ variableId: 'last_error', name: 'Last action error (code + message)' },
 			{ variableId: 'dashboard_url', name: 'Dashboard base URL' },
 		])
 	}

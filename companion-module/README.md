@@ -134,6 +134,7 @@ usual cause.
 | `api_enabled` | `false` when the middleware master switch (kill switch) is off. |
 | `quota_used` / `quota_limit` / `quota_remaining` | YouTube API quota counters. |
 | `undo_label` | Label of the change that **Undo** would revert. |
+| `last_error` | Code + message of the most recent **failed** action (e.g. `INVALID_PRESET: no such preset`). Blank until something fails; bind it to a key to see errors on-stream instead of only in the Log tab. Never cleared by a state update. |
 | `dashboard_url` | The configured base URL — use it with the built-in **Open URL** action. |
 
 ### Presets (drag-drop buttons)

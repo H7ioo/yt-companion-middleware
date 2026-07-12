@@ -56,7 +56,13 @@ Every dropped button stays fully editable afterwards.
 
 `display_label` (slug → preset id → "Custom"), `live_title`, `active_preset_id`,
 `active_preset_title`, `is_live`, `no_target`, `privacy`, `health` (`ok`/`degraded`/`offline`/`auth_error`), `health_message`, `busy`,
-`api_enabled`, `quota_used`, `quota_limit`, `quota_remaining`, `undo_label`, `dashboard_url`.
+`api_enabled`, `quota_used`, `quota_limit`, `quota_remaining`, `undo_label`, `last_error`, `dashboard_url`.
+
+`last_error` holds the code + message of the most recent **failed** action (e.g.
+`INVALID_PRESET: no such preset`, `MISSING_TEMPLATE_VARS: …`). By default action errors surface
+only in Companion's **log panel**; bind `last_error` to a button's text to see the latest failure
+on a key for on-stream debugging. It starts blank and is never cleared by a state update — it only
+changes when another action fails, so the last failure stays visible.
 
 ## Feedbacks
 

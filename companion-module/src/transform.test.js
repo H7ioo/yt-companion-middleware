@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   categoryChoices,
+  formatLastError,
   healthColor,
   joinUrl,
   mapVariables,
@@ -168,6 +169,26 @@ describe('healthColor', () => {
     const neutral = rgb(60, 66, 78);
     expect(healthColor(undefined)).toBe(neutral);
     expect(healthColor('bogus')).toBe(neutral);
+  });
+});
+
+describe('formatLastError', () => {
+  it('joins code and message as "CODE: message"', () => {
+    expect(formatLastError({ code: 'INVALID_PRESET', message: 'no such preset' })).toBe(
+      'INVALID_PRESET: no such preset',
+    );
+  });
+
+  it('falls back to whichever half is present', () => {
+    expect(formatLastError({ code: 'MISSING_TEMPLATE_VARS' })).toBe('MISSING_TEMPLATE_VARS');
+    expect(formatLastError({ message: 'request failed: timeout' })).toBe('request failed: timeout');
+  });
+
+  it('trims whitespace and tolerates missing/blank/non-string fields', () => {
+    expect(formatLastError({ code: '  BAD  ', message: '  broke  ' })).toBe('BAD: broke');
+    expect(formatLastError({ code: '', message: '' })).toBe('unknown error');
+    expect(formatLastError(undefined)).toBe('unknown error');
+    expect(formatLastError({ code: 500, message: null })).toBe('unknown error');
   });
 });
 
