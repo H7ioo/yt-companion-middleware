@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type LogEntry, type LogCategory } from "../api.js";
+import { reconcileEntries } from "../lib/logFeed.js";
 
 /** Poll cadence for the activity feed — brisk enough to feel live, cheap on a LAN box. */
 const POLL_MS = 4000;
@@ -34,7 +35,10 @@ export function ActivityPanel() {
         .logs()
         .then((rows) => {
           if (!active) return;
-          setEntries(rows);
+          // Keep the same array reference when the ring buffer is unchanged, so an idle feed doesn't
+          // re-render the list or recompute its memos every 4s (PRD-11 §2). Functional form so the
+          // comparison reads current state without adding `entries` to the effect deps.
+          setEntries((prev) => reconcileEntries(prev, rows));
           setFailed(false);
         })
         .catch(() => active && setFailed(true));
@@ -50,9 +54,7 @@ export function ActivityPanel() {
   const present = useMemo(() => {
     const seen = new Set<LogCategory>();
     for (const e of entries) seen.add(e.category);
-    return (["auth", "network", "quota", "action", "system"] as LogCategory[]).filter((c) =>
-      seen.has(c),
-    );
+    return (Object.keys(CATEGORY_LABEL) as LogCategory[]).filter((c) => seen.has(c));
   }, [entries]);
 
   const shown = filter === "all" ? entries : entries.filter((e) => e.category === filter);

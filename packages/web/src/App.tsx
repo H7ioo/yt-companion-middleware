@@ -23,6 +23,7 @@ import { WhatsNewModal } from "./components/WhatsNewModal.js";
 import { extractVars } from "./lib/template.js";
 import { buildFillUrl } from "./lib/fillRoute.js";
 import { shouldAnnounce, readLastSeen, markSeen } from "./lib/whatsNew.js";
+import { appInfoChanged } from "./lib/appInfo.js";
 
 type Toast = { message: string; kind: "ok" | "err" } | null;
 
@@ -87,7 +88,9 @@ export function App() {
         .info()
         .then((info) => {
           if (!active) return;
-          setAppInfo(info);
+          // Only replace state when a rendered field actually moved, so the once-a-minute poll is a
+          // no-op for a static version chip and doesn't reconcile the whole tree (PRD-11 §2).
+          setAppInfo((prev) => (appInfoChanged(prev, info) ? info : prev));
           // Announce a version change exactly once — a new build has been installed since this
           // browser last looked. Never on a fresh install (shouldAnnounce).
           if (shouldAnnounce(info.version, readLastSeen())) setWhatsNew("running");
