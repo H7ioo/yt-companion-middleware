@@ -28,6 +28,10 @@ jobs:
           cache: npm
 
       - run: npm ci
+      # companion-module is not an npm workspace, but root typecheck covers its checkJs (issue
+      # 028) and needs @companion-module/base resolvable — install its deps too.
+      - run: npm ci
+        working-directory: companion-module
       - run: npm run typecheck
       - run: npm run typecheck:electron
       - run: npm test
