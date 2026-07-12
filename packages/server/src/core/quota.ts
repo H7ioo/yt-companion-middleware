@@ -46,6 +46,8 @@ export class QuotaTracker {
     private readonly limit: number,
     private readonly events?: StateEvents,
     private readonly logger?: Logger,
+    // Injectable clock so tests can cross a Pacific-midnight boundary; defaults to the wall clock.
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   /** Coarse ~1% budget bucket; used to push a change only when it visibly moves. */
@@ -56,7 +58,7 @@ export class QuotaTracker {
   /** Seed in-memory counters from the persisted store, discarding a stale (prior-day) count. */
   init(): void {
     const q = this.store.get().quota;
-    const today = pacificDate();
+    const today = pacificDate(this.now());
     if (q.date === today) {
       this.used = q.used;
       this.date = q.date;
@@ -100,10 +102,14 @@ export class QuotaTracker {
   }
 
   private rollDate(): void {
-    const today = pacificDate();
+    const today = pacificDate(this.now());
     if (today !== this.date) {
       this.date = today;
       this.used = 0;
+      // Reset the mid-stream warning latch alongside usage so the 90% heads-up can fire again on
+      // the new day — otherwise a long-running server warns once, ever (PRD-10 §4). In-memory only;
+      // a mid-day restart re-warning once is acceptable.
+      this.warned = false;
       this.schedulePersist();
     }
   }

@@ -60,4 +60,28 @@ describe("QuotaTracker", () => {
     expect(quotaWarnings).toHaveLength(1);
     expect(quotaWarnings[0].level).toBe("warn");
   });
+
+  it("warns again on the next Pacific day — the rollover resets the warning latch (PRD-10 §4)", () => {
+    const logger = new Logger();
+    // Injectable clock: noon PT on day 1, advanced past Pacific-midnight to day 2.
+    let now = new Date("2026-07-12T12:00:00-07:00");
+    const t = new QuotaTracker(
+      fakeStore({ date: pacificDate(now), used: 0 }),
+      100,
+      undefined,
+      logger,
+      () => now,
+    );
+    t.init();
+
+    t.record(91); // day 1 crosses 90% → first warning
+    const quotaWarnings = () => logger.list().filter((e) => e.category === "quota");
+    expect(quotaWarnings()).toHaveLength(1);
+
+    // Cross Pacific-midnight into the next day. The next record rolls the counter (used → 0) and,
+    // crucially, clears the latch so the 90% heads-up can fire again.
+    now = new Date("2026-07-13T12:00:00-07:00");
+    t.record(91); // day 2 crosses 90% afresh → second warning
+    expect(quotaWarnings()).toHaveLength(2);
+  });
 });
