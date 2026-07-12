@@ -29,8 +29,33 @@ autopilot.
   ```
 
 - **Only changed the app/server/dashboard?** No file edit needed for the desktop version — the CI
-  build stamps it from the tag you push. But pick the tag with semver intent so the exe is named
-  for a real version.
+  build stamps it from the tag you push. But pick the tag with semver intent, per the rule below,
+  so the exe is named for a real version.
+
+## Picking the desktop version: the semver rule
+
+The Companion module has had a written bump rule since day one; the desktop app has not, and "the
+tag is just whatever number felt right" is how a breaking release ships as a patch. The rule:
+
+| Bump | When | Example |
+|---|---|---|
+| **patch** (`v2.1.0` → `v2.1.1`) | Bug fix, copy tweak, dependency bump, internal refactor. Nothing an operator can see except that a bug is gone. | A health lamp showed `degraded` when it should have shown `offline`. |
+| **minor** (`v2.1.1` → `v2.2.0`) | A new, backward-compatible capability: a new dashboard feature, a new API endpoint, a new optional field. Everything that worked before still works, unchanged. | Added `GET /api/dashboard/logs`. |
+| **major** (`v2.2.0` → `v3.0.0`) | A break in the contract someone else depends on: an endpoint **removed or renamed**, a request/response shape reshaped, or any change that makes an existing Companion button (or a hand-rolled HTTP integration) stop working. | Renamed `/api/action/preset`, or dropped a field from the feedback payload. |
+
+**A major is a coordinated release, not a solo one.** A Companion-facing break means the module has
+to change too — so it needs a **companion major bump plus an upgrade script** in the same PR, per
+[companion-module/VERSIONING.md](companion-module/VERSIONING.md), or operators' existing buttons
+break silently on re-import. Never ship a desktop major that breaks the API without doing the
+companion side in the same release.
+
+**The two versions are independent.** The desktop version lives in the git tag; the companion
+version lives in `companion-module/package.json` + `companion/manifest.json`. They are not kept in
+lockstep and are not expected to match — a desktop `v2.4.0` may happily ship alongside a companion
+`1.2.0`. Bump each for its own reasons; the only coupling is the major-break coordination above.
+
+Pre-release tags work as expected: anything with a hyphen (`v2.2.0-rc.1`) publishes as a GitHub
+pre-release rather than claiming "Latest".
 
 ## Before you tag: preflight
 
@@ -99,5 +124,7 @@ then tag.
 - [ ] `main` is green and pulled locally.
 - [ ] `npm run preflight` is green.
 - [ ] `workflow_dispatch` run of `Release` is green (the real Windows build, no publish).
+- [ ] Desktop bump chosen per the semver rule above (a Companion-facing break = major, and a
+      companion major + upgrade script in the same release).
 - [ ] Tag is `v<semver>` and pushed.
 - [ ] CI `Release` run is green; exe + `.tgz` are on the Release page.
