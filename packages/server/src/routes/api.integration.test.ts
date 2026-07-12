@@ -209,6 +209,28 @@ describe("action routes: always 200, success/error in the body (PRD-01 §7)", ()
     expect(res.body.status.title).toBe("Original title");
   });
 
+  it("refresh returns the full dashboard state — quota/undo/apiEnabled, not a partial cache (PRD-10 §1)", async () => {
+    // Make an undoable change so an undo snapshot exists to surface across the refresh.
+    await call("POST", "/api/action/update", { title: "Changed" });
+
+    const refresh = await call("POST", "/api/action/refresh");
+    expect(refresh.status).toBe(200);
+    expect(refresh.body.success).toBe(true);
+
+    // The refresh payload carries the same authoritative fields the /state route serves — a raw
+    // cache snapshot has none of these, and the client would blank them until the next push.
+    const state = await call("GET", "/api/dashboard/state");
+    expect(refresh.body.quota).toEqual(state.body.quota);
+    expect(refresh.body.quota).toMatchObject({ limit: 10000 });
+    expect(refresh.body.apiEnabled).toBe(state.body.apiEnabled);
+    expect(refresh.body).toHaveProperty("busy", false);
+    // Fully-assembled state fields the raw snapshot never carried are present too.
+    expect(typeof refresh.body.displayLabel).toBe("string");
+    // Undo stayed available across the refresh (the operator can still revert immediately).
+    expect(refresh.body.undo).not.toBeNull();
+    expect(refresh.body.undo).toEqual(state.body.undo);
+  });
+
   it("returns 200 + NO_UNDO_AVAILABLE when nothing has changed yet", async () => {
     const res = await call("POST", "/api/action/undo");
     expect(res.status).toBe(200);

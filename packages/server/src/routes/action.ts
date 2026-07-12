@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import type { AppContext } from "./context.js";
 import { AppError, toErrorBody } from "../core/errors.js";
+import { buildDashboardState } from "../core/snapshot.js";
 import { privacyStatusSchema } from "../storage/schema.js";
 import type { MetadataPayload } from "../core/resolve.js";
 
@@ -76,7 +77,13 @@ export function actionRouter(ctx: AppContext): Router {
     try {
       if (!ctx.store.get().service.apiEnabled) throw new AppError("SERVICE_DISABLED");
       await ctx.cache.refresh();
-      res.json({ success: true, ...ctx.cache.snapshot() });
+      // Respond with the same fully-assembled dashboard state the state route, SSE, and webhook
+      // produce — never the raw cache snapshot, which carries no quota/undo/busy/apiEnabled/label
+      // and would make the client blank those fields until the next background push (PRD-10 §1).
+      res.json({
+        success: true,
+        ...buildDashboardState(ctx.store, ctx.cache, ctx.runner, ctx.quota),
+      });
     } catch (err) {
       res.json(handle(err));
     }
