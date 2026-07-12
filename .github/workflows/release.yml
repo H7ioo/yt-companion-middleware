@@ -125,15 +125,18 @@ jobs:
     # Only publish for tag pushes; a manual run just leaves the artifacts on the workflow run.
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
+      # Checkout BEFORE downloading artifacts: checkout's default `git clean -ffdx` deletes any
+      # untracked files already in the workspace, so the reverse order silently wipes artifacts/
+      # and the publish step finds nothing to attach.
       # Full history + tags: the changelog is generated from the Conventional Commit range between
       # the previous tag and this one, so a shallow clone would produce empty notes (issue 039).
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
       - uses: actions/setup-node@v4
         with:
