@@ -25,8 +25,7 @@ state, so there is nothing to poll.
    root), or via the **Developer
    modules path** (see the module README). Then **Connections → Add connection**, search
    **yt-companion-middleware**, add it.
-3. Set **Middleware base URL** to that host. Leave **Bearer token** blank unless the action bus
-   is protected. Save — the status pill goes **Connecting → OK**.
+3. Set **Middleware base URL** to that host. Save — the status pill goes **Connecting → OK**.
 4. Confirm it works: set any key's text to `$(ytmeta:display_label)`.
 5. On a key, add a **feedback** (image or boolean) and/or an **action** from the tables below.
 
@@ -42,7 +41,7 @@ Open the **Presets** tab for ready-made buttons — the quickest way to build a 
   one onto a key and it applies + self-labels + lights up when active, no config. After editing
   presets in the dashboard, run **Refresh preset/category/stream lists** so new ones appear.
 - **State & controls** category — Arabic-safe title/label images, on-air & busy indicators,
-  privacy toggle, undo, refresh, connection check, and the API kill-switch toggle.
+  privacy toggle, undo, refresh, and the API kill-switch toggle.
 
 Every dropped button stays fully editable afterwards.
 
@@ -50,7 +49,8 @@ Every dropped button stays fully editable afterwards.
 
 - **Middleware base URL** — e.g. `http://localhost:8080` (same host as the dashboard). HTTPS is
   fine; the module derives `wss://` automatically.
-- **Bearer token** — only needed if the action bus is protected.
+
+The middleware is unauthenticated (LAN-only personal tool) — there is no token to configure.
 
 ## Variables
 
@@ -86,9 +86,9 @@ Apply preset (dropdown + optional template-vars JSON), Update live metadata (tit
 Privacy toggle, Privacy set, Undo, Refresh from YouTube, Refresh lists — all hit the middleware's
 `/api/action/*` bus (Refresh lists re-fetches the preset/category/stream dropdowns).
 
-**Check middleware connection (YouTube status)** — pings `/api/feedback/health` on demand, logs
-reachability + YouTube auth/quota, and updates the connection status pill. Bind it to a key to
-verify the link (and YouTube auth behind it) any time.
+There is no on-demand connection-check action: the module holds a live WebSocket, so health arrives
+in the pushed state frame (the `health` variable / *Health color* feedback) and a dropped link is
+detected automatically — the status pill and `health` reflect it without a button press.
 
 **API master switch (kill switch): set / toggle** — turns the middleware's master switch on/off
 (`PUT /api/dashboard/service`). While off it makes no YouTube calls and rejects actions, so an

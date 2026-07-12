@@ -9,7 +9,6 @@ import {
   presetButtons,
   presetChoices,
   streamChoices,
-  summarizeHealth,
   toPng64,
   wsUrl,
 } from './transform.js';
@@ -120,35 +119,6 @@ describe('presetChoices', () => {
       { id: 'p1', label: 'Friday Khutbah' },
     ]);
     expect(presetChoices([{ id: 'p2', slug: '' }])).toEqual([{ id: 'p2', label: 'p2' }]);
-  });
-});
-
-describe('summarizeHealth', () => {
-  it('reports ok when authenticated and API enabled', () => {
-    const r = summarizeHealth({
-      status: 'ok',
-      authenticated: true,
-      apiEnabled: true,
-      quotaRemaining: 8760,
-      quotaLimit: 10000,
-    });
-    expect(r.ok).toBe(true);
-    expect(r.text).toContain('ok');
-    expect(r.text).toContain('authenticated');
-    expect(r.text).toContain('8760/10000');
-  });
-
-  it('is not ok when auth failed', () => {
-    const r = summarizeHealth({ status: 'auth_error', authenticated: false, message: 'token expired' });
-    expect(r.ok).toBe(false);
-    expect(r.text).toContain('auth_error');
-    expect(r.text).toContain('token expired');
-  });
-
-  it('handles a missing/unreachable response', () => {
-    const r = summarizeHealth(undefined);
-    expect(r.ok).toBe(false);
-    expect(r.text).toContain('no response');
   });
 });
 

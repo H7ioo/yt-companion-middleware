@@ -26,8 +26,6 @@ poll interval to configure. It auto-reconnects with backoff. **Actions** stay HT
 - **Companion 3.x or newer** (this module targets module-api `~1.11`, Node 22 runtime).
 - **Node.js ≥ 22** on the machine where you build the package (only needed to run
   `npm run companion:package` from the repo root once).
-- If your action bus is protected, the **Bearer token** the middleware expects. On a trusted LAN
-  it is usually left blank.
 
 ---
 
@@ -100,11 +98,12 @@ usual cause.
    | Field | Value |
    |---|---|
    | **Middleware base URL** | The dashboard host, e.g. `http://192.168.1.50:8080` — no trailing path. HTTPS is fine; the module derives `wss://` automatically. |
-   | **Bearer token** | Leave blank on a trusted LAN. Set it only if the action bus is protected; it is sent as `Authorization: Bearer <token>` on the WS handshake and every action POST. |
+
+   The middleware is unauthenticated (LAN-only personal tool) — there is no token to configure.
 
 3. Watch the connection's status pill. It goes **Connecting → OK** once the WebSocket is up. If it
-   sits on **Connection failure**, the base URL is wrong/unreachable or the token was rejected —
-   fix it and the module reconnects on its own (or reopen the config to force a reconnect).
+   sits on **Connection failure**, the base URL is wrong or unreachable — fix it and the module
+   reconnects on its own (or reopen the config to force a reconnect).
 4. Confirm variables populate: on any button set the text to `$(ytmeta:display_label)` and it
    should show the active label within a second.
 
@@ -146,7 +145,7 @@ is fully editable afterwards.
 | Category | What drops |
 |---|---|
 | **Apply preset** | One button **per middleware preset** (regenerated on **Refresh lists**): its slug as the text, the **Apply preset** action bound to that preset, and the **Active preset is…** feedback pointed at it — so the key applies, self-labels, and turns green when it's the one on air. |
-| **State & controls** | Fixed helpers: *Arabic-safe live title (image)*, *Arabic-safe button label (image)*, *On-air indicator*, *Busy indicator*, *Privacy toggle*, *Undo last change*, *Refresh from YouTube*, *Refresh lists*, *Check connection*, *API kill switch (toggle)*. |
+| **State & controls** | Fixed helpers: *Arabic-safe live title (image)*, *Arabic-safe button label (image)*, *On-air indicator*, *Busy indicator*, *Privacy toggle*, *Undo last change*, *Refresh from YouTube*, *Refresh lists*, *API kill switch (toggle)*. |
 
 > Presets are authored by the module — you can't create new ones from the Companion UI, but you
 > can export your edited buttons as a custom library. Added presets in the dashboard? Run
@@ -180,7 +179,6 @@ so you never need to add a manual refresh after an action.
 | **Undo last change** | — | Reverts the last change (`$(ytmeta:undo_label)` shows what). |
 | **Refresh from YouTube** | — | Forces the middleware to refresh its cached state. |
 | **Refresh preset/category/stream lists** | — | Re-fetches the dropdown choices after you edit presets in the dashboard. |
-| **Check middleware connection (YouTube status)** | — | On-demand ping of `/api/feedback/health`: logs reachability + YouTube auth/quota and updates the connection status pill. Bind it to a key to verify the link (and YouTube auth behind it) at any time. |
 | **API master switch (kill switch): set** | `API` (enabled / disabled) | Turns the middleware's master switch on/off (`PUT /api/dashboard/service`). While off, the middleware makes no YouTube calls and rejects actions — stops quota burn on an idle service. |
 | **API master switch (kill switch): toggle** | — | Flips the switch based on current state. Pair with the **API disabled** feedback so the key shows on/off. |
 
@@ -233,7 +231,7 @@ step use Companion's built-in **Open URL** action:
 | Variables blank | Connection not **OK** yet, or the middleware hasn't pushed a state frame — check the status pill and the Log tab. |
 | Dropdowns missing new presets | Snapshot is stale — run **Refresh preset/category/stream lists**. |
 | Arabic still shows as boxes | You bound the *text* variable, not an *image feedback*. Use **Image: full live title** / **Image: button label**. |
-| Action seems ignored | Check the Log tab for a `rejected`/`failed` line (e.g. token required, or `update` with an empty title). |
+| Action seems ignored | Check the Log tab for a `rejected`/`failed` line (e.g. `update` with an empty title, or a deleted preset) — the latest one is also on the `last_error` variable. |
 
 ---
 

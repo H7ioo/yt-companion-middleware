@@ -71,18 +71,9 @@ export function feedbackRouter(ctx: AppContext): Router {
     res.json({ busy: ctx.runner.isBusy() });
   });
 
-  router.get("/health", (_req, res) => {
-    const cache = ctx.cache.snapshot();
-    const quota = ctx.quota.snapshot();
-    res.json({
-      status: cache.health,
-      authenticated: cache.health !== "auth_error",
-      message: cache.healthMessage,
-      quotaUsed: quota.used,
-      quotaLimit: quota.limit,
-      quotaRemaining: quota.remaining,
-    });
-  });
+  // Note: GET /api/feedback/health is registered directly in server.ts (before this router mounts,
+  // so it also answers in setup mode). A duplicate here would be shadowed — hence intentionally
+  // absent. See server.ts.
 
   return router;
 }

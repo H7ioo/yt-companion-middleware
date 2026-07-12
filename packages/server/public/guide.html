@@ -1547,13 +1547,13 @@ npm start</pre>
               Set <strong>Middleware base URL</strong> to
               <code>http://&lt;APP_IP&gt;:8080</code> (same host as the
               dashboard). HTTPS is fine — the module derives <code>wss://</code>
-              itself.
-            </li>
-            <li>
-              Leave <strong>Bearer token</strong> blank on a trusted LAN; set it
-              only if the action bus is protected. Save.
+              itself. Save.
             </li>
           </ol>
+          <p>
+            There is no token to set — the middleware is unauthenticated
+            (LAN-only), so the module has no <strong>Bearer token</strong> field.
+          </p>
           <div class="callout tip">
             <p>
               Watch the status pill: it goes <strong>Connecting → OK</strong>
@@ -1634,10 +1634,6 @@ npm start</pre>
                 <tr>
                   <td><strong>Refresh from YouTube</strong> / <strong>Refresh lists</strong></td>
                   <td>Force a state refresh / re-pull the preset&amp;category&amp;stream dropdowns.</td>
-                </tr>
-                <tr>
-                  <td><strong>Check connection</strong></td>
-                  <td>Pings health on demand; goes red on <code>auth_error</code>.</td>
                 </tr>
                 <tr>
                   <td><strong>API kill switch (toggle)</strong></td>
@@ -1754,17 +1750,6 @@ npm start</pre>
                     Re-pulls the dropdown choices <em>and</em> regenerates the
                     Presets tab after you add/rename presets in the dashboard.
                     Bind it to a spare key or press it from the button editor.
-                  </td>
-                </tr>
-                <tr>
-                  <td><strong>Check middleware connection (YouTube status)</strong></td>
-                  <td>—</td>
-                  <td>
-                    On-demand health ping: logs reachability + YouTube auth/quota
-                    and nudges the status pill. Bind it to a key to verify the
-                    link (and the YouTube auth behind it) any time — the drop-in
-                    <em>Check connection</em> preset also goes red on
-                    <code>auth_error</code>.
                   </td>
                 </tr>
                 <tr>

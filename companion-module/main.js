@@ -15,7 +15,6 @@ import {
 	presetButtons,
 	presetChoices,
 	streamChoices,
-	summarizeHealth,
 	toPng64,
 	wsUrl,
 } from './src/transform.js'
@@ -34,7 +33,7 @@ const FEEDBACK_IDS = [
 
 /**
  * Persisted instance config, as edited in Companion's module settings (see getConfigFields).
- * @typedef {{ url: string, token: string }} ModuleConfig
+ * @typedef {{ url: string }} ModuleConfig
  */
 
 /**
@@ -76,7 +75,7 @@ class YtMiddlewareInstance extends InstanceBase {
 	// Instance state is declared as fields (not just assigned in init) so `checkJs` sees a concrete,
 	// non-undefined type for each — a property only ever assigned inside a method infers `T | undefined`.
 	/** @type {ModuleConfig} */
-	config = { url: '', token: '' }
+	config = { url: '' }
 	/** @type {Record<string, any>} last DashboardState pushed over the WS */
 	latest = {}
 	/** @type {Preset[]} */
@@ -148,13 +147,6 @@ class YtMiddlewareInstance extends InstanceBase {
 				default: 'http://localhost:8080',
 				regex: Regex.SOMETHING,
 			},
-			{
-				type: 'textinput',
-				id: 'token',
-				label: 'Bearer token (optional — only if the action bus is protected)',
-				width: 12,
-				default: '',
-			},
 		]
 	}
 
@@ -162,13 +154,7 @@ class YtMiddlewareInstance extends InstanceBase {
 
 	headers() {
 		/** @type {Record<string, string>} */
-		const h = { 'Content-Type': 'application/json' }
-		if (this.config.token) h['Authorization'] = `Bearer ${this.config.token}`
-		return h
-	}
-
-	authHeader() {
-		return this.config.token ? { Authorization: `Bearer ${this.config.token}` } : {}
+		return { 'Content-Type': 'application/json' }
 	}
 
 	/**
@@ -254,26 +240,6 @@ class YtMiddlewareInstance extends InstanceBase {
 		}
 	}
 
-	/**
-	 * On-demand reachability + YouTube-auth check against the unauthenticated /health endpoint (the
-	 * "YouTube status" liveness route). Logs a one-line summary and nudges the connection status so
-	 * an operator can confirm the middleware — and YouTube auth behind it — from a button.
-	 */
-	async checkConnection() {
-		try {
-			const res = await fetch(joinUrl(this.config.url, '/api/feedback/health'), { headers: this.headers() })
-			if (!res.ok) throw new Error(`HTTP ${res.status}`)
-			const health = /** @type {any} */ (await res.json())
-			const { ok, text } = summarizeHealth(health)
-			this.log('info', `Connection check: ${text}`)
-			this.updateStatus(ok ? InstanceStatus.Ok : InstanceStatus.ConnectionFailure, text)
-		} catch (err) {
-			const message = errText(err)
-			this.log('error', `Connection check failed: ${message}`)
-			this.updateStatus(InstanceStatus.ConnectionFailure, message)
-		}
-	}
-
 	// --- WebSocket ----------------------------------------------------------
 
 	connectWs() {
@@ -285,7 +251,7 @@ class YtMiddlewareInstance extends InstanceBase {
 		this.updateStatus(InstanceStatus.Connecting)
 		let ws
 		try {
-			ws = new WebSocket(wsUrl(this.config.url), { headers: this.authHeader() })
+			ws = new WebSocket(wsUrl(this.config.url))
 		} catch (err) {
 			this.updateStatus(InstanceStatus.ConnectionFailure, errText(err))
 			this.scheduleReconnect()
@@ -581,11 +547,6 @@ class YtMiddlewareInstance extends InstanceBase {
 				options: [],
 				callback: () => this.refreshLists(),
 			},
-			check_connection: {
-				name: 'Check middleware connection (YouTube status)',
-				options: [],
-				callback: () => this.checkConnection(),
-			},
 			api_switch_set: {
 				name: 'API master switch (kill switch): set',
 				options: [
@@ -675,13 +636,6 @@ class YtMiddlewareInstance extends InstanceBase {
 			},
 			refresh_cache_btn: util('Refresh from YouTube', 'Refresh', combineRgb(40, 60, 80), 'refresh'),
 			refresh_lists_btn: util('Refresh lists', 'Refresh\\nlists', combineRgb(40, 60, 80), 'refresh_lists'),
-			check_connection_btn: {
-				...util('Check connection', 'Check\\nconn', combineRgb(30, 90, 90), 'check_connection', {
-					feedbackId: 'health_state',
-					options: { which: 'auth_error' },
-					style: { bgcolor: combineRgb(200, 0, 0), color: white },
-				}),
-			},
 			api_switch_btn: {
 				...util('API kill switch (toggle)', 'API\\non/off', combineRgb(90, 40, 40), 'api_switch_toggle', {
 					feedbackId: 'api_disabled',
