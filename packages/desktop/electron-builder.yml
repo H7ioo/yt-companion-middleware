@@ -29,8 +29,20 @@ files:
   - packages/server/public/**/*
   - packages/web/dist/**/*
   - packages/desktop/main.mjs
+  - packages/desktop/updater.mjs
+  - packages/desktop/generated/**/*
   - packages/desktop/assets/**/*
   - package.json
+
+# Update feed = GitHub Releases (already the publish target). Declaring the provider is what makes
+# electron-builder emit latest.yml + *.blockmap next to the installer; release.yml attaches them to
+# the Release so electron-updater can find them. The build itself never publishes (--publish never)
+# — the release job still owns upload. Unsigned for now (PRD-09 §A.2): electron-updater works
+# unsigned, code signing is future hardening.
+publish:
+  provider: github
+  owner: H7ioo
+  repo: yt-companion-middleware
 
 asarUnpack:
   - "**/*.node"
@@ -53,3 +65,7 @@ nsis:
 
 portable:
   artifactName: YT-Companion-${version}-portable.exe
+  # The portable exe has no installer to hand off to, so it can never auto-update. publish: null
+  # keeps it out of the update feed (latest.yml) — only the NSIS installer is offered as an update.
+  # Portable users update by downloading a new exe; the app detects the build and stays quiet.
+  publish: null

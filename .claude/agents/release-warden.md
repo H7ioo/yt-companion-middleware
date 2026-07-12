@@ -94,6 +94,7 @@ each non-PASS item with one indented line of evidence: what you found, and where
 - [P] Desktop bump chosen per the semver rule above (a Companion-facing break = major, and a companion major + upgrade script in the same release).
 - [H] Tag is `v<semver>` and pushed.
 - [H] CI `Release` run is green; exe + `.tgz` are on the Release page.
+- [H] Release carries the update feed: `latest.yml` + the installer `.blockmap` are attached.
 
 Then close with one line: the **recommended tag** (e.g. `v2.1.0 — minor`) and, if any item is
 **FLAG**, the sentence **"Not ready to tag."** The verdicts above are illustrative; set each from

@@ -103,11 +103,29 @@ then tag.
 
 5. Watch it: `gh run watch` (or the Actions tab). Grab the exe and `.tgz` from the Release page.
 
+## Auto-update
+
+Installed (NSIS) desktop apps update themselves from the GitHub Release feed. On launch the app
+checks for a newer version, downloads it in the background, and then **waits** — it installs only
+when the operator picks **"Install update & restart"** from the tray. It never restarts on its own
+and never installs on quit, because a restart mid-stream is exactly what this tool must not do.
+
+What that needs from a release:
+
+- **`latest.yml` + the installer `.blockmap` must be attached to the Release.** They are the feed;
+  without them installed apps see no update at all. CI attaches them automatically.
+- **The portable exe is not updatable** — it has no installer to hand off to, so it is excluded
+  from the feed and the app stays quiet there. Portable users re-download.
+- Update failures (offline, GitHub unreachable) are logged and ignored; the app keeps running.
+
 ## Notes
 
 - **The Windows build only runs in CI** — `preflight` packs for the host OS, so the NSIS/portable
   targets themselves are never exercised on Linux. Don't let the first tagged run be their smoke
   test: `workflow_dispatch` first.
+- **The update feed can only be smoke-tested by a real release** — the first tagged release after
+  auto-update landed proves it: cut it, install it, then cut the next one and confirm the installed
+  app offers the update. Nothing before a published Release exercises the feed.
 - **The exe is unsigned** — Windows SmartScreen shows a "run anyway" prompt on first launch until a
   signing cert is added.
 - **`workflow_dispatch`** (manual run from the Actions tab) builds both artifacts but does **not**
@@ -134,3 +152,4 @@ never edits and never tags. Run it per shippable slice, not just before a releas
       companion major + upgrade script in the same release).
 - [ ] Tag is `v<semver>` and pushed.
 - [ ] CI `Release` run is green; exe + `.tgz` are on the Release page.
+- [ ] Release carries the update feed: `latest.yml` + the installer `.blockmap` are attached.

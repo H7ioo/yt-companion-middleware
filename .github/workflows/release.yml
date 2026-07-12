@@ -75,8 +75,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: desktop
-          # Installer + portable exe. Skip the auto-update sidecars (latest.yml / *.blockmap).
-          path: release/*.exe
+          # Installer + portable exe, plus the auto-update sidecars electron-updater reads from the
+          # Release: latest.yml (the feed) and the installer's blockmap (differential download).
+          # Without these attached, auto-update cannot work at all (PRD-09 §A.0).
+          path: |
+            release/*.exe
+            release/latest.yml
+            release/*.blockmap
           if-no-files-found: error
 
   companion:
@@ -121,6 +126,8 @@ jobs:
         with:
           files: |
             artifacts/desktop/*.exe
+            artifacts/desktop/latest.yml
+            artifacts/desktop/*.blockmap
             artifacts/companion/*.tgz
           generate_release_notes: true
           fail_on_unmatched_files: true

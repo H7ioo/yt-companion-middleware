@@ -44,7 +44,8 @@
     "preflight": "node scripts/preflight.mjs"
   },
   "dependencies": {
-    "@app/server": "*"
+    "@app/server": "*",
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "jsdom": "^29.1.1",
