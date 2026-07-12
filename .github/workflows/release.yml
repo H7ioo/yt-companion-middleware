@@ -121,15 +121,33 @@ jobs:
         with:
           path: artifacts
 
+      # Full history + tags: the changelog is generated from the Conventional Commit range between
+      # the previous tag and this one, so a shallow clone would produce empty notes (issue 039).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # One source for both surfaces: this writes CHANGELOG.md (bundled into the app) and the
+      # Release body from the same render, so GitHub and the in-app changelog cannot disagree.
+      - name: Generate changelog + release notes
+        run: node scripts/changelog.mjs --version "${GITHUB_REF_NAME#v}" --notes-out release-notes.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: release-notes.md
           files: |
             artifacts/desktop/*.exe
             artifacts/desktop/latest.yml
             artifacts/desktop/*.blockmap
             artifacts/companion/*.tgz
-          generate_release_notes: true
+          # Notes come from body_path (the generated changelog section), not GitHub's commit dump —
+          # the two would otherwise say different things about the same release (PRD-09 §B.1).
+          generate_release_notes: false
           fail_on_unmatched_files: true
           # Semver pre-release tags (v2.1.1-rc.1, v2.2.0-beta.2 — anything with a hyphen) publish as
           # a pre-release so they don't claim "Latest" over a real release. Stable tags stay latest.

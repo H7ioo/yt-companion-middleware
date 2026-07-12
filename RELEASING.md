@@ -99,9 +99,21 @@ then tag.
    - **desktop** job (windows-latest): stamps the app version from the tag, builds the installer
      + portable exe.
    - **companion** job (ubuntu-latest): packages the module `.tgz` (re-checks version sync).
-   - **release** job: publishes a GitHub Release with both artifacts + generated notes.
+   - **release** job: regenerates the changelog from the commit range, then publishes a GitHub
+     Release with both artifacts and those notes as the body.
 
 5. Watch it: `gh run watch` (or the Actions tab). Grab the exe and `.tgz` from the Release page.
+
+## Changelog
+
+[CHANGELOG.md](CHANGELOG.md) is **generated**, never hand-written: `npm run changelog` renders it
+from the Conventional Commit history ([scripts/changelog.mjs](scripts/changelog.mjs)), one section
+per tag, grouped Breaking changes → Added → Changed → Fixed → Documentation. Housekeeping types
+(`chore`, `test`, `ci`, `build`) are left out — release notes are for operators, not for us.
+
+The release job renders the *same* section into the GitHub Release body, so the file and the Release
+page cannot drift. That means **the commit subjects are the release notes**: a sloppy subject ships
+to users. Regenerate and commit the file whenever you like (it is refreshed at release time anyway).
 
 ## Auto-update
 
@@ -145,6 +157,7 @@ never edits and never tags. Run it per shippable slice, not just before a releas
 - [ ] Companion module changed? → `companion:bump` in the same PR, versions in sync, tests pass.
 - [ ] Upgrade script appended for any Companion rename/removal.
 - [ ] Docs (`README.md`, `companion-module/companion/HELP.md`, `packages/server/public/guide/`) reflect behaviour changes.
+- [ ] Commit subjects since the last tag are Conventional and readable — they *are* the release notes.
 - [ ] `main` is green and pulled locally.
 - [ ] `npm run preflight` is green.
 - [ ] `workflow_dispatch` run of `Release` is green (the real Windows build, no publish).
