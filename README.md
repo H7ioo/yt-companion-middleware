@@ -1,123 +1,155 @@
 # YouTube Live Metadata Control Middleware
 
-API gateway between Bitfocus Companion (Stream Deck) and the YouTube Live Streaming API.
-Collapses YouTube's multi-step metadata constraints into single-endpoint actions and
-serves cached state back to Companion so polling never costs YouTube quota.
+A LAN gateway between **Bitfocus Companion** (Stream Deck) and the **YouTube Live Streaming API**.
+It collapses YouTube's multi-step metadata rules into one-button actions — apply a preset, toggle
+privacy, undo — and serves cached state back to Companion, so the keys can show live state without
+spending YouTube quota.
 
-See [youtube-live-metadata-middleware-prd.md](youtube-live-metadata-middleware-prd.md)
-for the full spec.
+Two ways to run it, same app inside:
 
-## Stack
+| | Windows | Linux / macOS |
+|---|---|---|
+| **Desktop app** (double-click, tray icon, no `.env`) | ✅ installer + portable `.exe` | ❌ **Windows-only artifact** — use Docker |
+| **Docker** (`docker compose up`) | ✅ | ✅ |
 
-- **Backend** — Node.js + Express + TypeScript ([src/](src/))
-- **Dashboard** — React + Vite, served as static files by the backend ([web/](web/))
-- **Storage** — atomic JSON file on a Docker volume ([src/storage/](src/storage/))
+**Which path are you on?**
 
-## Configuration
+- **[I'm running the app](#operators--running-it)** — install it, connect YouTube, put it on a Stream Deck.
+- **[I'm working on the code](#developers--working-on-the-code)** — build, test, release.
 
-Copy [.env.example](.env.example) to `.env` and fill in:
+---
 
-| Var | Purpose |
+## Operators — running it
+
+### 1. Get the app
+
+Every build is published on the repo's **[Releases](../../releases)** page. A release carries three
+artifacts:
+
+| Artifact | What it is |
 |---|---|
-| `YT_CLIENT_ID` / `YT_CLIENT_SECRET` | OAuth client from Google Cloud Console |
-| `YT_REFRESH_TOKEN` | Long-lived refresh token (obtained once, see below) |
-| `PORT` | HTTP port (default 8080) |
-| `DATA_DIR` | JSON store location (default `./data`) |
-| `YT_QUOTA_LIMIT` | Daily API quota budget in cost-weighted units (default 10000) |
+| `YT Companion Setup <version>.exe` | **Installer** — installs per-user (no admin), lets you pick the folder, adds a Start-menu entry. Pick this for a machine that stays put. |
+| `YT-Companion-<version>-portable.exe` | **Portable** — a single file, no install, runs from a USB stick. Pick this if you can't (or won't) install software on the machine. |
+| `yt-companion-middleware-<version>.tgz` | The **Companion module** — you import this into Companion itself (step 3). |
 
-The refresh token is obtained once via a standard OAuth consent flow with the
-`https://www.googleapis.com/auth/youtube` scope, then stored server-side only — it is
-never exposed to Companion or any client (PRD §5.1).
+**Windows — the app is unsigned.** The first launch shows a blue *"Windows protected your PC"*
+SmartScreen dialog. That is the missing code-signing certificate, not a virus warning: click
+**More info → Run anyway**. It appears once per version.
 
-## Run
-
-### Docker (recommended)
+**Linux (and macOS) — there is no desktop build.** The `.exe` artifacts are Windows-only; the
+release page has nothing else to double-click. Run the same server in Docker instead:
 
 ```bash
-docker compose up --build
+git clone <this repo> && cd yt-companion-middleware
+cp .env.example .env      # fill in the YT_* values — see step 2
+docker compose up -d      # dashboard + API on http://<host>:8080, data in ./data
 ```
 
-Dashboard + API at `http://<host>:8080`. Data persists in `./data`.
+### 2. Connect YouTube
 
-An interactive API console lives at `http://<host>:8080/docs` — it documents every route
-and can fire test requests against the running server (paste your Bearer token to reach the
-action and feedback buses; the action bus falls back to its unauthenticated dashboard mirror
-when the token is blank).
+The app needs a Google OAuth client (Google Cloud Console → *APIs & Services* → enable **YouTube
+Data API v3** → create an **OAuth client**) and a refresh token for your channel. Where those come
+from differs by platform — the refresh token is stored server-side only and is never exposed to
+Companion or the browser.
 
-### Windows desktop app
+**Windows desktop.** Nothing to edit. The app boots into a **Connect your YouTube channel** screen:
+press **Connect YouTube**, consent in the browser that opens, and it stores the token itself. If
+the build has no bundled OAuth client, or you'd rather use your own, the same screen takes your
+client ID + secret (register `http://localhost:53682/oauth2callback` as its redirect URI) or a
+refresh token pasted by hand. Credentials live under `%APPDATA%/YT Companion/data`.
 
-A double-click alternative to Docker. The same server runs in-process inside an Electron
-window with a system-tray icon; credentials are entered on a first-run setup screen (no `.env`
-needed) and stored per-user under `%APPDATA%/YT Companion/data`.
+**Docker.** The in-app OAuth flow needs a desktop browser and a system tray, so a headless boot
+doesn't offer it: put the credentials in `.env` instead. Get the refresh token once, from a machine
+with a browser:
 
 ```bash
-npm install
-npm run desktop:dev      # build + launch the app locally
-npm run desktop:build    # produce the Windows installer + portable .exe in ./release
+node packages/server/scripts/get-refresh-token.mjs   # prints YT_REFRESH_TOKEN for your .env
 ```
 
-`desktop:build` emits an NSIS installer and a portable `.exe`. Icons are generated by
-`npm run desktop:icons` (run automatically by the build). Closing the window hides the app to
-the tray so Companion stays connected; quit from the tray menu. Building the Windows artifacts
-from macOS/Linux requires Wine — building on Windows (or CI) is simplest.
+Then open `http://<host>:8080` for the dashboard: create presets, set the default category and
+stream binding, and generate an API token.
 
-Closing to setup mode: the app boots into the setup screen whenever credentials are missing;
-saving them restarts the server in-place and hands off to the dashboard.
+### 3. Put it on the Stream Deck
 
-Releases (the installer/exe and the Companion `.tgz`) are cut by pushing a `v*` git tag — see
-[`RELEASING.md`](RELEASING.md) for the tag + version-bump workflow.
+Companion talks to the middleware through the **Companion module** shipped in this repo. It holds a
+WebSocket to the app (instant updates, zero quota) and puts the presets, actions and state feedbacks
+straight onto your keys.
 
-### Local dev
+1. **Get the `.tgz`** — download it from the Releases page, or build it yourself from a checkout:
+   ```bash
+   npm run companion:package   # → companion-module/yt-companion-middleware-<version>.tgz
+   ```
+2. **Companion → Modules → Import module package** → pick the `.tgz`.
+3. **Connections → Add connection** → search *YouTube Live Metadata* → point it at the app's host
+   and port.
+4. Drag buttons from the **Presets** tab onto a page. They arrive pre-wired.
+
+Full module reference — every action, feedback, variable, and the Arabic-safe title/slug images:
+[`companion-module/README.md`](companion-module/README.md).
+
+### Learn the app
+
+- **Operator manual** — served by the running app at `http://<host>:8080/guide`: how targeting
+  works, the dashboard, the Companion keys, suggested Stream Deck layouts.
+- **API console** — at `http://<host>:8080/docs`: every route, documented, with a tester that fires
+  real requests against your own server.
+
+---
+
+## Developers — working on the code
+
+### Prerequisites
+
+- **Node.js ≥ 20** (Node 22 for the Companion module).
+- **Docker** — optional, only to run the container locally.
+- **Windows or CI to build the desktop app.** `electron-builder --win` from Linux/macOS needs Wine;
+  building on Windows (or letting the release workflow do it) is simpler. Everything else in this
+  repo builds and tests on Linux, Windows and macOS alike.
+
+### Install
+
+One install from the repo root covers every workspace (`packages/shared`, `server`, `web`,
+`desktop`). The Companion module is a **separate** package with its own lockfile.
 
 ```bash
-npm install                        # workspaces install server + packages/*
-npm run dev                        # backend on :8080
-npm --prefix packages/web run dev  # dashboard on :5173 (proxies /api to :8080)
+npm install                 # all four workspaces
+npm run companion:install   # the Companion module's own deps (only if you touch it)
 ```
 
-## Companion setup
+### Commands
 
-1. Open the dashboard, create presets, set app-level defaults.
-2. Generate an API token (API token panel) and copy it.
-3. In Companion's generic HTTP connection, add header
-   `Authorization: Bearer <token>` and point actions at:
-   - `POST /api/action/preset` — body `{ "presetId": "<id>" }` (copy from the preset card)
-   - `POST /api/action/update` — ad-hoc override
-   - `POST /api/action/privacy` — set `{ "status": "public" }` or flip with `{ "mode": "toggle" }`
-   - `POST /api/action/undo` — revert the last metadata change
-   - `POST /api/action/refresh` — force a cache refresh
-   - `GET /api/feedback/{status,busy,active-preset,health}` — cached feedback (poll every 5s)
+| Command | What it does |
+|---|---|
+| `npm run dev` | Backend on `:8080`, watching. |
+| `npm --prefix packages/web run dev` | Dashboard on `:5173`, proxying `/api` to `:8080`. |
+| `npm run build:all` | Compile shared → web → server into `dist/`. |
+| `npm start` | Run the built server. |
+| `npm test` | The full suite (vitest). |
+| `npm run typecheck` | Server, Companion module (checkJs) and the shared package. |
+| `npm run smoke` | Boot the **built** server, with and without credentials, and hit `/api/feedback/health`. |
+| `npm run preflight` | Everything CI does except the Windows packaging — run this before tagging. |
+| `npm run desktop:dev` | Build and launch the Electron app locally. |
+| `npm run desktop:build` | The Windows installer + portable `.exe` into `./release`. |
+| `npm run companion:package` | The importable module `.tgz`. |
 
-All action endpoints always return HTTP 200 with `success`/`error` in the body (PRD §7).
+### Layout
 
-## Beyond the PRD
+| Path | |
+|---|---|
+| [packages/server/](packages/server/) | Express + TypeScript API, the state cache, the YouTube client. Serves the dashboard, `/guide` and `/docs` as static files. |
+| [packages/web/](packages/web/) | React + Vite dashboard. |
+| [packages/shared/](packages/shared/) | The API contract, the JSON schema, and the [canonical UX vocabulary](packages/shared/GLOSSARY.md) every surface draws its wording from. |
+| [packages/desktop/](packages/desktop/) | Electron shell — runs the server in-process, tray icon, first-run setup. |
+| [companion-module/](companion-module/) | The Bitfocus Companion module (standalone package). |
+| [issues/](issues/) | PRDs and the issue files the work is cut from. |
 
-Workflow extras added on top of the v2 spec:
+### Releasing
 
-- **Privacy toggle** — one-button `POST /api/action/privacy` flips private↔public (or sets an
-  explicit value) without re-applying the default category/stream.
-- **Undo** — every change snapshots the prior title/description/privacy/stream binding;
-  `POST /api/action/undo` restores it. Surfaced as an **Undo** button on the dashboard.
-- **Quota budget** — cost-weighted daily YouTube quota is tracked (reads=1, writes=50, PT
-  reset) and returned on `/api/feedback/health` (`quotaUsed`/`quotaLimit`/`quotaRemaining`)
-  plus a color bar on the dashboard.
-- **Push instead of poll** — SSE stream at `/api/feedback/stream` (authed) and
-  `/api/dashboard/stream`; the dashboard uses it and falls back to polling. Configure an
-  outbound **state webhook** in the dashboard to `POST { event, state }` on every change.
-- **Bulk preset import/export** — Export/Import buttons back up or clone presets as JSON
-  (`GET /api/dashboard/presets/export`, `POST /api/dashboard/presets/import`).
-- **Stream-binding validation** — preset and default stream fields warn when the bound
-  stream id no longer exists on the channel (`GET /api/dashboard/streams`).
-- **Arabic-safe button text** — Companion's bundled fonts render Arabic titles as boxes
-  (tofu). Each preset has a short **button label** (slug); feedback exposes `displayLabel`
-  (slug → preset id → `"Custom"`) as Latin-safe text, plus `slugPng`/`titlePng` — the label
-  and full title pre-rendered to base64 PNGs with an Arabic-capable font (shaped + joined),
-  also served raw at `GET /api/feedback/{slug,title}.png`. Bind the PNG as a button image and
-  toggle between the two. PNGs are cached per text and pushed over SSE/WebSocket like the rest
-  of the state.
+Pushing a `v*` git tag builds and publishes both artifacts. **Don't tag on autopilot** — the
+desktop app and the Companion module are versioned independently, and a change under
+`companion-module/` must be bumped in the same PR or operators silently keep the old build.
 
-## Test
-
-```bash
-npm test
-```
+- The tag flow, the semver rule and the pre-release checklist: [`RELEASING.md`](RELEASING.md).
+- The Companion module's bump rule and upgrade scripts:
+  [`companion-module/VERSIONING.md`](companion-module/VERSIONING.md).
+- The rules every contributor (human or AI) follows: [`AGENTS.md`](AGENTS.md).
