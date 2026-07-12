@@ -1,6 +1,8 @@
-// Canonical copy + OS-specific fix steps for the `offline` firewall-guidance panel
-// (PRD-06 §2, issue 019). Kept as data (not JSX) so the wording is unit-tested and can be
-// re-used verbatim by the guide — the "one canonical string" wording-parity rule (PRD-06 §1.2 #10).
+// Copy + OS-specific fix steps for the `offline` firewall-guidance panel (PRD-06 §2, issue 019).
+// Kept as data (not JSX) so the wording is unit-tested rather than buried in markup. This copy is
+// web-only: the operator guide explains `offline` from the shared HEALTH_GLOSSARY meaning (see
+// guide/api.html §07), a distinct canonical string — it does not reuse OFFLINE_EXPLANATION, so no
+// cross-surface parity is claimed here.
 
 export interface GuidanceStep {
   readonly text: string;
@@ -16,7 +18,7 @@ export interface OsGuidance {
 /** Panel heading. Deliberately about reach, never about sign-in — this is not the reauth flow. */
 export const OFFLINE_TITLE = "Can't reach YouTube";
 
-/** One-line plain explanation, shared with the guide. */
+/** One-line plain explanation shown in the panel. Web-only (see module header). */
 export const OFFLINE_EXPLANATION =
   "The app can't reach YouTube. This is usually a firewall or network problem, not a login problem — no reconnect needed.";
 

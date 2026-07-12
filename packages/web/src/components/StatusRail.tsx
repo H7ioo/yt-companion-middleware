@@ -1,15 +1,23 @@
-import { describeBroadcastState, ACTION_GLOSSARY } from "@app/shared";
+import { describeBroadcastState, ACTION_GLOSSARY, HEALTH_GLOSSARY } from "@app/shared";
+import type { HealthTerm } from "@app/shared";
 import type { DashboardState, QuotaSnapshot, HealthStatus } from "../api.js";
 import { HealthExplainer } from "./HealthExplainer.js";
 
-// One lamp class per health state — offline is slate (network), auth_error is red (needs reauth),
-// so the two failure modes never read as the same fault (PRD-06 §2 / issue 019 AC #3).
-const HEALTH_LAMP: Record<string, string> = {
-  ok: "lamp--ready",
-  degraded: "lamp--warn",
-  offline: "lamp--offline",
-  auth_error: "lamp--err",
+// The glossary owns which key colour each health state lights (issue 021); this owns how the rail
+// renders that colour. offline is slate (network), auth_error is red (needs reauth), so the two
+// failure modes never read as the same fault (PRD-06 §2 / issue 019 AC #3).
+const LAMP_FOR_KEY_COLOR: Record<HealthTerm["keyColor"], string> = {
+  Green: "lamp--ready",
+  Yellow: "lamp--warn",
+  Grey: "lamp--offline",
+  Red: "lamp--err",
 };
+
+// Derive the lamp class from the canonical glossary key colour so a glossary recolour reaches the
+// dashboard without a second edit — the same consumption pattern healthExplainer.ts uses.
+const HEALTH_LAMP: Record<string, string> = Object.fromEntries(
+  Object.entries(HEALTH_GLOSSARY).map(([state, term]) => [state, LAMP_FOR_KEY_COLOR[term.keyColor]]),
+);
 
 function QuotaReadout({ quota }: { quota: QuotaSnapshot | undefined }) {
   if (!quota) return null;

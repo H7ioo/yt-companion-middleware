@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { HEALTH_GLOSSARY, BROADCAST_STATE } from "@app/shared";
-import { healthColor } from "../companion-module/src/transform.js";
+import { healthColor, COMPANION_COLORS } from "../companion-module/src/transform.js";
 import { render, publicDir, rgbString } from "./docs-dom.mjs";
 
 /**
@@ -74,10 +74,10 @@ describe("layouts page draws suggested arrangements", () => {
 describe("mock state drives the faces client-side", () => {
   it("lights the on-air key red and names the state canonically when the reader goes live", () => {
     const { doc, click, key } = open();
-    expect(key("on_air").style.backgroundColor).not.toBe(rgbString(0xc80000));
+    expect(key("on_air").style.backgroundColor).not.toBe(rgbString(COMPANION_COLORS.onAir));
     click('[data-toggle="live"]');
-    // 200,0,0 — the `on_air` feedback style the Companion module ships.
-    expect(key("on_air").style.backgroundColor).toBe(rgbString(0xc80000));
+    // The `on_air` feedback style the Companion module ships (COMPANION_COLORS.onAir).
+    expect(key("on_air").style.backgroundColor).toBe(rgbString(COMPANION_COLORS.onAir));
     expect(doc.querySelector(".deck-state")?.textContent).toContain(BROADCAST_STATE.live.label);
     click('[data-toggle="live"]');
     expect(doc.querySelector(".deck-state")?.textContent).toContain(BROADCAST_STATE.idle.label);
@@ -95,8 +95,8 @@ describe("mock state drives the faces client-side", () => {
   it("lights the busy key blue while an action is in flight", () => {
     const { click, key } = open();
     click('[data-toggle="busy"]');
-    // 0,80,200 — the `busy` feedback style.
-    expect(key("busy").style.backgroundColor).toBe(rgbString(0x0050c8));
+    // The `busy` feedback style (COMPANION_COLORS.busy).
+    expect(key("busy").style.backgroundColor).toBe(rgbString(COMPANION_COLORS.busy));
   });
 
   it("highlights the active preset — every key bound to it, and no other preset", () => {
@@ -104,11 +104,11 @@ describe("mock state drives the faces client-side", () => {
     const presets = [...doc.querySelectorAll('.key[data-kind="preset"]')];
     /** @type {any} */ (presets[0]).click();
     const id = presets[0].getAttribute("data-key") ?? "";
-    // 0,140,0 — the `active_preset` highlight style. A layout may carry the same preset on more
-    // than one deck; in Companion every key bound to it lights, so here too.
-    expect(key(id).style.backgroundColor).toBe(rgbString(0x008c00));
+    // The `active_preset` highlight style (COMPANION_COLORS.activePreset). A layout may carry the
+    // same preset on more than one deck; in Companion every key bound to it lights, so here too.
+    expect(key(id).style.backgroundColor).toBe(rgbString(COMPANION_COLORS.activePreset));
     const lit = presets.filter(
-      (p) => /** @type {HTMLElement} */ (p).style.backgroundColor === rgbString(0x008c00),
+      (p) => /** @type {HTMLElement} */ (p).style.backgroundColor === rgbString(COMPANION_COLORS.activePreset),
     );
     expect(lit.length).toBeGreaterThan(0);
     expect(lit.every((p) => p.getAttribute("data-key") === id)).toBe(true);

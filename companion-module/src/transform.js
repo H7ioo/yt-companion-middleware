@@ -132,6 +132,17 @@ export function healthColor(status) {
   return HEALTH_COLORS[status ?? ''] ?? rgb(60, 66, 78);
 }
 
+// The module's non-health key palette — the brand colours the boolean feedbacks and preset buttons
+// light with. Defined once here (packed RGB) so main.js, presetButtons() and the guide's layouts
+// drift test all derive from the same source instead of re-hardcoding literals. Health-state colours
+// live in HEALTH_COLORS / healthColor() above; these are the rest a rebrand would touch.
+/** @type {{ onAir: number, busy: number, activePreset: number }} */
+export const COMPANION_COLORS = {
+  onAir: rgb(200, 0, 0), // On Air — broadcast is live
+  busy: rgb(0, 80, 200), // Busy — an action is in flight
+  activePreset: rgb(0, 140, 0), // Active-preset highlight
+};
+
 /**
  * Builds Companion **preset buttons** (the drag-drop templates in the Presets tab) — one per
  * middleware preset. Each arrives already labelled with the preset's slug/title, already wired to
@@ -157,7 +168,7 @@ export function presetButtons(presets) {
         {
           feedbackId: 'active_preset',
           options: { presetId: p.id },
-          style: { bgcolor: rgb(0, 140, 0), color: rgb(255, 255, 255) },
+          style: { bgcolor: COMPANION_COLORS.activePreset, color: rgb(255, 255, 255) },
         },
       ],
     };

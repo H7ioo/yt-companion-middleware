@@ -7,6 +7,7 @@ import { InstanceBase, InstanceStatus, Regex, combineRgb, runEntrypoint } from '
 import WebSocket from 'ws'
 import {
 	categoryChoices,
+	COMPANION_COLORS,
 	formatLastError,
 	healthColor,
 	joinUrl,
@@ -368,7 +369,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				type: 'boolean',
 				name: 'On Air',
 				description: 'True while the broadcast is live.',
-				defaultStyle: { bgcolor: combineRgb(200, 0, 0), color: combineRgb(255, 255, 255) },
+				defaultStyle: { bgcolor: COMPANION_COLORS.onAir, color: combineRgb(255, 255, 255) },
 				options: [],
 				callback: () => Boolean(this.latest?.status?.isLive),
 			},
@@ -376,7 +377,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				type: 'boolean',
 				name: 'Busy (action in progress)',
 				description: 'True while the middleware is applying a change.',
-				defaultStyle: { bgcolor: combineRgb(0, 80, 200), color: combineRgb(255, 255, 255) },
+				defaultStyle: { bgcolor: COMPANION_COLORS.busy, color: combineRgb(255, 255, 255) },
 				options: [],
 				callback: () => Boolean(this.latest?.busy),
 			},
@@ -425,7 +426,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				type: 'boolean',
 				name: 'Active preset is…',
 				description: 'True when the selected preset is the active one — highlights its key.',
-				defaultStyle: { bgcolor: combineRgb(0, 140, 0), color: combineRgb(255, 255, 255) },
+				defaultStyle: { bgcolor: COMPANION_COLORS.activePreset, color: combineRgb(255, 255, 255) },
 				options: [
 					{
 						type: 'dropdown',
@@ -622,7 +623,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				style: { text: '$(ytmeta:live_title)', size: 'auto', color: white, bgcolor: combineRgb(40, 40, 40) },
 				steps: [{ down: [], up: [] }],
 				feedbacks: [
-					{ feedbackId: 'on_air', options: {}, style: { bgcolor: combineRgb(200, 0, 0), color: white } },
+					{ feedbackId: 'on_air', options: {}, style: { bgcolor: COMPANION_COLORS.onAir, color: white } },
 				],
 			},
 			privacy_toggle_btn: util(
@@ -650,7 +651,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				style: { text: '$(ytmeta:display_label)', size: 'auto', color: white, bgcolor: black },
 				steps: [{ down: [], up: [] }],
 				feedbacks: [
-					{ feedbackId: 'busy', options: {}, style: { bgcolor: combineRgb(0, 80, 200), color: white } },
+					{ feedbackId: 'busy', options: {}, style: { bgcolor: COMPANION_COLORS.busy, color: white } },
 				],
 			},
 		})
