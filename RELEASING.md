@@ -118,6 +118,12 @@ then tag.
 
 ## Release checklist
 
+Claude Code can fill this in for you: the **`release-warden`** agent
+([.claude/agents/release-warden.md](.claude/agents/release-warden.md)) audits the diff since the
+last tag — companion version sync, upgrade scripts, doc freshness, the implied semver bump,
+preflight/`main` state — and reports this checklist with a verdict per item. It is **advisory**: it
+never edits and never tags. Run it per shippable slice, not just before a release.
+
 - [ ] Companion module changed? → `companion:bump` in the same PR, versions in sync, tests pass.
 - [ ] Upgrade script appended for any Companion rename/removal.
 - [ ] Docs (`README.md`, `companion-module/companion/HELP.md`, `packages/server/public/guide.html`) reflect behaviour changes.
