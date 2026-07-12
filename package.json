@@ -39,7 +39,8 @@
     "companion:check": "npm --prefix companion-module run check",
     "companion:test": "vitest run companion-module",
     "companion:bump": "node companion-module/scripts/bump-version.mjs",
-    "companion:package": "npm --prefix companion-module install && npm --prefix companion-module run package"
+    "companion:package": "npm --prefix companion-module install && npm --prefix companion-module run package",
+    "preflight": "node scripts/preflight.mjs"
   },
   "dependencies": {
     "@app/server": "*"

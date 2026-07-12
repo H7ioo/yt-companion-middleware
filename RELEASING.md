@@ -32,6 +32,21 @@ autopilot.
   build stamps it from the tag you push. But pick the tag with semver intent so the exe is named
   for a real version.
 
+## Before you tag: preflight
+
+```bash
+npm run preflight          # add --no-pack to skip the slow electron pack
+```
+
+One command, mirroring everything CI does **except the OS-specific packaging** — typecheck (server,
+companion, electron entry), the full test suite, `build:all`, `companion:package` (which re-runs the
+version-sync guard), and an `electron-builder --dir` pack. It fails fast on the first broken step and
+needs no Wine: the `--dir` pack targets the host OS, but it still exercises the electron-builder
+`files`/`asarUnpack` globs, which is the config that otherwise only fails on a tag push.
+
+What it **cannot** catch is the Windows build itself. Prove that remotely without publishing: run the
+`Release` workflow via **workflow_dispatch** and confirm it's green (see the note below) — then tag.
+
 ## Cut the release
 
 1. Land all changes on `main` (including any `companion:bump`).
@@ -54,8 +69,9 @@ autopilot.
 
 ## Notes
 
-- **The Windows build only runs in CI** — it is not verified locally. The first tagged run is the
-  real smoke test; check the Actions log if it trips.
+- **The Windows build only runs in CI** — `preflight` packs for the host OS, so the NSIS/portable
+  targets themselves are never exercised on Linux. Don't let the first tagged run be their smoke
+  test: `workflow_dispatch` first.
 - **The exe is unsigned** — Windows SmartScreen shows a "run anyway" prompt on first launch until a
   signing cert is added.
 - **`workflow_dispatch`** (manual run from the Actions tab) builds both artifacts but does **not**
@@ -70,5 +86,7 @@ autopilot.
 - [ ] Upgrade script appended for any Companion rename/removal.
 - [ ] Docs (`README.md`, `companion-module/companion/HELP.md`, `packages/server/public/guide.html`) reflect behaviour changes.
 - [ ] `main` is green and pulled locally.
+- [ ] `npm run preflight` is green.
+- [ ] `workflow_dispatch` run of `Release` is green (the real Windows build, no publish).
 - [ ] Tag is `v<semver>` and pushed.
 - [ ] CI `Release` run is green; exe + `.tgz` are on the Release page.
