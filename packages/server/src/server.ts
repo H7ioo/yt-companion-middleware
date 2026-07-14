@@ -209,8 +209,20 @@ async function bootOnce(
   }
 
   const server = http.createServer(app);
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        reject(
+          new Error(
+            `port ${config.port} is already in use — set the PORT environment variable to run on a different port`,
+          ),
+        );
+      } else {
+        reject(err);
+      }
+    });
     server.listen(config.port, () => {
+      server.removeAllListeners("error");
       const mode = configured ? "ready" : "SETUP REQUIRED";
       console.log(`[server] listening on http://0.0.0.0:${config.port} (${mode})`);
       console.log(`[server] data store: ${config.storePath}`);
@@ -291,7 +303,7 @@ if (invokedDirectly) {
       process.on("SIGTERM", shutdown);
     })
     .catch((err) => {
-      console.error("[server] fatal:", err);
+      console.error(`[server] fatal: ${err instanceof Error ? err.message : err}`);
       process.exit(1);
     });
 }
