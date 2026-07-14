@@ -130,6 +130,20 @@ What that needs from a release:
   from the feed and the app stays quiet there. Portable users re-download.
 - Update failures (offline, GitHub unreachable) are logged and ignored; the app keeps running.
 
+## Nightly channel
+
+The `Nightly` workflow ([.github/workflows/nightly.yml](.github/workflows/nightly.yml)) publishes a
+Windows build as a GitHub **pre-release** tagged `v<next-patch>-nightly.<date>.<run>` — daily at
+03:00 UTC when `main` has new commits, or on demand via workflow_dispatch. It runs the same
+checks gate as a release, but only builds the desktop app (no Companion `.tgz`).
+
+Channel behaviour needs no updater code: electron-updater offers pre-releases only to apps whose
+own version is a pre-release. So stable installs never see nightlies; installing a nightly exe
+once opts that machine into the nightly feed, and the next stable release (higher semver than any
+of its nightlies) promotes it back to the stable channel automatically. Old nightlies are pruned
+to the newest 7. Nightly tags are created by the release API and never trigger the `Release`
+workflow.
+
 ## Notes
 
 - **The Windows build only runs in CI** — `preflight` packs for the host OS, so the NSIS/portable

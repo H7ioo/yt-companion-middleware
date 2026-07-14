@@ -1,0 +1,162 @@
+name: Nightly
+
+# Publishes a Windows desktop build as a GitHub *pre-release* tagged v<next-patch>-nightly.<date>,
+# without touching the stable channel. electron-updater only offers pre-releases to apps whose own
+# version has a pre-release component, so:
+#   - stable installs never see nightlies;
+#   - a nightly install follows newer nightlies AND the next stable (2.2.2-nightly.x < 2.2.2).
+# Runs nightly (skipped when main has no new commits since the last tag) or on demand.
+# The Companion module is not built here — import its .tgz from a stable release or build locally.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC daily
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Compute nightly version
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.decide.outputs.should_build }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: decide
+        shell: bash
+        run: |
+          # Skip a scheduled run when the tip is already tagged (stable or nightly) — nothing new.
+          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          new_commits=$(git rev-list "${last_tag:+$last_tag..}HEAD" --count)
+          if [[ "${{ github.event_name }}" == "schedule" && "$new_commits" == "0" ]]; then
+            echo "No commits since $last_tag — skipping nightly."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Nightly version = next patch over the latest STABLE tag, plus a -nightly suffix.
+          stable=$(git describe --tags --abbrev=0 --match "v[0-9]*" --exclude "*-*")
+          IFS=. read -r major minor patch <<< "${stable#v}"
+          version="$major.$minor.$((patch + 1))-nightly.$(date -u +%Y%m%d).${{ github.run_number }}"
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Nightly version: $version (base $stable, $new_commits new commits)"
+
+  # Same gate as the Release workflow: never publish a build that doesn't type, test, and boot.
+  checks:
+    name: Typecheck, tests, smoke
+    needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm ci
+        working-directory: companion-module
+      - run: npm run typecheck
+      - run: npm run typecheck:electron
+      - run: npm test
+      - run: npm run build:all
+      - run: npm run smoke
+
+  desktop:
+    name: Windows desktop app
+    needs: [prepare, checks]
+    if: needs.prepare.outputs.should_build == 'true'
+    runs-on: windows-latest
+    steps:
+      # Full history + tags: desktop:build regenerates CHANGELOG.md for the bundled What's New.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Same stamping mechanism as the Release workflow, but from the computed nightly version.
+      - name: Set nightly version
+        shell: bash
+        run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - run: npm run desktop:build
+        env:
+          YT_BUNDLED_CLIENT_ID: ${{ secrets.YT_BUNDLED_CLIENT_ID }}
+          YT_BUNDLED_CLIENT_SECRET: ${{ secrets.YT_BUNDLED_CLIENT_SECRET }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop
+          path: |
+            release/*.exe
+            release/latest.yml
+            release/*.blockmap
+          if-no-files-found: error
+
+  publish:
+    name: Publish nightly pre-release
+    needs: [prepare, desktop]
+    if: needs.prepare.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          {
+            echo "Nightly build from \`${GITHUB_SHA::7}\`. Unstable — for testing ahead of the next release."
+            echo
+            echo "Commits since ${last_tag:-the beginning}:"
+            git log "${last_tag:+$last_tag..}HEAD" --pretty="- %s" | head -50
+          } > release-notes.md
+
+      # The tag is created by the release API (GITHUB_TOKEN), which deliberately does NOT trigger
+      # the Release workflow — no recursion, and the stable pipeline never sees nightly tags.
+      - name: Publish pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.prepare.outputs.version }}
+          body_path: release-notes.md
+          prerelease: true
+          files: |
+            artifacts/desktop/*.exe
+            artifacts/desktop/latest.yml
+            artifacts/desktop/*.blockmap
+          generate_release_notes: false
+          fail_on_unmatched_files: true
+
+      # Keep the releases page usable: retain the newest 7 nightlies, delete the rest (tag too).
+      - name: Prune old nightlies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+            --json tagName,isPrerelease \
+            --jq '.[] | select(.isPrerelease and (.tagName | contains("-nightly."))) | .tagName' \
+            | tail -n +8 \
+            | while read -r tag; do
+                echo "Deleting old nightly $tag"
+                gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+              done
