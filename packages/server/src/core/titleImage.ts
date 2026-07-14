@@ -1,5 +1,6 @@
 import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
 import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 /**
  * Renders button text to a PNG so Companion can show scripts its bundled fonts cannot draw —
@@ -26,9 +27,12 @@ const SCALE = 4;
 // `core/`. Failure is non-fatal: rendering degrades to null and callers omit the PNG.
 let fontReady = false;
 try {
+  // In the packaged Electron app this resolves inside app.asar, which Skia's native file
+  // reader cannot open — the font is asar-unpacked (electron-builder.yml), so point at the
+  // real file in app.asar.unpacked instead. No-op outside Electron.
   const fontPath = fileURLToPath(
     new URL("../../assets/fonts/NotoNaskhArabic-Regular.ttf", import.meta.url),
-  );
+  ).replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`);
   fontReady = !!GlobalFonts.registerFromPath(fontPath, FONT_FAMILY);
   if (!fontReady) console.warn("[titleImage] Arabic font failed to register; PNGs disabled");
 } catch (err) {

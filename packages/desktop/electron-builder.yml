@@ -27,6 +27,8 @@ extraMetadata:
 files:
   - packages/server/dist/**/*
   - packages/server/public/**/*
+  # Arabic-capable font for the button PNGs — titleImage.ts loads it from server/assets.
+  - packages/server/assets/**/*
   - packages/web/dist/**/*
   - packages/desktop/main.mjs
   - packages/desktop/updater.mjs
@@ -50,6 +52,8 @@ publish:
 asarUnpack:
   - "**/*.node"
   - "**/@napi-rs/canvas*/**"
+  # Skia reads the font via native fs, which can't see inside the asar — must be a real file.
+  - "packages/server/assets/fonts/**"
 
 win:
   target:
