@@ -62,6 +62,20 @@ export interface QuotaSnapshot {
   remaining: number;
 }
 
+/**
+ * A pending "operator, fill this preset" request, raised by a Companion key (which has no
+ * keyboard) and answered by whichever open dashboard claims it first — that dashboard pops the
+ * fill popup for the preset. Single-slot with a short server-side TTL: unclaimed requests expire
+ * rather than popping hours later.
+ */
+export interface FillRequest {
+  /** Server-assigned id — the claim token. */
+  id: string;
+  presetId: string;
+  /** ISO-8601 timestamp of the key press. */
+  requestedAt: string;
+}
+
 /** The full operational state pushed to the dashboard, the SSE stream, and outbound webhooks. */
 export interface DashboardState {
   status: FeedbackStatus;
@@ -88,6 +102,8 @@ export interface DashboardState {
   undo: { label: string | null; capturedAt: string } | null;
   /** Master API switch — false means the middleware is making no YouTube calls (PRD kill-switch). */
   apiEnabled: boolean;
+  /** Unclaimed fill request from a Companion key, or null. Rides the same push as everything else. */
+  fillRequest: FillRequest | null;
 }
 
 /** Severity of a dashboard activity-log entry (PRD-06 §3). Drives the panel's colour coding. */

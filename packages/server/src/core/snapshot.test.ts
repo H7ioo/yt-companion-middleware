@@ -36,6 +36,7 @@ function state(over: Partial<DashboardState> = {}): DashboardState {
     quota: { date: "2026-07-03", used: 0, limit: 10000, remaining: 10000 },
     undo: null,
     apiEnabled: true,
+    fillRequest: null,
     ...over,
   };
 }
@@ -77,6 +78,14 @@ describe("changeSignature", () => {
     expect(changeSignature(state({ quota: { date: "d", used: 50, limit: 10000, remaining: 9950 } }))).not.toBe(
       changeSignature(state({ quota: { date: "d", used: 150, limit: 10000, remaining: 9850 } })),
     );
+  });
+
+  it("changes when a fill request is raised and again when it is claimed", () => {
+    const pending = state({
+      fillRequest: { id: "f1", presetId: "p1", requestedAt: "2026-07-03T00:00:00.000Z" },
+    });
+    expect(changeSignature(state())).not.toBe(changeSignature(pending));
+    expect(changeSignature(pending)).not.toBe(changeSignature(state({ fillRequest: null })));
   });
 });
 

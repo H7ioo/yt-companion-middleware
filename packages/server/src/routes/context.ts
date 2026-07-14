@@ -5,6 +5,7 @@ import type { StateCache } from "../core/stateCache.js";
 import type { QuotaTracker } from "../core/quota.js";
 import type { StateEvents } from "../core/events.js";
 import type { Logger } from "../core/logger.js";
+import type { FillRequests } from "../core/fillRequests.js";
 
 /** Shared dependencies handed to route factories. */
 export interface AppContext {
@@ -15,5 +16,6 @@ export interface AppContext {
   quota: QuotaTracker;
   events: StateEvents;
   logger: Logger;
+  fills: FillRequests;
   regionCode: string;
 }

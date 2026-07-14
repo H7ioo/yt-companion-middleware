@@ -213,6 +213,17 @@
                   </td>
                 </tr>
                 <tr>
+                  <td><strong>Request fill (popup on dashboard / phone push)</strong></td>
+                  <td><code>Preset</code> (dropdown)</td>
+                  <td>
+                    For presets the operator must type values into. Surfaces the
+                    fill page instead of prompting on the key (Companion can't):
+                    any open dashboard pops the fill dialog, and with ntfy
+                    configured the phone gets a tap-to-open notification. See
+                    §14.
+                  </td>
+                </tr>
+                <tr>
                   <td><strong>Update live metadata</strong></td>
                   <td><code>Title</code> (required, <code>$(…)</code>); <code>Description</code>; <code>Privacy</code>; <code>Category</code>; <code>Bound stream</code></td>
                   <td>
@@ -284,12 +295,14 @@
           </div>
           <div class="callout">
             <p>
-              <strong>Opening the dashboard or a fill page is not a module
-              action</strong> — use Companion's built-in <strong>Open URL</strong>
-              with <code>$(ytmeta:dashboard_url)</code> (see §14). A rejected
-              action (token required, empty title, etc.) is logged in Companion's
-              <strong>Log</strong> tab as a <code>rejected</code>/<code>failed</code>
-              line, not raised on the key.
+              <strong>A key can't open a browser</strong> — Companion has no
+              "Open URL" action. Filling a template-var preset goes through the
+              <strong>Request fill</strong> action instead (see §14); opening the
+              dashboard itself is a bookmark on the device in your hands. A
+              rejected action (token required, empty title, etc.) is logged in
+              Companion's <strong>Log</strong> tab as a
+              <code>rejected</code>/<code>failed</code> line, not raised on the
+              key.
             </p>
           </div>
         </section>
@@ -319,7 +332,7 @@
                 <tr><td><code>api_enabled</code></td><td><code>false</code> when the middleware kill-switch is off.</td></tr>
                 <tr><td><code>quota_used</code> · <code>quota_limit</code> · <code>quota_remaining</code></td><td>YouTube quota counters.</td></tr>
                 <tr><td><code>undo_label</code></td><td>What <strong>Undo</strong> would revert.</td></tr>
-                <tr><td><code>dashboard_url</code></td><td>The configured base URL — use with the built-in <strong>Open URL</strong> action.</td></tr>
+                <tr><td><code>dashboard_url</code></td><td>The configured base URL — handy for bookmarks and custom integrations.</td></tr>
               </tbody>
             </table>
           </div>

@@ -134,7 +134,7 @@ usual cause.
 | `quota_used` / `quota_limit` / `quota_remaining` | YouTube API quota counters. |
 | `undo_label` | Label of the change that **Undo** would revert. |
 | `last_error` | Code + message of the most recent **failed** action (e.g. `INVALID_PRESET: no such preset`). Blank until something fails; bind it to a key to see errors on-stream instead of only in the Log tab. Never cleared by a state update. |
-| `dashboard_url` | The configured base URL — use it with the built-in **Open URL** action. |
+| `dashboard_url` | The configured base URL — handy for bookmarks and custom HTTP integrations. |
 
 ### Presets (drag-drop buttons)
 
@@ -173,6 +173,7 @@ so you never need to add a manual refresh after an action.
 | Action | Options | Effect |
 |---|---|---|
 | **Apply preset** | `Preset` (dropdown), `Template vars` (JSON, optional; supports `$(...)`) | Applies the preset. If the preset has template placeholders, pass a JSON object of values. |
+| **Request fill (popup on dashboard / phone push)** | `Preset` (dropdown) | Asks the middleware to surface the fill page for the preset (`POST /api/dashboard/fill-request`): any open dashboard pops the fill dialog instantly, and with an ntfy topic configured (dashboard → *Phone push*) the operator's phone gets a tap-to-open notification. Unclaimed requests expire after 60 s. |
 | **Update live metadata** | `Title` (required, supports `$(...)`), `Description`, `Privacy`, `Category`, `Bound stream` | Ad-hoc edit of the live metadata. Empty/"unchanged" fields are omitted; `Title` is always sent. |
 | **Privacy: toggle private ↔ public** | — | Flips privacy. |
 | **Privacy: set** | `Status` dropdown | Sets `public` / `unlisted` / `private`. |
@@ -211,15 +212,19 @@ Bind **Update live metadata** to a key. Set **Title** (required — you can refe
 like `$(internal:custom_myTitle)`), and leave Privacy/Category/Bound stream on "unchanged" to keep
 the current values.
 
-### Template-var presets & opening the dashboard (built-in Open URL, not this module)
+### Template-var presets (Request fill — Companion has no Open URL action)
 
-Companion keys can't prompt for input, so presets with placeholders and any "open the dashboard"
-step use Companion's built-in **Open URL** action:
+Companion keys can't prompt for input, and Companion has **no built-in "Open URL" action** — a key
+cannot open a browser anywhere. Bind the **Request fill** action to a key instead:
 
-- **Open the dashboard:** Open URL → `$(ytmeta:dashboard_url)`.
-- **Fill a template-var preset:** Open URL →
-  `$(ytmeta:dashboard_url)/fill?preset=<id>&redirect=<back>` — the browser page collects the
-  values and bounces back.
+- Any **open dashboard** (desktop app, or the dashboard open on a phone over LAN/Tailscale) pops
+  the fill dialog for that preset within a second.
+- With an **ntfy topic** configured in the dashboard's *Phone push* panel, the phone also gets a
+  notification; tapping it opens `/fill?preset=<id>` in the phone's browser — works even with no
+  dashboard tab open.
+
+To just open the dashboard itself, use a bookmark on the device in your hands — the middleware is
+plain http on the LAN (`$(ytmeta:dashboard_url)`).
 
 ---
 

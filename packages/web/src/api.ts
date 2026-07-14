@@ -25,6 +25,8 @@ export type {
   ReleaseSection,
   UpdateState,
   UpdateStatus,
+  FillRequest,
+  NotifyState,
 } from "@app/shared";
 
 import type {
@@ -39,6 +41,7 @@ import type {
   CredentialsState,
   LogEntry,
   AppInfo,
+  NotifyState,
 } from "@app/shared";
 
 /** Preset payload for create/update — the full preset minus its server-assigned id. */
@@ -119,6 +122,22 @@ export const api = {
   state: () => req<DashboardState>("/api/dashboard/state"),
   /** The activity ring buffer (newest-first) for the dashboard Activity panel (PRD-06 §3). */
   logs: () => req<LogEntry[]>("/api/dashboard/logs"),
+  fill: {
+    /**
+     * Takes the pending Companion fill request. Exactly one dashboard wins the claim; the winner
+     * opens the fill popup, everyone else gets claimed:false and stays quiet.
+     */
+    claim: (id: string) =>
+      req<{ success: boolean; claimed: boolean }>(
+        `/api/dashboard/fill-request/${encodeURIComponent(id)}/claim`,
+        { method: "POST" },
+      ),
+  },
+  notify: {
+    get: () => req<NotifyState>("/api/dashboard/notify"),
+    save: (n: NotifyState) =>
+      req<NotifyState>("/api/dashboard/notify", { method: "PUT", body: JSON.stringify(n) }),
+  },
   webhook: {
     get: () => req<{ url: string | null }>("/api/dashboard/webhook"),
     save: (url: string | null) =>

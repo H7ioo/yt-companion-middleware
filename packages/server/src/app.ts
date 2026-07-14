@@ -11,6 +11,7 @@ import { webhookRouter } from "./routes/webhook.js";
 import { serviceRouter } from "./routes/service.js";
 import { logsRouter } from "./routes/logs.js";
 import { streamHandler } from "./routes/stream.js";
+import { fillRequestRouter, notifyRouter } from "./routes/fillRequest.js";
 
 /**
  * Mounts every API route that exists once the server has working credentials. Kept apart from
@@ -52,6 +53,9 @@ export function mountApiRoutes(app: Express, ctx: AppContext): void {
   app.use("/api/dashboard/webhook", webhookRouter(ctx));
   app.use("/api/dashboard/service", serviceRouter(ctx));
   app.use("/api/dashboard/logs", logsRouter(ctx));
+  // Companion key → dashboard-popup/phone-push fill flow (issue 003 trigger).
+  app.use("/api/dashboard/fill-request", fillRequestRouter(ctx));
+  app.use("/api/dashboard/notify", notifyRouter(ctx));
   // Live SSE stream so the dashboard reacts instantly instead of polling.
   app.get("/api/dashboard/stream", streamHandler(ctx));
   // Same handler under a dashboard-namespaced base. The split is by caller, not

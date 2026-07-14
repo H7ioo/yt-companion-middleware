@@ -22,6 +22,7 @@ export function stateRouter(ctx: AppContext): Router {
         ? { label: c.undoSnapshot.label, capturedAt: c.undoSnapshot.capturedAt }
         : null,
       apiEnabled: ctx.store.get().service.apiEnabled,
+      fillRequest: ctx.fills.pending(),
     });
   });
 

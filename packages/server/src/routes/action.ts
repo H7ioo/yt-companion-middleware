@@ -82,7 +82,7 @@ export function actionRouter(ctx: AppContext): Router {
       // and would make the client blank those fields until the next background push (PRD-10 §1).
       res.json({
         success: true,
-        ...buildDashboardState(ctx.store, ctx.cache, ctx.runner, ctx.quota),
+        ...buildDashboardState(ctx.store, ctx.cache, ctx.runner, ctx.quota, ctx.fills),
       });
     } catch (err) {
       res.json(handle(err));

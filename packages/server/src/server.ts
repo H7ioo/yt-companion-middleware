@@ -15,6 +15,7 @@ import { QuotaTracker, instrumentQuota } from "./core/quota.js";
 import { StateEvents } from "./core/events.js";
 import { Logger } from "./core/logger.js";
 import { WebhookDispatcher } from "./core/webhook.js";
+import { FillRequests } from "./core/fillRequests.js";
 import type { AppContext } from "./routes/context.js";
 import { mountApiRoutes } from "./app.js";
 import { setupRouter } from "./routes/setup.js";
@@ -160,9 +161,10 @@ async function bootOnce(
       logger,
     );
     const runner = new ActionRunner(yt, store, cache, events, logger);
-    ctx = { store, runner, cache, yt, quota, events, logger, regionCode: config.regionCode };
+    const fills = new FillRequests(events);
+    ctx = { store, runner, cache, yt, quota, events, logger, fills, regionCode: config.regionCode };
 
-    webhooks = new WebhookDispatcher(store, cache, runner, quota, events);
+    webhooks = new WebhookDispatcher(store, cache, runner, quota, events, fills);
 
     // The whole credentialed route table (health, Companion, dashboard, dual alias) — see app.ts.
     mountApiRoutes(app, ctx);

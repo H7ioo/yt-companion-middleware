@@ -37,7 +37,7 @@ export function attachStateSocket(server: Server, ctx: AppContext): WebSocketSer
     // waiting for the next real change.
     const send = (force = false): void => {
       if (ws.readyState !== ws.OPEN) return;
-      const state = buildDashboardState(ctx.store, ctx.cache, ctx.runner, ctx.quota);
+      const state = buildDashboardState(ctx.store, ctx.cache, ctx.runner, ctx.quota, ctx.fills);
       const signature = changeSignature(state);
       if (!force && signature === lastSignature) return;
       lastSignature = signature;

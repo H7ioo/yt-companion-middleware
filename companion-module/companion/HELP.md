@@ -86,6 +86,12 @@ Apply preset (dropdown + optional template-vars JSON), Update live metadata (tit
 Privacy toggle, Privacy set, Undo, Refresh from YouTube, Refresh lists — all hit the middleware's
 `/api/action/*` bus (Refresh lists re-fetches the preset/category/stream dropdowns).
 
+**Request fill (popup on dashboard / phone push)** — for a preset the operator must type values
+into. A key cannot prompt for input, so this asks the middleware to surface the fill page: any
+open dashboard instantly pops the fill dialog for the chosen preset, and if a **ntfy topic** is
+configured in the dashboard (*Phone push* panel) the operator's phone also gets a tap-to-open
+notification carrying the `/fill` deep link. Unclaimed requests expire after 60 s.
+
 There is no on-demand connection-check action: the module holds a live WebSocket, so health arrives
 in the pushed state frame (the `health` variable / *Health color* feedback) and a dropped link is
 detected automatically — the status pill and `health` reflect it without a button press.
@@ -96,8 +102,8 @@ idle service stops burning quota. Pair the toggle with the *API disabled* feedba
 
 ## Template vars & opening the dashboard
 
-Use Companion's built-in **Open URL** action, not this module:
-
-- Open the dashboard: **Open URL** → `$(ytmeta:dashboard_url)`.
-- Fill a template-var preset: **Open URL** →
-  `$(ytmeta:dashboard_url)/fill?preset=<id>&redirect=<back>`.
+Companion has **no built-in "Open URL" action** — nothing on a key can open a browser. To fill a
+template-var preset from a key, use this module's **Request fill** action (above): the fill page
+reaches you through the open dashboard or an ntfy phone notification. To just look at the
+dashboard, open `$(ytmeta:dashboard_url)` from a bookmark on any device on the LAN, or navigate to
+`$(ytmeta:dashboard_url)/fill?preset=<id>` directly in a browser.

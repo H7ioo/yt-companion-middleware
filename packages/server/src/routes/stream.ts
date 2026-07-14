@@ -23,7 +23,7 @@ export function streamHandler(ctx: AppContext) {
 
     let lastSignature: string | null = null;
     const send = (): void => {
-      const state = buildDashboardState(ctx.store, ctx.cache, ctx.runner, ctx.quota);
+      const state = buildDashboardState(ctx.store, ctx.cache, ctx.runner, ctx.quota, ctx.fills);
       const signature = changeSignature(state);
       if (signature === lastSignature) return;
       lastSignature = signature;

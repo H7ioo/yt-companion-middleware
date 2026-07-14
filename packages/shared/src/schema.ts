@@ -80,6 +80,20 @@ export const quotaSchema = z.object({
 });
 export type QuotaState = z.infer<typeof quotaSchema>;
 
+/**
+ * Phone-push config for the Companion fill flow: when `ntfyTopic` is set, every fill request is
+ * also pushed to `<ntfyServer>/<ntfyTopic>` as a tap-to-open notification carrying the `/fill`
+ * deep link — so a locked phone with the ntfy app can still receive the fill page. Empty topic
+ * disables the push. `publicBaseUrl` is the base the *phone* can reach (e.g. the Tailscale
+ * hostname); empty falls back to the host the request arrived on.
+ */
+export const notifySchema = z.object({
+  ntfyServer: z.string().url().default("https://ntfy.sh"),
+  ntfyTopic: z.string().default(""),
+  publicBaseUrl: z.string().default(""),
+});
+export type NotifyState = z.infer<typeof notifySchema>;
+
 /** Outbound webhook config — POST the state to this URL on every meaningful change. */
 export const webhookSchema = z.object({
   url: z.string().url().nullable().default(null),
@@ -118,6 +132,7 @@ export const storeSchema = z.object({
   }),
   quota: quotaSchema.default({ date: null, used: 0 }),
   webhook: webhookSchema.default({ url: null }),
+  notify: notifySchema.default({ ntfyServer: "https://ntfy.sh", ntfyTopic: "", publicBaseUrl: "" }),
   service: serviceSchema.default({ apiEnabled: true }),
   cache: cacheSchema.default({
     status: { title: null, privacyStatus: null, isLive: false, noTarget: false },

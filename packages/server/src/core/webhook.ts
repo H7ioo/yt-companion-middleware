@@ -3,6 +3,7 @@ import type { StateEvents } from "./events.js";
 import type { StateCache } from "./stateCache.js";
 import type { ActionRunner } from "./actionRunner.js";
 import type { QuotaTracker } from "./quota.js";
+import type { FillRequests } from "./fillRequests.js";
 import { buildDashboardState, changeSignature, type DashboardState } from "./snapshot.js";
 
 const TIMEOUT_MS = 5000;
@@ -25,6 +26,7 @@ export class WebhookDispatcher {
     private readonly runner: ActionRunner,
     private readonly quota: QuotaTracker,
     private readonly events: StateEvents,
+    private readonly fills: FillRequests,
   ) {}
 
   start(): void {
@@ -40,7 +42,7 @@ export class WebhookDispatcher {
   private onChange(): void {
     const url = this.store.get().webhook.url;
     if (!url) return;
-    const state = buildDashboardState(this.store, this.cache, this.runner, this.quota);
+    const state = buildDashboardState(this.store, this.cache, this.runner, this.quota, this.fills);
     const signature = changeSignature(state);
     if (signature === this.lastSignature) return;
     this.lastSignature = signature;

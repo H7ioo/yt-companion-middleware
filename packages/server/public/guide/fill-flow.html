@@ -30,11 +30,12 @@
 <section id="companion-redirect">
           <h2><span class="no">14</span> Companion · the redirect / fill flow</h2>
           <p class="lede">
-            Companion keys can't prompt for input — so for a preset that needs
-            the operator to type a value, don't reach for a custom API. Use
-            Companion's built-in <strong>Open URL</strong> action: the key opens
-            a browser fill page, which POSTs the preset and bounces back to
-            Companion when it's done.
+            Companion keys can't prompt for input — and Companion has
+            <strong>no "Open URL" action</strong>, so a key can't open a browser
+            either. For a preset that needs the operator to type a value, the
+            key instead <em>requests</em> a fill: the middleware surfaces the
+            fill page on whatever screen the operator already has — an open
+            dashboard pops the dialog, and a phone can get a tap-to-open push.
           </p>
 
           <h3>How it flows</h3>
@@ -43,16 +44,26 @@
               <span class="tag">Companion</span>
               <b>Press key</b>
               <span class="d"
-                >Button's action is "open URL", not an HTTP call.</span
+                >Module action <strong>Request fill</strong> POSTs
+                <code>/api/dashboard/fill-request</code>.</span
               >
             </div>
             <div class="arrow">→</div>
             <div class="node">
-              <span class="tag">Browser</span>
-              <b>Fill page</b>
+              <span class="tag">Middleware</span>
+              <b>Surface it</b>
               <span class="d"
-                >Opens <code>/fill?preset=…&amp;redirect=…</code> with the
-                preset preselected.</span
+                >The request rides the state push to every open dashboard; with
+                ntfy configured, the phone gets a notification too.</span
+              >
+            </div>
+            <div class="arrow">→</div>
+            <div class="node">
+              <span class="tag">Operator</span>
+              <b>Fill</b>
+              <span class="d"
+                >The fill dialog pops (dashboard) or the notification opens
+                <code>/fill?preset=…</code> (phone).</span
               >
             </div>
             <div class="arrow">→</div>
@@ -63,32 +74,40 @@
                 >Submit fires <code>/api/dashboard/action/preset</code>.</span
               >
             </div>
-            <div class="arrow">→</div>
-            <div class="node back">
-              <span class="tag">Return</span>
-              <b>Bounce back</b>
-              <span class="d"
-                >On success <code>window.location = redirect</code> → back to
-                Companion.</span
-              >
-            </div>
           </div>
 
           <h3>Wire the button</h3>
           <p>
-            Give the key the built-in <strong>Open URL</strong> action (not a
-            module action). Point it at the app's fill route — the module already
-            exposes the base URL as <code>$(ytmeta:dashboard_url)</code> — with a
-            <code>redirect</code> back to Companion's own URL (its web control, or
-            a <code>companion://</code> deep link — any <code>http(s)</code> URL
-            is accepted, no allowlist):
+            Give the key this module's <strong>Request fill (popup on dashboard /
+            phone push)</strong> action and pick the preset in its dropdown.
+            That's the whole button — delivery is the middleware's job:
           </p>
-          <pre><span class="p">Open URL</span>
-$(ytmeta:dashboard_url)/fill?preset=<span class="s">lesson_stream</span>&amp;redirect=<span class="s">http://&lt;COMPANION_IP&gt;:8000/</span></pre>
-          <p>
-            To just open the dashboard, drop the path: <strong>Open URL</strong> →
-            <code>$(ytmeta:dashboard_url)</code>.
-          </p>
+          <ul>
+            <li>
+              <strong>Open dashboard</strong> (desktop app, or the dashboard open
+              on a phone/tablet over LAN or Tailscale): the fill dialog pops
+              within a second, preset preselected. The first dashboard to claim
+              the request wins — no double popups.
+            </li>
+            <li>
+              <strong>Phone push (optional):</strong> set an
+              <strong>ntfy</strong> topic (ntfy.sh, or self-hosted) in the dashboard's
+              <em>Phone push</em> panel and subscribe to it in the ntfy app.
+              The key press then also sends a notification; tapping it opens the
+              fill page in the phone's browser — no dashboard tab needed. Treat
+              the topic name as a secret.
+              <br />
+              <strong>Same network?</strong> Leave <em>Public base URL</em> blank
+              — the link points at this machine's LAN address automatically, even
+              when Companion itself talks to <code>localhost</code>. Fill it in
+              only when the LAN address won't reach the phone: a Tailscale
+              hostname, another subnet, or a reverse proxy.
+            </li>
+            <li>
+              An unclaimed request expires after <strong>60&nbsp;seconds</strong> —
+              a key pressed with nobody watching never pops a stale dialog later.
+            </li>
+          </ul>
 
           <h4>What the operator sees</h4>
           <ul>
@@ -97,27 +116,32 @@ $(ytmeta:dashboard_url)/fill?preset=<span class="s">lesson_stream</span>&amp;red
               values prefilled, and a live preview.
             </li>
             <li>
-              <strong>On success</strong> the page navigates straight to the
-              <code>redirect</code> URL — the operator lands back in Companion.
+              <strong>On success</strong> the dialog confirms the apply — the
+              operator closes it and is already back on the dashboard.
             </li>
             <li>
-              <strong>On failure</strong> the page stays put and shows the
-              error, so nothing bounces until the action actually went through.
-            </li>
-            <li>
-              A preset with <strong>no variables</strong> opened this way fires
-              and bounces immediately — no popup at all.
+              <strong>On failure</strong> the dialog stays put and shows the
+              error, so nothing is lost until the action actually went through.
             </li>
           </ul>
+
+          <p>
+            The direct route still exists for anything that can navigate on its
+            own: <code>/fill?preset=&lt;id&gt;[&amp;redirect=&lt;url&gt;]</code>
+            opens the same fill page from a bookmark or a custom integration, and
+            bounces to <code>redirect</code> on success (any
+            <code>http(s)</code> URL, no allowlist).
+          </p>
 
           <div class="callout tip">
             <p>
               <strong>When to use which.</strong> Fixed preset → the
               <strong>Apply preset</strong> action or its drag-drop preset button
               (§11–12). Needs a value typed each time and has no fallback → this
-              redirect flow. Needs a value but has a sensible fallback → either
-              works; <strong>Apply preset</strong> just uses the fallback when you
-              leave <code>Template vars</code> blank.
+              <strong>Request fill</strong> flow. Needs a value but has a
+              sensible fallback → either works; <strong>Apply preset</strong>
+              just uses the fallback when you leave
+              <code>Template vars</code> blank.
             </p>
           </div>
         </section>

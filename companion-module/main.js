@@ -475,6 +475,22 @@ class YtMiddlewareInstance extends InstanceBase {
 					return this.postAction('/api/action/preset', body)
 				},
 			},
+			request_fill: {
+				name: 'Request fill (popup on dashboard / phone push)',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'presetId',
+						label: 'Preset',
+						default: this.presets[0]?.id ?? '',
+						choices: presetChoices(this.presets),
+					},
+				],
+				// A key can't prompt for input (Companion has no open-URL action either), so this asks the
+				// middleware to surface the fill page instead: any open dashboard pops the fill dialog, and
+				// with ntfy configured server-side the operator's phone gets a tap-to-open notification.
+				callback: (a) => this.postAction('/api/dashboard/fill-request', { presetId: a.options.presetId }),
+			},
 			update: {
 				name: 'Update live metadata',
 				options: [

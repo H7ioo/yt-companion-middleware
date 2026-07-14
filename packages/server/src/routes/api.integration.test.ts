@@ -11,6 +11,7 @@ import { ActionRunner } from "../core/actionRunner.js";
 import { QuotaTracker } from "../core/quota.js";
 import { StateEvents } from "../core/events.js";
 import { Logger } from "../core/logger.js";
+import { FillRequests } from "../core/fillRequests.js";
 import { mountApiRoutes } from "../app.js";
 import { setupRouter } from "./setup.js";
 import type { AppContext } from "./context.js";
@@ -113,7 +114,18 @@ async function boot(): Promise<Harness> {
     logger,
   );
   const runner = new ActionRunner(yt, store, cache, events, logger);
-  const ctx: AppContext = { store, runner, cache, yt, quota, events, logger, regionCode: "US" };
+  const fills = new FillRequests(events);
+  const ctx: AppContext = {
+    store,
+    runner,
+    cache,
+    yt,
+    quota,
+    events,
+    logger,
+    fills,
+    regionCode: "US",
+  };
 
   const app = express();
   app.use(express.json());
@@ -490,6 +502,55 @@ describe("dashboard routes", () => {
     expect(res.status).toBe(200);
     const entries = Array.isArray(res.body) ? res.body : res.body.entries;
     expect(entries.some((e: { message: string }) => e.message.includes("Logged"))).toBe(true);
+  });
+
+  it("raises a fill request, surfaces it on state, and lets exactly one claim win", async () => {
+    const id = await createPreset({ title: "Lesson {topic}" });
+
+    const raised = await call("POST", "/api/dashboard/fill-request", { presetId: id });
+    expect(raised.status).toBe(200);
+    expect(raised.body.success).toBe(true);
+
+    const state = await call("GET", "/api/dashboard/state");
+    expect(state.body.fillRequest).toMatchObject({ id: raised.body.id, presetId: id });
+
+    const first = await call("POST", `/api/dashboard/fill-request/${raised.body.id}/claim`);
+    expect(first.body).toMatchObject({ success: true, claimed: true });
+    const second = await call("POST", `/api/dashboard/fill-request/${raised.body.id}/claim`);
+    expect(second.body).toMatchObject({ success: true, claimed: false });
+
+    expect((await call("GET", "/api/dashboard/state")).body.fillRequest).toBeNull();
+  });
+
+  it("rejects a fill request for an unknown preset in the 200 envelope", async () => {
+    const res = await call("POST", "/api/dashboard/fill-request", { presetId: "ghost" });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe("INVALID_PRESET");
+  });
+
+  it("round-trips the ntfy notify config and rejects a bad server URL", async () => {
+    const put = await call("PUT", "/api/dashboard/notify", {
+      ntfyServer: "",
+      ntfyTopic: "masjid-fill",
+      publicBaseUrl: "http://studio.tail1234.ts.net:8080",
+    });
+    expect(put.status).toBe(200);
+    // Empty server falls back to the public default rather than persisting "".
+    expect(put.body).toEqual({
+      ntfyServer: "https://ntfy.sh",
+      ntfyTopic: "masjid-fill",
+      publicBaseUrl: "http://studio.tail1234.ts.net:8080",
+    });
+    expect((await call("GET", "/api/dashboard/notify")).body.ntfyTopic).toBe("masjid-fill");
+
+    const bad = await call("PUT", "/api/dashboard/notify", {
+      ntfyServer: "not a url",
+      ntfyTopic: "",
+      publicBaseUrl: "",
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.code).toBe("INVALID_REQUEST");
   });
 });
 

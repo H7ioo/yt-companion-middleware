@@ -4,6 +4,7 @@ import {
   type Category,
   type DashboardState,
   type DefaultSettings,
+  type NotifyState,
   type Preset,
   type PresetInput,
   type StreamInfo,
@@ -43,6 +44,11 @@ export function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [streams, setStreams] = useState<StreamInfo[]>([]);
   const [webhookUrl, setWebhookUrl] = useState<string>("");
+  const [notify, setNotify] = useState<NotifyState>({
+    ntfyServer: "https://ntfy.sh",
+    ntfyTopic: "",
+    publicBaseUrl: "",
+  });
   const [editing, setEditing] = useState<Preset | "new" | null>(null);
   const [filling, setFilling] = useState<Preset | null>(null);
   const [adHoc, setAdHoc] = useState(false);
@@ -68,6 +74,10 @@ export function App() {
     void loadPresets();
     void api.settings.get().then(setSettings);
     void api.webhook.get().then((w) => setWebhookUrl(w.url ?? ""));
+    void api.notify
+      .get()
+      .then(setNotify)
+      .catch(() => {});
     void api.categories
       .list()
       .then(setCategories)
@@ -216,6 +226,31 @@ export function App() {
   };
 
   // The fill popup fires the action itself and surfaces the result inline; toast on success.
+  // A Companion key raised a fill request (it can't show a popup itself — issue 003). It arrives
+  // on the state push; claim it, and if this dashboard wins the race, pop the fill popup. The
+  // ref stops a re-render (or the claim's own state push) from re-processing the same request.
+  const handledFill = useRef<string | null>(null);
+  useEffect(() => {
+    const request = state?.fillRequest;
+    if (!request || handledFill.current === request.id) return;
+    handledFill.current = request.id;
+    void (async () => {
+      try {
+        const { claimed } = await api.fill.claim(request.id);
+        if (!claimed) return;
+        // The preset list may predate the request (e.g. created after this tab loaded) — refetch
+        // before declaring it unknown.
+        const preset =
+          presets.find((p) => p.id === request.presetId) ??
+          (await api.presets.list()).find((p) => p.id === request.presetId);
+        if (preset) setFilling(preset);
+        else flash(`Companion asked to fill unknown preset “${request.presetId}”`, "err");
+      } catch {
+        /* claim lost to a server restart — the request is gone either way */
+      }
+    })();
+  }, [state?.fillRequest, presets, flash]);
+
   const fireFilledPreset = async (presetId: string, vars: Record<string, string>) => {
     const r = await api.action.preset(presetId, vars);
     if (r.success) flash("Preset applied to YouTube");
@@ -266,6 +301,16 @@ export function App() {
       const saved = await api.webhook.save(trimmed || null);
       setWebhookUrl(saved.url ?? "");
       flash(saved.url ? "Webhook saved" : "Webhook cleared");
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
+  const saveNotify = async (next: NotifyState) => {
+    try {
+      const saved = await api.notify.save(next);
+      setNotify(saved);
+      flash(saved.ntfyTopic ? "Phone push saved" : "Phone push disabled");
     } catch (e) {
       flash((e as Error).message, "err");
     }
@@ -631,6 +676,61 @@ export function App() {
             </div>
             <p className="empty">
               Saves when you leave the field. Clear it to disable.
+            </p>
+          </div>
+        </section>
+
+        {/* Phone push — the ntfy leg of the Companion fill flow (issue 003 trigger). */}
+        <section className="panel">
+          <div className="panel__head">
+            <h2>Phone push (ntfy)</h2>
+          </div>
+          <div className="panel__body">
+            <p className="empty" style={{ marginTop: 0 }}>
+              Optional. A Companion “Request fill” key pops the fill dialog in any open
+              dashboard. With a topic set here it also sends an{" "}
+              <a href="https://ntfy.sh" target="_blank" rel="noreferrer">
+                ntfy
+              </a>{" "}
+              notification — tap it on your phone to open the fill page, even with no dashboard
+              open. Subscribe to the same topic in the ntfy app; treat the topic name as a secret.
+            </p>
+            <div className="field">
+              <label htmlFor="ntfy-topic">Topic</label>
+              <input
+                id="ntfy-topic"
+                value={notify.ntfyTopic}
+                placeholder="e.g. masjid-fill-8k2j — empty disables the push"
+                onChange={(e) => setNotify({ ...notify, ntfyTopic: e.target.value })}
+                onBlur={() => saveNotify(notify)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="ntfy-server">ntfy server</label>
+              <input
+                id="ntfy-server"
+                type="url"
+                value={notify.ntfyServer}
+                placeholder="https://ntfy.sh"
+                onChange={(e) => setNotify({ ...notify, ntfyServer: e.target.value })}
+                onBlur={() => saveNotify(notify)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="ntfy-base">Public base URL (what the phone opens)</label>
+              <input
+                id="ntfy-base"
+                type="url"
+                value={notify.publicBaseUrl}
+                placeholder="usually leave blank — this machine's LAN address is used"
+                onChange={(e) => setNotify({ ...notify, publicBaseUrl: e.target.value })}
+                onBlur={() => saveNotify(notify)}
+              />
+            </div>
+            <p className="empty">
+              Leave the base URL blank when the phone is on the same network — the link points at
+              this machine's LAN address automatically. Set it only when that address won't reach
+              the phone (Tailscale, another subnet, a reverse proxy). Saves when you leave a field.
             </p>
           </div>
         </section>

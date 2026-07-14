@@ -2,6 +2,7 @@ import type { JsonStore } from "../storage/jsonStore.js";
 import type { StateCache } from "./stateCache.js";
 import type { ActionRunner } from "./actionRunner.js";
 import type { QuotaTracker } from "./quota.js";
+import type { FillRequests } from "./fillRequests.js";
 import { renderTextPng } from "./titleImage.js";
 // DashboardState is the shared API contract for the dashboard state / SSE / webhook payloads.
 export type { DashboardState } from "@app/shared";
@@ -14,6 +15,7 @@ export function buildDashboardState(
   cache: StateCache,
   runner: ActionRunner,
   quota: QuotaTracker,
+  fills: FillRequests,
 ): DashboardState {
   const c = cache.snapshot();
   const displayLabel = resolveDisplayLabel(store, c.activePresetId);
@@ -32,6 +34,7 @@ export function buildDashboardState(
       ? { label: c.undoSnapshot.label, capturedAt: c.undoSnapshot.capturedAt }
       : null,
     apiEnabled: store.get().service.apiEnabled,
+    fillRequest: fills.pending(),
   };
 }
 
@@ -69,5 +72,6 @@ export function changeSignature(s: DashboardState): string {
     s.undo?.capturedAt ?? null,
     s.apiEnabled,
     quotaBucket,
+    s.fillRequest?.id ?? null,
   ]);
 }
