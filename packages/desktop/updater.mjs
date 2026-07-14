@@ -113,6 +113,15 @@ export function createUpdateController({
 
   updater.on("error", fail);
 
+  async function runCheck() {
+    setState({ status: "checking" });
+    try {
+      await updater.checkForUpdates();
+    } catch (err) {
+      fail(err);
+    }
+  }
+
   return {
     /** @returns {UpdateState} */
     getState: () => state,
@@ -125,12 +134,22 @@ export function createUpdateController({
       }
       updater.autoDownload = true;
       updater.autoInstallOnAppQuit = false; // never mid-stream, never behind the operator's back
-      setState({ status: "checking" });
-      try {
-        await updater.checkForUpdates();
-      } catch (err) {
-        fail(err);
+      await runCheck();
+    },
+
+    /**
+     * Operator-triggered re-check (the launch check happens once; a release published after that
+     * would otherwise go unseen until restart). No-op while a check or download is already in
+     * flight, and when a download is staged — re-checking there could only re-download.
+     * Resolves to the state after the check settles.
+     * @returns {Promise<UpdateState>}
+     */
+    async check() {
+      if (supported && (state.status === "idle" || state.status === "error")) {
+        log("info", "Manual update check requested");
+        await runCheck();
       }
+      return state;
     },
 
     /**

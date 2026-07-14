@@ -10,6 +10,8 @@ export interface UpdateHost {
   getState(): UpdateState;
   /** Installs the downloaded update and restarts. Returns false when nothing is staged. */
   installAndRestart(): boolean;
+  /** Operator-triggered re-check. Resolves to the state once the check settles. */
+  check(): Promise<UpdateState>;
 }
 
 export interface AppInfoDeps {
@@ -41,6 +43,20 @@ export function appInfoRouter({ version, changelog, updates }: AppInfoDeps): Rou
       updateNotes: update.notes ?? null,
     };
     res.json(info);
+  });
+
+  // Operator-triggered re-check (issue: the launch check is the only one, so a release published
+  // while the app runs is invisible until restart). Answers with the settled state so the
+  // dashboard can say "up to date" or "found one — downloading" without polling.
+  router.post("/update/check", (_req, res) => {
+    if (!updates) {
+      res.status(409).json({ error: "This build does not update itself." });
+      return;
+    }
+    void updates.check().then(
+      (update) => res.json({ update }),
+      () => res.status(500).json({ error: "Update check failed." }),
+    );
   });
 
   // The one path to an install. Deliberately a POST the operator triggers — the app never restarts

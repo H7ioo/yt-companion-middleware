@@ -57,6 +57,7 @@ export function App() {
   /** Which release notes the panel is showing, if any: the running build's, or the offered one's. */
   const [whatsNew, setWhatsNew] = useState<"running" | "offered" | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
   const importInput = useRef<HTMLInputElement>(null);
 
@@ -64,6 +65,29 @@ export function App() {
     setToast({ message, kind });
     window.setTimeout(() => setToast(null), 3200);
   }, []);
+
+  // Manual update re-check. The launch check is once-only, so a release published while the app
+  // runs is invisible until restart without this. Refetches app info after so the banner reflects
+  // a found update immediately rather than on the next 60s poll.
+  const checkForUpdates = useCallback(async () => {
+    setCheckingUpdate(true);
+    try {
+      const { update } = await api.app.check();
+      const info = await api.app.info();
+      setAppInfo((prev) => (appInfoChanged(prev, info) ? info : prev));
+      if (update.status === "downloading" || update.status === "downloaded") {
+        flash(`Update v${update.version ?? "?"} found — downloading in the background`);
+      } else if (update.status === "error") {
+        flash(update.error ?? "Update check failed", "err");
+      } else {
+        flash("You're up to date");
+      }
+    } catch (e) {
+      flash((e as Error).message, "err");
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }, [flash]);
 
   const loadPresets = useCallback(
     () => api.presets.list().then(setPresets),
@@ -788,6 +812,13 @@ export function App() {
           notes={whatsNew === "offered" ? (appInfo?.updateNotes ?? null) : (appInfo?.notes ?? null)}
           kind={whatsNew}
           onClose={() => setWhatsNew(null)}
+          // Only the running-version panel offers a re-check, and only on hosts with an updater.
+          onCheckUpdates={
+            whatsNew === "running" && appInfo && appInfo.update.status !== "unsupported"
+              ? checkForUpdates
+              : undefined
+          }
+          checkingUpdates={checkingUpdate}
         />
       ) : null}
 

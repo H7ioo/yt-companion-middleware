@@ -66,6 +66,7 @@ describe("GET /api/dashboard/app", () => {
     const updates: UpdateHost = {
       getState: () => ({ status: "downloaded", version: "2.2.0", notes: "Streaming-safe auto-update." }),
       installAndRestart: () => true,
+      check: async () => ({ status: "downloaded", version: "2.2.0" }),
     };
     const url = await boot({ updates });
     const { body } = await call(`${url}/api/dashboard/app`);
@@ -78,6 +79,7 @@ describe("GET /api/dashboard/app", () => {
     const updates: UpdateHost = {
       getState: () => ({ status: "downloaded", version: "2.2.0" }),
       installAndRestart: () => true,
+      check: async () => ({ status: "downloaded", version: "2.2.0" }),
     };
     const url = await boot({ updates });
     const { body } = await call(`${url}/api/dashboard/app`);
@@ -91,12 +93,36 @@ describe("GET /api/dashboard/app", () => {
   });
 });
 
+describe("POST /api/dashboard/app/update/check", () => {
+  it("triggers a re-check and answers with the settled state", async () => {
+    const check = vi.fn(async () => ({ status: "downloading", version: "2.3.0" }) as const);
+    const updates: UpdateHost = {
+      getState: () => ({ status: "idle" }),
+      installAndRestart: () => false,
+      check,
+    };
+    const url = await boot({ updates });
+    const { status, body } = await call(`${url}/api/dashboard/app/update/check`, "POST");
+    expect(status).toBe(200);
+    expect(body.update).toEqual({ status: "downloading", version: "2.3.0" });
+    expect(check).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses on a host with no updater at all", async () => {
+    const url = await boot();
+    const { status, body } = await call(`${url}/api/dashboard/app/update/check`, "POST");
+    expect(status).toBe(409);
+    expect(body.error).toMatch(/does not update itself/i);
+  });
+});
+
 describe("POST /api/dashboard/app/update/install", () => {
   it("installs when an update is staged", async () => {
     const installAndRestart = vi.fn(() => true);
     const updates: UpdateHost = {
       getState: () => ({ status: "downloaded", version: "2.2.0" }),
       installAndRestart,
+      check: async () => ({ status: "downloaded", version: "2.2.0" }),
     };
     const url = await boot({ updates });
     const { status } = await call(`${url}/api/dashboard/app/update/install`, "POST");
@@ -108,6 +134,7 @@ describe("POST /api/dashboard/app/update/install", () => {
     const updates: UpdateHost = {
       getState: () => ({ status: "checking" }),
       installAndRestart: () => false,
+      check: async () => ({ status: "checking" }),
     };
     const url = await boot({ updates });
     const { status, body } = await call(`${url}/api/dashboard/app/update/install`, "POST");

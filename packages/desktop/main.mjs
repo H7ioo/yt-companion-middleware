@@ -117,6 +117,11 @@ function refreshTrayMenu() {
     updateItems.push({ label: `Downloading update (v${state.version})…`, enabled: false });
   } else if (state?.status === "downloaded") {
     updateItems.push({ label: `Install update (v${state.version}) & restart`, click: installUpdate });
+  } else if (state?.status === "checking") {
+    updateItems.push({ label: "Checking for updates…", enabled: false });
+  } else if (state && state.status !== "unsupported") {
+    // idle or error: the launch check found nothing (or failed) — let the operator re-check.
+    updateItems.push({ label: "Check for updates", click: () => void updates?.check() });
   }
   if (updateItems.length > 0) updateItems.push({ type: "separator" });
 
@@ -196,7 +201,7 @@ async function startEmbeddedServer() {
    *   bundledClient?: { clientId: string, clientSecret: string },
    *   appVersion?: string,
    *   changelogPath?: string,
-   *   updates?: { getState: () => UpdateState, installAndRestart: () => boolean },
+   *   updates?: { getState: () => UpdateState, installAndRestart: () => boolean, check: () => Promise<UpdateState> },
    * }} StartServerOptions
    * @type {{ startServer: (options?: StartServerOptions) => Promise<ServerHandle> }}
    */
@@ -216,6 +221,7 @@ async function startEmbeddedServer() {
     updates: {
       getState: () => updates?.getState() ?? { status: "unsupported" },
       installAndRestart: () => updates?.installAndRestart() ?? false,
+      check: async () => (updates ? await updates.check() : { status: "unsupported" }),
     },
   });
 }

@@ -248,5 +248,10 @@ export const api = {
     /** Installs the staged update and restarts. Only ever called from an explicit operator click. */
     install: () =>
       req<{ installing: boolean }>("/api/dashboard/app/update/install", { method: "POST" }),
+    /** Operator-triggered update re-check; resolves once the check settles. */
+    check: () =>
+      req<{ update: import("@app/shared").UpdateState }>("/api/dashboard/app/update/check", {
+        method: "POST",
+      }),
   },
 };

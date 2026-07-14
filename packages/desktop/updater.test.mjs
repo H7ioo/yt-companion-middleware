@@ -132,6 +132,50 @@ describe("createUpdateController", () => {
     expect(ctl.getState().status).toBe("idle");
   });
 
+  it("re-checks on request from idle, and reports the settled state", async () => {
+    const { updater, ctl } = controller();
+    await ctl.start();
+    updater.emit("update-not-available", {});
+    expect(ctl.getState().status).toBe("idle");
+
+    // A release published after the launch check: the manual check must find it.
+    updater.checkForUpdates.mockImplementation(async () => {
+      updater.emit("update-available", { version: "2.2.1" });
+      return {};
+    });
+    const state = await ctl.check();
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+    expect(state).toMatchObject({ status: "downloading", version: "2.2.1" });
+  });
+
+  it("re-checks after a failed check — an offline launch must not disable the button", async () => {
+    const { updater, ctl } = controller();
+    updater.checkForUpdates.mockRejectedValueOnce(new Error("offline"));
+    await ctl.start();
+    expect(ctl.getState().status).toBe("error");
+
+    updater.checkForUpdates.mockImplementation(async () => {
+      updater.emit("update-not-available", {});
+      return {};
+    });
+    const state = await ctl.check();
+    expect(state.status).toBe("idle");
+  });
+
+  it("does not re-check while downloading, once downloaded, or on unsupported builds", async () => {
+    const { updater, ctl } = controller();
+    await ctl.start();
+    updater.emit("update-available", { version: "2.2.1" });
+    expect((await ctl.check()).status).toBe("downloading");
+    updater.emit("update-downloaded", { version: "2.2.1" });
+    expect((await ctl.check()).status).toBe("downloaded");
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1); // launch check only
+
+    const unsupported = controller({ supported: false });
+    expect((await unsupported.ctl.check()).status).toBe("unsupported");
+    expect(unsupported.updater.checkForUpdates).not.toHaveBeenCalled();
+  });
+
   it("installs only on explicit user action, and only once downloaded", async () => {
     const { updater, ctl } = controller();
     await ctl.start();

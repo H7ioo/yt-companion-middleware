@@ -12,6 +12,9 @@ interface Props {
   /** "running" = what you are on now; "offered" = what an install would give you. */
   kind: "running" | "offered";
   onClose: () => void;
+  /** Manual update re-check; absent on hosts with no updater (Docker, portable, dev). */
+  onCheckUpdates?: () => void;
+  checkingUpdates?: boolean;
 }
 
 /**
@@ -23,7 +26,7 @@ interface Props {
  * update banner opens the same panel for the version it is offering, so "what would I get" and
  * "what did I get" are one screen, not two.
  */
-export function WhatsNewModal({ notes, kind, onClose }: Props) {
+export function WhatsNewModal({ notes, kind, onClose, onCheckUpdates, checkingUpdates }: Props) {
   useEscape(onClose);
 
   // Plain-text feed notes (offered version) vs. structured changelog notes (running version).
@@ -75,6 +78,16 @@ export function WhatsNewModal({ notes, kind, onClose }: Props) {
         </div>
 
         <div className="modal__foot">
+          {onCheckUpdates ? (
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={onCheckUpdates}
+              disabled={checkingUpdates}
+            >
+              {checkingUpdates ? "Checking…" : "Check for updates"}
+            </button>
+          ) : null}
           <button type="button" className="btn btn--primary" onClick={onClose}>
             Done
           </button>
