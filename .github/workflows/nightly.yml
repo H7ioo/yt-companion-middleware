@@ -6,7 +6,7 @@ name: Nightly
 #   - stable installs never see nightlies;
 #   - a nightly install follows newer nightlies AND the next stable (2.2.2-nightly.x < 2.2.2).
 # Runs nightly (skipped when main has no new commits since the last tag) or on demand.
-# The Companion module is not built here — import its .tgz from a stable release or build locally.
+# The Companion module .tgz is built and attached too, so a nightly tester gets the matching pair.
 on:
   workflow_dispatch:
   schedule:
@@ -106,9 +106,39 @@ jobs:
             release/*.blockmap
           if-no-files-found: error
 
+  # Same as the Release workflow's companion job: build the Bitfocus module .tgz so nightly testers
+  # get the module matching the app they're testing. Its version is the module's own in-repo one,
+  # not the computed nightly version, so no stamping here.
+  companion:
+    name: Companion module package
+    needs: [prepare, checks]
+    if: needs.prepare.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: companion-module/package-lock.json
+
+      - run: npm ci
+        working-directory: companion-module
+
+      # prepackage re-checks that package.json and manifest.json versions match before building.
+      - run: npm run package
+        working-directory: companion-module
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: companion
+          path: companion-module/*.tgz
+          if-no-files-found: error
+
   publish:
     name: Publish nightly pre-release
-    needs: [prepare, desktop]
+    needs: [prepare, desktop, companion]
     if: needs.prepare.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -143,6 +173,7 @@ jobs:
             artifacts/desktop/*.exe
             artifacts/desktop/latest.yml
             artifacts/desktop/*.blockmap
+            artifacts/companion/*.tgz
           generate_release_notes: false
           fail_on_unmatched_files: true
 
