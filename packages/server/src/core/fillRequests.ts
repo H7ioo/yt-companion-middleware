@@ -8,9 +8,14 @@ const TTL_MS = 60_000;
 
 /**
  * The single pending "fill this preset" slot behind POST /api/dashboard/fill-request (the
- * Companion key press) and its claim endpoint (the dashboard). One slot, not a queue: a second
- * key press replaces the first — the operator's latest intent wins. In-memory only; a restart
- * drops at most one 60s-old request.
+ * Companion key press). One slot, not a queue: a second key press replaces the first — the
+ * operator's latest intent wins. In-memory only; a restart drops at most one 60s-old request.
+ *
+ * The request is *broadcast*, not claimed: every open dashboard sees it on the state push and pops
+ * its own fill popup. There is deliberately no exclusive claim — the operator may be watching any
+ * one of several open surfaces (the desktop window on the stream PC plus a phone over Tailscale),
+ * and an exclusive claim would land the popup on whichever surface was fastest, not the one they're
+ * looking at. The slot simply expires after the TTL; nothing consumes it.
  */
 export class FillRequests {
   private slot: FillRequest | null = null;
@@ -33,20 +38,10 @@ export class FillRequests {
     return this.slot;
   }
 
-  /** The live pending request, if any. Expiry is lazy — checked on read, not on a timer. */
+  /** The live pending request, if any. Expiry is lazy — checked on read, not on a timer. A read
+   *  never consumes the request: every dashboard reads the same pending slot and pops the popup. */
   pending(): FillRequest | null {
     if (this.slot && this.now() >= this.expiresAt) this.slot = null;
     return this.slot;
-  }
-
-  /**
-   * Atomically takes the pending request by id. Exactly one caller wins when several dashboards
-   * race the same push; losers get false and stay quiet.
-   */
-  claim(id: string): boolean {
-    if (this.pending()?.id !== id) return false;
-    this.slot = null;
-    this.events.emitChange();
-    return true;
   }
 }

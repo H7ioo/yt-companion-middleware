@@ -122,17 +122,6 @@ export const api = {
   state: () => req<DashboardState>("/api/dashboard/state"),
   /** The activity ring buffer (newest-first) for the dashboard Activity panel (PRD-06 §3). */
   logs: () => req<LogEntry[]>("/api/dashboard/logs"),
-  fill: {
-    /**
-     * Takes the pending Companion fill request. Exactly one dashboard wins the claim; the winner
-     * opens the fill popup, everyone else gets claimed:false and stays quiet.
-     */
-    claim: (id: string) =>
-      req<{ success: boolean; claimed: boolean }>(
-        `/api/dashboard/fill-request/${encodeURIComponent(id)}/claim`,
-        { method: "POST" },
-      ),
-  },
   notify: {
     get: () => req<NotifyState>("/api/dashboard/notify"),
     save: (n: NotifyState) =>

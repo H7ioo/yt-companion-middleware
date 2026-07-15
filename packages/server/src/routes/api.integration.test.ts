@@ -504,22 +504,19 @@ describe("dashboard routes", () => {
     expect(entries.some((e: { message: string }) => e.message.includes("Logged"))).toBe(true);
   });
 
-  it("raises a fill request, surfaces it on state, and lets exactly one claim win", async () => {
+  it("raises a fill request and broadcasts it — reads don't consume it", async () => {
     const id = await createPreset({ title: "Lesson {topic}" });
 
     const raised = await call("POST", "/api/dashboard/fill-request", { presetId: id });
     expect(raised.status).toBe(200);
     expect(raised.body.success).toBe(true);
 
-    const state = await call("GET", "/api/dashboard/state");
-    expect(state.body.fillRequest).toMatchObject({ id: raised.body.id, presetId: id });
-
-    const first = await call("POST", `/api/dashboard/fill-request/${raised.body.id}/claim`);
-    expect(first.body).toMatchObject({ success: true, claimed: true });
-    const second = await call("POST", `/api/dashboard/fill-request/${raised.body.id}/claim`);
-    expect(second.body).toMatchObject({ success: true, claimed: false });
-
-    expect((await call("GET", "/api/dashboard/state")).body.fillRequest).toBeNull();
+    // Every dashboard reads the same pending request off state; a read never clears it, so a
+    // second surface (e.g. a phone over Tailscale) still sees it and pops its own popup.
+    const first = await call("GET", "/api/dashboard/state");
+    expect(first.body.fillRequest).toMatchObject({ id: raised.body.id, presetId: id });
+    const second = await call("GET", "/api/dashboard/state");
+    expect(second.body.fillRequest).toMatchObject({ id: raised.body.id, presetId: id });
   });
 
   it("rejects a fill request for an unknown preset in the 200 envelope", async () => {

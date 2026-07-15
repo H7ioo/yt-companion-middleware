@@ -80,7 +80,7 @@ describe("changeSignature", () => {
     );
   });
 
-  it("changes when a fill request is raised and again when it is claimed", () => {
+  it("changes when a fill request is raised and again when it clears", () => {
     const pending = state({
       fillRequest: { id: "f1", presetId: "p1", requestedAt: "2026-07-03T00:00:00.000Z" },
     });

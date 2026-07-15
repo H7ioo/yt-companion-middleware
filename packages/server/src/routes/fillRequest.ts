@@ -13,9 +13,9 @@ const requestBody = z.object({
 /**
  * The Companion side of the fill flow (issue 003). Companion has no "open URL" action — a key
  * cannot open a browser anywhere, least of all on the operator's phone — so a key press instead
- * POSTs here. Two things then race to reach the operator: any open dashboard receives the
- * request over the state push and pops the fill popup (claiming it here), and, when configured,
- * an ntfy notification carries the `/fill` deep link to the phone.
+ * POSTs here. Two things then reach the operator: every open dashboard receives the request over
+ * the state push and pops the fill popup (broadcast, not claimed — see FillRequests), and, when
+ * configured, an ntfy notification carries the `/fill` deep link to the phone.
  *
  * Same envelope contract as the action bus: always HTTP 200 with success/error in the body.
  */
@@ -71,11 +71,6 @@ export function fillRequestRouter(ctx: AppContext): Router {
       }
       res.json(toErrorBody(err));
     }
-  });
-
-  // First dashboard to claim wins and pops the fill popup; everyone else stays quiet.
-  router.post("/:id/claim", (req, res) => {
-    res.json({ success: true, claimed: ctx.fills.claim(req.params.id) });
   });
 
   return router;

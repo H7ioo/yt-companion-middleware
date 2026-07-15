@@ -249,29 +249,25 @@ export function App() {
     }
   };
 
-  // The fill popup fires the action itself and surfaces the result inline; toast on success.
-  // A Companion key raised a fill request (it can't show a popup itself — issue 003). It arrives
-  // on the state push; claim it, and if this dashboard wins the race, pop the fill popup. The
-  // ref stops a re-render (or the claim's own state push) from re-processing the same request.
+  // A Companion key raised a fill request (a key can't show a popup itself — issue 003). It arrives
+  // on the state push to EVERY open dashboard, and each pops its own popup — a broadcast, not an
+  // exclusive claim. The operator may be watching any one of several open surfaces (the desktop
+  // window on the stream PC plus a phone over Tailscale); only broadcasting guarantees the popup
+  // reaches the one they're looking at. The ref pops each request id exactly once, so a closed
+  // popup stays closed and the 60s-lived slot doesn't re-pop it on later frames.
   const handledFill = useRef<string | null>(null);
   useEffect(() => {
     const request = state?.fillRequest;
     if (!request || handledFill.current === request.id) return;
     handledFill.current = request.id;
     void (async () => {
-      try {
-        const { claimed } = await api.fill.claim(request.id);
-        if (!claimed) return;
-        // The preset list may predate the request (e.g. created after this tab loaded) — refetch
-        // before declaring it unknown.
-        const preset =
-          presets.find((p) => p.id === request.presetId) ??
-          (await api.presets.list()).find((p) => p.id === request.presetId);
-        if (preset) setFilling(preset);
-        else flash(`Companion asked to fill unknown preset “${request.presetId}”`, "err");
-      } catch {
-        /* claim lost to a server restart — the request is gone either way */
-      }
+      // The preset list may predate the request (e.g. created after this tab loaded) — refetch
+      // before declaring it unknown.
+      const preset =
+        presets.find((p) => p.id === request.presetId) ??
+        (await api.presets.list()).find((p) => p.id === request.presetId);
+      if (preset) setFilling(preset);
+      else flash(`Companion asked to fill unknown preset “${request.presetId}”`, "err");
     })();
   }, [state?.fillRequest, presets, flash]);
 
