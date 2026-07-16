@@ -24,20 +24,23 @@ export async function pushFillNotification(
 ): Promise<boolean> {
   const topic = notify.ntfyTopic.trim();
   if (!topic) return false;
-  const url = `${notify.ntfyServer.replace(/\/$/, "")}/${encodeURIComponent(topic)}`;
+  const url = notify.ntfyServer.replace(/\/$/, "");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
+    // ntfy's JSON publish format (POST to the server root, topic in the body), NOT the header
+    // format: HTTP headers only carry Latin-1, so an Arabic preset title — or even the curly
+    // quotes below — makes fetch throw before the request leaves the machine. JSON is UTF-8.
     const res = await doFetch(url, {
       method: "POST",
-      headers: {
-        // ntfy reads metadata from headers; the body is the notification text.
-        Title: `Fill “${preset.title}”`,
-        Click: fillLink(baseUrl, preset.id),
-        Priority: "high",
-        Tags: "pencil",
-      },
-      body: "Tap to fill and apply on this phone.",
+      body: JSON.stringify({
+        topic,
+        title: `Fill “${preset.title}”`,
+        message: "Tap to fill and apply on this phone.",
+        click: fillLink(baseUrl, preset.id),
+        priority: 4, // "high"
+        tags: ["pencil"],
+      }),
       signal: controller.signal,
     });
     if (!res.ok) {
