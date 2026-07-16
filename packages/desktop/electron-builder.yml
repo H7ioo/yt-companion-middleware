@@ -64,6 +64,10 @@ win:
   icon: packages/desktop/build/icon.ico
 
 nsis:
+  # No spaces: electron-builder defaults to "${productName} Setup ${version}.exe" and writes that
+  # (hyphenated) into latest.yml, but GitHub stores uploaded assets with spaces turned into DOTS —
+  # so electron-updater followed latest.yml to a 404 and every auto-update download failed.
+  artifactName: YT-Companion-Setup-${version}.${ext}
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
