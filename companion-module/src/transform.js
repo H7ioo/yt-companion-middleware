@@ -132,15 +132,30 @@ export function healthColor(status) {
   return HEALTH_COLORS[status ?? ''] ?? rgb(60, 66, 78);
 }
 
-// The module's non-health key palette — the brand colours the boolean feedbacks and preset buttons
-// light with. Defined once here (packed RGB) so main.js, presetButtons() and the guide's layouts
-// drift test all derive from the same source instead of re-hardcoding literals. Health-state colours
-// live in HEALTH_COLORS / healthColor() above; these are the rest a rebrand would touch.
-/** @type {{ onAir: number, busy: number, activePreset: number }} */
+// The module's non-health key palette — every colour a key can show, defined once here (packed
+// RGB) so main.js, presetButtons() and the guide's layout mocks all derive from the same source
+// instead of re-hardcoding literals. Health-state colours live in HEALTH_COLORS / healthColor()
+// above; these are the rest a rebrand would touch.
+//
+// The system is broadcast-console tally logic: idle keys sit on dark surfaces tinted by role
+// (so a key's job reads even unlit), and saturated colour is reserved for live states. The
+// active-preset highlight is violet, not green — green already means "healthy" on the health
+// lamp, and two identical greens meaning different things is how keys get misread mid-service.
+/** @type {{ onAir: number, busy: number, activePreset: number, apiOff: number, presetIdle: number, indicator: number, imageCanvas: number, utility: number, privacy: number, caution: number, danger: number }} */
 export const COMPANION_COLORS = {
-  onAir: rgb(200, 0, 0), // On Air — broadcast is live
-  busy: rgb(0, 80, 200), // Busy — an action is in flight
-  activePreset: rgb(0, 140, 0), // Active-preset highlight
+  // Live states — saturated, white text
+  onAir: rgb(220, 28, 28), // On Air — broadcast is live (tally red)
+  busy: rgb(26, 98, 224), // Busy — an action is in flight
+  activePreset: rgb(112, 46, 220), // Active-preset highlight (violet — green is the health lamp's)
+  apiOff: rgb(232, 164, 12), // Kill switch engaged — amber, pair with black text
+  // Idle surfaces — dark, tinted by role
+  presetIdle: rgb(24, 27, 38), // a preset key at rest (cool indigo-charcoal)
+  indicator: rgb(16, 18, 24), // passive indicators (on-air / busy) until they light
+  imageCanvas: rgb(12, 13, 17), // image-feedback keys — near-black so the PNG owns the key
+  utility: rgb(36, 52, 76), // steel blue — refresh-type actions
+  privacy: rgb(16, 84, 90), // teal — visibility control
+  caution: rgb(148, 88, 6), // amber-brown — undo
+  danger: rgb(118, 26, 32), // deep maroon — the API kill switch at rest
 };
 
 /**
@@ -162,7 +177,7 @@ export function presetButtons(presets) {
       type: 'button',
       category: 'Apply preset',
       name: p.title || p.id,
-      style: { text, size: 'auto', color: rgb(255, 255, 255), bgcolor: rgb(30, 33, 40) },
+      style: { text, size: '14', color: rgb(255, 255, 255), bgcolor: COMPANION_COLORS.presetIdle },
       steps: [{ down: [{ actionId: 'apply_preset', options: { presetId: p.id, vars: '' } }], up: [] }],
       feedbacks: [
         {

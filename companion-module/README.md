@@ -144,7 +144,7 @@ is fully editable afterwards.
 
 | Category | What drops |
 |---|---|
-| **Apply preset** | One button **per middleware preset** (regenerated on **Refresh lists**): its slug as the text, the **Apply preset** action bound to that preset, and the **Active preset is…** feedback pointed at it — so the key applies, self-labels, and turns green when it's the one on air. |
+| **Apply preset** | One button **per middleware preset** (regenerated on **Refresh lists**): its slug as the text, the **Apply preset** action bound to that preset, and the **Active preset is…** feedback pointed at it — so the key applies, self-labels, and lights violet when it’s the one on air. |
 | **State & controls** | Fixed helpers: *Arabic-safe live title (image)*, *Arabic-safe button label (image)*, *On-air indicator*, *Busy indicator*, *Privacy toggle*, *Undo last change*, *Refresh from YouTube*, *Refresh lists*, *API kill switch (toggle)*. |
 
 > Presets are authored by the module — you can't create new ones from the Companion UI, but you
@@ -161,9 +161,9 @@ Image feedbacks are the reason this module exists; boolean feedbacks recolour ke
 | **Image: full live title** | advanced (`png64`) | Draws the full broadcast-title PNG (Arabic-safe). |
 | **On Air** | boolean | While `is_live`. Default style: red bg. |
 | **Busy** | boolean | While an action is in progress. Default: blue bg. |
-| **API disabled** | boolean | When the kill switch is off. Default: grey bg. |
+| **API disabled** | boolean | When the kill switch is off. Default: amber bg, black text. |
 | **Health state is…** | boolean | When `health` equals the dropdown value (`ok`/`degraded`/`auth_error`). Default: amber bg. |
-| **Active preset is…** | boolean | When the dropdown-selected preset is the active one — highlights the applied preset's key. Default: green bg. |
+| **Active preset is…** | boolean | When the dropdown-selected preset is the active one — highlights the applied preset’s key. Default: violet bg. |
 
 ### Actions
 
@@ -204,7 +204,7 @@ Add **On Air** feedback to a key (default red). Optionally set the key text to
 
 1. Add the **Apply preset** action to a key and pick the preset in its dropdown.
 2. Add the **Active preset is…** feedback to the *same* key and select the *same* preset. The key
-   goes green whenever that preset is the one on air — an instant "which preset am I on" wall.
+   lights violet whenever that preset is the one on air — an instant "which preset am I on" wall.
 
 ### Ad-hoc metadata edit
 

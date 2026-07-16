@@ -385,7 +385,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				type: 'boolean',
 				name: 'API disabled (kill switch)',
 				description: 'True when the middleware master switch is off.',
-				defaultStyle: { bgcolor: combineRgb(120, 120, 120), color: combineRgb(255, 255, 255) },
+				defaultStyle: { bgcolor: COMPANION_COLORS.apiOff, color: combineRgb(0, 0, 0) },
 				options: [],
 				callback: () => this.latest?.apiEnabled === false,
 			},
@@ -598,7 +598,9 @@ class YtMiddlewareInstance extends InstanceBase {
 		const white = combineRgb(255, 255, 255)
 		const black = combineRgb(0, 0, 0)
 		/**
-		 * Builds a single "State & controls" preset button.
+		 * Builds a single "State & controls" preset button. Static labels get a fixed size 14 —
+		 * 'auto' renders every key at a different size, which reads ragged across a deck; 'auto'
+		 * is reserved for keys carrying dynamic long text (the live title, the display label).
 		 * @param {string} name
 		 * @param {string} text
 		 * @param {number} bgcolor
@@ -610,7 +612,7 @@ class YtMiddlewareInstance extends InstanceBase {
 			type: 'button',
 			category: 'State & controls',
 			name,
-			style: { text, size: 'auto', color: white, bgcolor },
+			style: { text, size: '14', color: white, bgcolor },
 			steps: [{ down: actionId ? [{ actionId, options: {} }] : [], up: [] }],
 			feedbacks: feedback ? [feedback] : [],
 		})
@@ -620,7 +622,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				type: 'button',
 				category: 'State & controls',
 				name: 'Arabic-safe live title (image)',
-				style: { text: '', size: 'auto', color: white, bgcolor: combineRgb(20, 22, 27) },
+				style: { text: '', size: 'auto', color: white, bgcolor: COMPANION_COLORS.imageCanvas },
 				steps: [{ down: [], up: [] }],
 				feedbacks: [{ feedbackId: 'title_image', options: {} }],
 			},
@@ -628,7 +630,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				type: 'button',
 				category: 'State & controls',
 				name: 'Arabic-safe button label (image)',
-				style: { text: '', size: 'auto', color: white, bgcolor: combineRgb(20, 22, 27) },
+				style: { text: '', size: 'auto', color: white, bgcolor: COMPANION_COLORS.imageCanvas },
 				steps: [{ down: [], up: [] }],
 				feedbacks: [{ feedbackId: 'slug_image', options: {} }],
 			},
@@ -636,7 +638,12 @@ class YtMiddlewareInstance extends InstanceBase {
 				type: 'button',
 				category: 'State & controls',
 				name: 'On-air indicator',
-				style: { text: '$(ytmeta:live_title)', size: 'auto', color: white, bgcolor: combineRgb(40, 40, 40) },
+				style: {
+					text: '$(ytmeta:live_title)',
+					size: 'auto',
+					color: white,
+					bgcolor: COMPANION_COLORS.indicator,
+				},
 				steps: [{ down: [], up: [] }],
 				feedbacks: [
 					{ feedbackId: 'on_air', options: {}, style: { bgcolor: COMPANION_COLORS.onAir, color: white } },
@@ -644,27 +651,32 @@ class YtMiddlewareInstance extends InstanceBase {
 			},
 			privacy_toggle_btn: util(
 				'Privacy toggle',
-				'Privacy\\n$(ytmeta:privacy)',
-				combineRgb(60, 60, 70),
+				'PRIVACY\\n$(ytmeta:privacy)',
+				COMPANION_COLORS.privacy,
 				'privacy_toggle',
 			),
 			undo_btn: {
-				...util('Undo last change', 'Undo\\n$(ytmeta:undo_label)', combineRgb(120, 80, 0), 'undo'),
+				...util('Undo last change', 'UNDO\\n$(ytmeta:undo_label)', COMPANION_COLORS.caution, 'undo'),
 			},
-			refresh_cache_btn: util('Refresh from YouTube', 'Refresh', combineRgb(40, 60, 80), 'refresh'),
-			refresh_lists_btn: util('Refresh lists', 'Refresh\\nlists', combineRgb(40, 60, 80), 'refresh_lists'),
+			refresh_cache_btn: util('Refresh from YouTube', 'REFRESH', COMPANION_COLORS.utility, 'refresh'),
+			refresh_lists_btn: util('Refresh lists', 'REFRESH\\nLISTS', COMPANION_COLORS.utility, 'refresh_lists'),
 			api_switch_btn: {
-				...util('API kill switch (toggle)', 'API\\non/off', combineRgb(90, 40, 40), 'api_switch_toggle', {
+				...util('API kill switch (toggle)', 'API\\nON/OFF', COMPANION_COLORS.danger, 'api_switch_toggle', {
 					feedbackId: 'api_disabled',
 					options: {},
-					style: { bgcolor: combineRgb(120, 120, 120), color: white },
+					style: { bgcolor: COMPANION_COLORS.apiOff, color: black },
 				}),
 			},
 			busy_indicator: {
 				type: 'button',
 				category: 'State & controls',
 				name: 'Busy indicator',
-				style: { text: '$(ytmeta:display_label)', size: 'auto', color: white, bgcolor: black },
+				style: {
+					text: '$(ytmeta:display_label)',
+					size: 'auto',
+					color: white,
+					bgcolor: COMPANION_COLORS.indicator,
+				},
 				steps: [{ down: [], up: [] }],
 				feedbacks: [
 					{ feedbackId: 'busy', options: {}, style: { bgcolor: COMPANION_COLORS.busy, color: white } },

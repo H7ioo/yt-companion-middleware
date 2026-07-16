@@ -34,15 +34,16 @@
     offline: rgb(90, 98, 112), //  slate grey — issue 017's canonical offline colour
     auth_error: rgb(200, 0, 0), // red
   };
-  var LIVE_RED = rgb(200, 0, 0); //     on_air feedback
-  var BUSY_BLUE = rgb(0, 80, 200); //   busy feedback
-  var ACTIVE_GREEN = rgb(0, 140, 0); // active_preset feedback
-  var OFF_GREY = rgb(120, 120, 120); // api_disabled feedback
-  var IDLE_KEY = rgb(30, 33, 40); //    a preset key at rest
-  var UTIL_KEY = rgb(40, 60, 80); //    the refresh keys
-  var UNDO_KEY = rgb(120, 80, 0);
-  var PRIVACY_KEY = rgb(60, 60, 70);
-  var TALLY_KEY = rgb(40, 40, 40); //   the on-air indicator, dark until it isn't
+  var LIVE_RED = rgb(220, 28, 28); //     on_air feedback (tally red)
+  var BUSY_BLUE = rgb(26, 98, 224); //    busy feedback
+  var ACTIVE_VIOLET = rgb(112, 46, 220); // active_preset feedback — violet, so it can't be read as the health lamp's green
+  var OFF_AMBER = rgb(232, 164, 12); //   api_disabled feedback — amber, black text
+  var IDLE_KEY = rgb(24, 27, 38); //      a preset key at rest
+  var UTIL_KEY = rgb(36, 52, 76); //      the refresh keys (steel blue)
+  var UNDO_KEY = rgb(148, 88, 6);
+  var PRIVACY_KEY = rgb(16, 84, 90);
+  var DANGER_KEY = rgb(118, 26, 32); //   the API kill switch at rest
+  var TALLY_KEY = rgb(16, 18, 24); //     passive indicators (on-air / busy), dark until they light
   var WHITE = rgb(255, 255, 255);
 
   // --- Canonical words (mirrored from @app/shared glossary) ------------------
@@ -133,7 +134,7 @@
         var active = mock.activePresetId === spec.id;
         return {
           key: spec.id,
-          bg: active ? ACTIVE_GREEN : IDLE_KEY,
+          bg: active ? ACTIVE_VIOLET : IDLE_KEY,
           lines: [preset.slug, active ? "· active ·" : preset.title],
           hint: "Apply preset — " + preset.title,
           press: true,
@@ -149,7 +150,7 @@
       case "busy":
         return {
           key: "busy",
-          bg: mock.busy ? BUSY_BLUE : rgb(0, 0, 0),
+          bg: mock.busy ? BUSY_BLUE : TALLY_KEY,
           lines: [mock.busy ? "Working…" : "Ready", "busy"],
           hint: "Busy while the middleware applies a change",
         };
@@ -186,14 +187,15 @@
       case "api":
         return {
           key: "api",
-          bg: mock.apiEnabled ? rgb(90, 40, 40) : OFF_GREY,
+          bg: mock.apiEnabled ? DANGER_KEY : OFF_AMBER,
+          fg: mock.apiEnabled ? WHITE : rgb(0, 0, 0),
           lines: ["API", mock.apiEnabled ? "on" : "off"],
           hint: "API kill switch",
         };
       case "title_image":
         return {
           key: "title_image",
-          bg: rgb(20, 22, 27),
+          bg: rgb(12, 13, 17),
           lines: ["خطبة الجمعة", "title image"],
           hint: "Arabic-safe title, drawn as a PNG by the middleware",
         };
@@ -273,7 +275,7 @@
         // The base `.key` rule paints a gradient; a bare background-color would sit behind it.
         el.style.backgroundImage = "none";
         el.style.backgroundColor = f.bg;
-        el.style.color = WHITE;
+        el.style.color = f.fg || WHITE;
         el.querySelector(".key__text").textContent = f.lines[0];
         el.querySelector(".key__sub").textContent = f.lines[1];
       });
