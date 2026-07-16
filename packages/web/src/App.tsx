@@ -237,6 +237,8 @@ export function App() {
   // Apply now: a templated preset opens the fill popup; a plain one fires immediately.
   const applyPreset = async (p: Preset) => {
     if (extractVars(p).length > 0) {
+      // Operator-opened: never subject to the fill request's expiry close.
+      fillOpenedBy.current = null;
       setFilling(p);
       return;
     }
@@ -254,10 +256,19 @@ export function App() {
   // exclusive claim. The operator may be watching any one of several open surfaces (the desktop
   // window on the stream PC plus a phone over Tailscale); only broadcasting guarantees the popup
   // reaches the one they're looking at. The ref pops each request id exactly once, so a closed
-  // popup stays closed and the 60s-lived slot doesn't re-pop it on later frames.
+  // popup stays closed and the 30s-lived slot doesn't re-pop it on later frames.
   const handledFill = useRef<string | null>(null);
+  // Which request's popup is on screen, if any. Lets the expiry push close a popup nobody
+  // answered without ever touching an operator-opened one (applyPreset also drives `filling`).
+  const fillOpenedBy = useRef<string | null>(null);
   useEffect(() => {
     const request = state?.fillRequest;
+    // The slot expired (or was replaced): a request-opened popup must not outlive its moment —
+    // the server signals expiry precisely so this push arrives.
+    if (fillOpenedBy.current && fillOpenedBy.current !== request?.id) {
+      fillOpenedBy.current = null;
+      setFilling(null);
+    }
     if (!request || handledFill.current === request.id) return;
     handledFill.current = request.id;
     void (async () => {
@@ -266,8 +277,10 @@ export function App() {
       const preset =
         presets.find((p) => p.id === request.presetId) ??
         (await api.presets.list()).find((p) => p.id === request.presetId);
-      if (preset) setFilling(preset);
-      else flash(`Companion asked to fill unknown preset “${request.presetId}”`, "err");
+      if (preset) {
+        fillOpenedBy.current = request.id;
+        setFilling(preset);
+      } else flash(`Companion asked to fill unknown preset “${request.presetId}”`, "err");
     })();
   }, [state?.fillRequest, presets, flash]);
 
@@ -778,7 +791,10 @@ export function App() {
         <PresetFillModal
           preset={filling}
           fire={fireFilledPreset}
-          onClose={() => setFilling(null)}
+          onClose={() => {
+            fillOpenedBy.current = null;
+            setFilling(null);
+          }}
         />
       ) : null}
 
