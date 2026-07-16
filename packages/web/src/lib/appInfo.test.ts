@@ -47,6 +47,15 @@ describe("appInfoChanged", () => {
     ).toBe(true);
   });
 
+  it("detects download progress moving, so the banner's percent stays live", () => {
+    expect(
+      appInfoChanged(
+        info({ update: { status: "downloading", version: "1.3.0", percent: 12 } }),
+        info({ update: { status: "downloading", version: "1.3.0", percent: 13 } }),
+      ),
+    ).toBe(true);
+  });
+
   it("ignores fields the dashboard does not key on (running-version notes object identity)", () => {
     // `notes` (the running build's changelog) is stable per version; a new object with the same
     // version must not force a re-render.

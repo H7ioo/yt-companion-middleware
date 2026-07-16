@@ -125,6 +125,55 @@ describe("createUpdateController", () => {
     expect(ctl.getState().notes).toBeUndefined();
   });
 
+  it("tracks download progress in whole percents, without spamming state changes", async () => {
+    const { updater, ctl, onState } = controller();
+    await ctl.start();
+    updater.emit("update-available", { version: "2.2.1" });
+
+    updater.emit("download-progress", { percent: 12.7 });
+    expect(ctl.getState()).toMatchObject({ status: "downloading", version: "2.2.1", percent: 12 });
+
+    // Progress fires many times a second; the same whole percent must not re-fire onState.
+    const calls = onState.mock.calls.length;
+    updater.emit("download-progress", { percent: 12.9 });
+    expect(onState).toHaveBeenCalledTimes(calls);
+
+    updater.emit("download-progress", { percent: 13.1 });
+    expect(ctl.getState().percent).toBe(13);
+  });
+
+  it("ignores a stray progress event once the download is no longer running", async () => {
+    const { updater, ctl } = controller();
+    await ctl.start();
+    updater.emit("update-available", { version: "2.2.1" });
+    updater.emit("error", new Error("net::ERR_CONNECTION_RESET"));
+
+    updater.emit("download-progress", { percent: 50 });
+    expect(ctl.getState().status).toBe("error");
+  });
+
+  it("keeps the offered version on a failed download, so the dashboard can offer a retry", async () => {
+    const { updater, ctl, log } = controller();
+    await ctl.start();
+    updater.emit("update-available", { version: "2.2.1", releaseNotes: "Fixes." });
+    updater.emit("error", new Error("net::ERR_CONNECTION_RESET"));
+
+    expect(ctl.getState()).toMatchObject({
+      status: "error",
+      error: "net::ERR_CONNECTION_RESET",
+      version: "2.2.1",
+      notes: "Fixes.",
+    });
+    expect(log).toHaveBeenCalledWith("error", expect.stringContaining("download failed"));
+
+    // And the error state stays re-checkable — that IS the retry path.
+    updater.checkForUpdates.mockImplementation(async () => {
+      updater.emit("update-available", { version: "2.2.1" });
+      return {};
+    });
+    expect((await ctl.check()).status).toBe("downloading");
+  });
+
   it("goes back to idle when the running version is current", async () => {
     const { updater, ctl } = controller();
     await ctl.start();

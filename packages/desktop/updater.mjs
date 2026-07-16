@@ -14,7 +14,7 @@
  * consume it); keep the two in sync. `notes` carries the offered version's release notes as plain
  * text, taken from the update feed (PRD-10 §3).
  * @typedef {"unsupported" | "checking" | "idle" | "downloading" | "downloaded" | "error"} UpdateStatus
- * @typedef {{ status: UpdateStatus, version?: string, error?: string, notes?: string }} UpdateState
+ * @typedef {{ status: UpdateStatus, version?: string, error?: string, notes?: string, percent?: number }} UpdateState
  * @typedef {(level: "info" | "error", message: string) => void} LogFn
  * @typedef {{
  *   autoDownload: boolean,
@@ -92,13 +92,29 @@ export function createUpdateController({
   function fail(err) {
     const message = err instanceof Error ? err.message : String(err);
     // Never fatal: an unreachable GitHub just means the operator keeps running this version.
-    log("error", `Update check failed: ${message}`);
-    setState({ status: "error", error: message });
+    // A failed download keeps the offered version on the state — that's what lets the dashboard
+    // tell "the download broke" (worth a banner + retry) apart from "the check failed" (silent).
+    const downloading = state.status === "downloading";
+    log("error", `Update ${downloading ? "download" : "check"} failed: ${message}`);
+    setState(
+      downloading
+        ? { status: "error", error: message, version: state.version, notes: state.notes }
+        : { status: "error", error: message },
+    );
   }
 
   updater.on("update-available", (info) => {
     log("info", `Update available (v${info?.version}) — downloading in the background`);
     setState({ status: "downloading", version: info?.version, notes: normalizeNotes(info?.releaseNotes) });
+  });
+
+  updater.on("download-progress", (progress) => {
+    if (state.status !== "downloading") return; // a stray late event must not resurrect a dead download
+    const percent = typeof progress?.percent === "number" ? Math.floor(progress.percent) : undefined;
+    // Progress fires many times a second; whole percents are all anyone renders, so only a moved
+    // percent reaches onState (which rebuilds the tray menu).
+    if (percent === state.percent) return;
+    setState({ ...state, percent });
   });
 
   updater.on("update-not-available", () => {

@@ -114,7 +114,8 @@ function refreshTrayMenu() {
   /** @type {import("electron").MenuItemConstructorOptions[]} */
   const updateItems = [];
   if (state?.status === "downloading") {
-    updateItems.push({ label: `Downloading update (v${state.version})…`, enabled: false });
+    const pct = typeof state.percent === "number" ? ` ${state.percent}%` : "";
+    updateItems.push({ label: `Downloading update (v${state.version})…${pct}`, enabled: false });
   } else if (state?.status === "downloaded") {
     updateItems.push({ label: `Install update (v${state.version}) & restart`, click: installUpdate });
   } else if (state?.status === "checking") {

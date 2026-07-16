@@ -81,6 +81,21 @@ describe("describeUpdate", () => {
     const banner = describeUpdate({ status: "downloading", version: "2.2.0" });
     expect(banner?.title).toBe("Update v2.2.0 downloading");
     expect(banner?.installable).toBe(false);
+    expect(banner?.retryable).toBe(false);
+  });
+
+  it("shows download progress once the updater reports it", () => {
+    const banner = describeUpdate({ status: "downloading", version: "2.2.0", percent: 42 });
+    expect(banner?.note).toContain("(42%)");
+    // Before the first progress event there is no percent — the note must not show a blank "()".
+    expect(describeUpdate({ status: "downloading", version: "2.2.0" })?.note).not.toContain("(");
+  });
+
+  it("surfaces a failed download with a retry — the operator was already promised this update", () => {
+    const banner = describeUpdate({ status: "error", error: "net::ERR_CONNECTION_RESET", version: "2.2.0" });
+    expect(banner?.title).toBe("Update v2.2.0 couldn't download");
+    expect(banner?.installable).toBe(false);
+    expect(banner?.retryable).toBe(true);
   });
 
   it("offers the install once downloaded, and warns about the restart", () => {

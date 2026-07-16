@@ -7,6 +7,10 @@ interface Props {
   info: AppInfo;
   /** Opens What's New on the version being offered — the notes for what you'd get. */
   onShowNotes: () => void;
+  /** Re-runs the update check after a failed download (App's manual-check handler). */
+  onRetry: () => void;
+  /** Whether that re-check is in flight, so the retry button can't be double-clicked. */
+  retrying: boolean;
   flash: (message: string, kind?: "ok" | "err") => void;
 }
 
@@ -18,7 +22,7 @@ interface Props {
  *
  * Renders nothing on hosts with no updater (Docker, portable, dev) or with nothing to offer.
  */
-export function UpdateBanner({ info, onShowNotes, flash }: Props) {
+export function UpdateBanner({ info, onShowNotes, onRetry, retrying, flash }: Props) {
   const [busy, setBusy] = useState(false);
   const banner = describeUpdate(info.update);
   if (!banner) return null;
@@ -52,6 +56,11 @@ export function UpdateBanner({ info, onShowNotes, flash }: Props) {
         {banner.installable ? (
           <button type="button" className="btn btn--primary" onClick={install} disabled={busy}>
             {busy ? "Installing…" : "Install & restart"}
+          </button>
+        ) : null}
+        {banner.retryable ? (
+          <button type="button" className="btn btn--primary" onClick={onRetry} disabled={retrying}>
+            {retrying ? "Retrying…" : "Retry download"}
           </button>
         ) : null}
       </div>

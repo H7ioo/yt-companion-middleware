@@ -14,6 +14,7 @@ export function appInfoChanged(prev: AppInfo | null, next: AppInfo): boolean {
     prev.update.status !== next.update.status ||
     prev.update.version !== next.update.version ||
     prev.update.notes !== next.update.notes ||
-    prev.update.error !== next.update.error
+    prev.update.error !== next.update.error ||
+    prev.update.percent !== next.update.percent
   );
 }

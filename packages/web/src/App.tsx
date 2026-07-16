@@ -412,6 +412,8 @@ export function App() {
           <UpdateBanner
             info={appInfo}
             onShowNotes={() => setWhatsNew("offered")}
+            onRetry={() => void checkForUpdates()}
+            retrying={checkingUpdate}
             flash={flash}
           />
         ) : null}

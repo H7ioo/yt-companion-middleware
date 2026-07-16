@@ -43,16 +43,20 @@ export function splitScope(item: string): { scope: string | null; text: string }
 /**
  * The banner copy for an update state. Returns null whenever there is nothing worth interrupting
  * the operator for — no updater on this host, up to date, still checking, or a failed check (which
- * is logged, never surfaced: the app keeps running on its current version).
+ * is logged, never surfaced: the app keeps running on its current version). A failed *download* is
+ * different — the operator was already promised an update, so the banner says it broke and offers
+ * a retry. The two are told apart by `version`: only a download failure carries one.
  */
 export function describeUpdate(
   update: UpdateState,
-): { title: string; note: string; installable: boolean } | null {
+): { title: string; note: string; installable: boolean; retryable: boolean } | null {
   if (update.status === "downloading") {
+    const pct = typeof update.percent === "number" ? ` (${update.percent}%)` : "";
     return {
       title: `Update ${formatVersion(update.version)} downloading`,
-      note: "Downloading in the background. Nothing restarts until you say so.",
+      note: `Downloading in the background${pct}. Nothing restarts until you say so.`,
       installable: false,
+      retryable: false,
     };
   }
   if (update.status === "downloaded") {
@@ -60,6 +64,15 @@ export function describeUpdate(
       title: `Update ${formatVersion(update.version)} ready to install`,
       note: "Installing restarts the app — Companion drops for a few seconds. Do this off air.",
       installable: true,
+      retryable: false,
+    };
+  }
+  if (update.status === "error" && update.version) {
+    return {
+      title: `Update ${formatVersion(update.version)} couldn't download`,
+      note: "The download failed — you're still on the current version. Retry when you're ready.",
+      installable: false,
+      retryable: true,
     };
   }
   return null;

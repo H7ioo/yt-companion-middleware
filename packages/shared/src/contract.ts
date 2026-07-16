@@ -169,6 +169,11 @@ export interface UpdateState {
   /** Why the last check failed. Advisory — the app keeps running on its current version. */
   error?: string;
   /**
+   * Download progress, 0–100, while status is "downloading". Omitted before the first progress
+   * event fires — the banner shows a bare "downloading" until then.
+   */
+  percent?: number;
+  /**
    * Release notes for the offered version, taken from the update feed itself (plain text). The
    * feed is the only place the newer version's notes exist — the bundled changelog, by
    * construction, cannot describe a version this build predates (PRD-10 §3). Omitted when the
