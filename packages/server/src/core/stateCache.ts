@@ -157,7 +157,14 @@ export class StateCache {
   ): Promise<void> {
     const pending = previous.pendingMetadata;
     if (!pending || !this.replay) return;
-    if (!target.isLive || target.id === pending.targetId) return;
+    if (!target.isLive) return;
+    // The broadcast we wrote to is the one that aired: the intent is already satisfied, so disarm
+    // rather than leave it primed. Found in a live test — a latch left armed here would replay
+    // this show's title onto the next show started inside the TTL.
+    if (target.id === pending.targetId) {
+      await this.writeCache({ pendingMetadata: null });
+      return;
+    }
     if (Date.parse(pending.capturedAt) < Date.now() - PENDING_TTL_MS) {
       await this.writeCache({ pendingMetadata: null });
       return;

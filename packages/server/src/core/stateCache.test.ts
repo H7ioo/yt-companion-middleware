@@ -180,6 +180,17 @@ describe("StateCache pending-metadata replay", () => {
     expect(replayed).toHaveLength(0);
   });
 
+  it("disarms once the broadcast we edited airs, so the next show can't inherit its title", async () => {
+    // Caught in a live test on 2026-08-05: the intent was satisfied but the latch stayed primed,
+    // leaving this show's title queued for whatever went live next inside the TTL.
+    const cache = cacheFor({ active: [live("same-one", "Tonight")] });
+    cache.setReplayHandler(async () => {});
+    await arm("same-one");
+
+    await cache.refresh();
+    expect(store.get().cache.pendingMetadata).toBeNull();
+  });
+
   it("does not replay while still idle — nothing has gone live yet", async () => {
     const cache = cacheFor({ upcoming: [upcoming("up-1", "waiting")] });
     const replayed: unknown[] = [];
