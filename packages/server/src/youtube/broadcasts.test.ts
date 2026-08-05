@@ -36,12 +36,22 @@ describe("resolveTarget (PRD §2/§6 target precedence)", () => {
       active: [{ id: "live-1" }],
       upcoming: [{ id: "up-1" }],
     });
-    expect(await resolveTarget(yt)).toEqual({ id: "live-1", isLive: true, conflict: null });
+    expect(await resolveTarget(yt)).toEqual({
+      id: "live-1",
+      isLive: true,
+      conflict: null,
+      autoStartMint: false,
+    });
   });
 
   it("falls back to upcoming when nothing is active (not live)", async () => {
     const yt = fakeYt({ upcoming: [{ id: "up-1", status: { lifeCycleStatus: "ready" } }] });
-    expect(await resolveTarget(yt)).toEqual({ id: "up-1", isLive: false, conflict: null });
+    expect(await resolveTarget(yt)).toEqual({
+      id: "up-1",
+      isLive: false,
+      conflict: null,
+      autoStartMint: false,
+    });
   });
 
   it("among upcoming, prefers the encoder-bound (testing) broadcast over a created stub", async () => {
@@ -56,11 +66,42 @@ describe("resolveTarget (PRD §2/§6 target precedence)", () => {
 
   it("falls back to the persistent container when nothing is active or upcoming", async () => {
     const yt = fakeYt({ persistent: [{ id: "persist-1" }] });
-    expect(await resolveTarget(yt)).toEqual({ id: "persist-1", isLive: false, conflict: null });
+    expect(await resolveTarget(yt)).toEqual({
+      id: "persist-1",
+      isLive: false,
+      conflict: null,
+      autoStartMint: false,
+    });
   });
 
   it("throws NO_TARGET_FOUND when nothing exists", async () => {
     await expect(resolveTarget(fakeYt({}))).rejects.toMatchObject({ code: "NO_TARGET_FOUND" });
+  });
+
+  it("marks a just-created broadcast starting about now as an auto-start mint", async () => {
+    const yt = fakeYt({
+      upcoming: [
+        {
+          id: "minted",
+          snippet: { scheduledStartTime: hoursAgo(0.01), publishedAt: hoursAgo(0.01) },
+          status: { lifeCycleStatus: "ready" },
+        },
+      ],
+    });
+    expect((await resolveTarget(yt, NOW)).autoStartMint).toBe(true);
+  });
+
+  it("does not call a broadcast scheduled for later tonight an auto-start mint", async () => {
+    const yt = fakeYt({
+      upcoming: [
+        {
+          id: "later",
+          snippet: { scheduledStartTime: hoursAhead(2), publishedAt: hoursAgo(0.01) },
+          status: { lifeCycleStatus: "ready" },
+        },
+      ],
+    });
+    expect((await resolveTarget(yt, NOW)).autoStartMint).toBe(false);
   });
 
   it("reports no conflict once live, even with a stray upcoming still around", async () => {

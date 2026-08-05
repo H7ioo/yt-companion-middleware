@@ -1,7 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import os from "node:os";
+import path from "node:path";
+import fs from "node:fs/promises";
+import type { youtube_v3 } from "googleapis";
 import { ActionRunner, togglePrivacy, snapshotOf } from "./actionRunner.js";
 import type { BroadcastResource } from "./resolve.js";
 import { AppError } from "./errors.js";
+import { JsonStore } from "../storage/jsonStore.js";
+import { StateCache } from "./stateCache.js";
 import type { Preset } from "../storage/schema.js";
 
 describe("togglePrivacy", () => {
@@ -90,5 +96,78 @@ describe("ActionRunner.runPreset template handling", () => {
   it("rejects with SERVICE_DISABLED before touching YouTube when the API is switched off", async () => {
     const runner = makeRunner({ ...templated, title: "Plain" }, false);
     await expect(runner.runPreset("lesson")).rejects.toMatchObject({ code: "SERVICE_DISABLED" });
+  });
+});
+
+/**
+ * The cache writes an action performs. These run against a real store so the ordering between
+ * "the write landed on YouTube" and "the intent is latched" is pinned, not assumed.
+ */
+describe("ActionRunner cache writes", () => {
+  let store: JsonStore;
+  let dir: string;
+
+  const idle = {
+    id: "upcoming-1",
+    snippet: {
+      title: "Old",
+      scheduledStartTime: new Date(Date.now() + 2 * 3600_000).toISOString(),
+    },
+    status: { lifeCycleStatus: "ready", privacyStatus: "public" },
+  };
+
+  /** A client serving one upcoming (idle) broadcast; `updateFails` rejects the PUT. */
+  function ytFor(updateFails: boolean): youtube_v3.Youtube {
+    return {
+      liveBroadcasts: {
+        list: async (p: youtube_v3.Params$Resource$Livebroadcasts$List) => ({
+          data: {
+            items: p.broadcastStatus === "active" ? [] : p.id || p.broadcastStatus === "upcoming" ? [idle] : [],
+          },
+        }),
+        update: async () => {
+          if (updateFails) throw new Error("YouTube said no");
+          return { data: idle };
+        },
+      },
+    } as unknown as youtube_v3.Youtube;
+  }
+
+  function runnerFor(updateFails = false) {
+    const yt = ytFor(updateFails);
+    const cache = new StateCache(yt, store, {
+      refreshIntervalMs: 60_000,
+      healthFailureThreshold: 3,
+    });
+    return new ActionRunner(yt, store, cache);
+  }
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "runner-"));
+    store = new JsonStore(path.join(dir, "store.json"));
+    await store.init();
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("latches the intent when the write lands, so it can be replayed at go-live", async () => {
+    await runnerFor().runUpdate({ title: "Tonight" });
+    expect(store.get().cache.pendingMetadata?.payload.title).toBe("Tonight");
+  });
+
+  it("does not latch an edit YouTube rejected — it would land on the next show for nothing", async () => {
+    await expect(runnerFor(true).runUpdate({ title: "Tonight" })).rejects.toThrow();
+    expect(store.get().cache.pendingMetadata).toBeNull();
+  });
+
+  it("keeps a drift warning standing — applying a preset does not delete the stray broadcasts", async () => {
+    await store.update((s) => {
+      s.cache.targetConflict = { code: "TARGET_DRIFT", message: "drifted", ids: ["a", "b"] };
+    });
+
+    await runnerFor().runUpdate({ title: "Tonight" });
+    expect(store.get().cache.targetConflict?.code).toBe("TARGET_DRIFT");
   });
 });

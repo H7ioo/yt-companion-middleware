@@ -115,9 +115,25 @@ const live = (id: string, title: string) => ({
   snippet: { title },
   status: { lifeCycleStatus: "live", privacyStatus: "public" },
 });
+/** A scheduled show later tonight — not the broadcast YouTube mints as an auto-start begins. */
 const upcoming = (id: string, title: string) => ({
   id,
-  snippet: { title, scheduledStartTime: new Date().toISOString() },
+  snippet: {
+    title,
+    scheduledStartTime: new Date(Date.now() + 2 * 3600_000).toISOString(),
+    publishedAt: new Date(Date.now() - 2 * 3600_000).toISOString(),
+  },
+  status: { lifeCycleStatus: "ready", privacyStatus: "public" },
+});
+
+/** The broadcast YouTube creates moments before an auto-start session goes to air (PRD-12 §2). */
+const mintedNow = (id: string, title: string) => ({
+  id,
+  snippet: {
+    title,
+    scheduledStartTime: new Date().toISOString(),
+    publishedAt: new Date().toISOString(),
+  },
   status: { lifeCycleStatus: "ready", privacyStatus: "public" },
 });
 
@@ -232,6 +248,40 @@ describe("StateCache pending-metadata replay", () => {
 
     await cache.refresh();
     expect(store.get().cache.targetConflict?.code).toBe("TARGET_DRIFT");
+  });
+
+  it("does not call the auto-start mint 'drift' — that is the show starting (PRD-12 §2)", async () => {
+    const cache = cacheFor({ upcoming: [mintedNow("minted", "tonight")] });
+    await store.update((s) => {
+      s.cache.lastTargetId = "the-one-we-edited";
+      s.cache.status = { title: "x", privacyStatus: "public", isLive: false, noTarget: false };
+    });
+
+    await cache.refresh();
+    expect(store.get().cache.targetConflict).toBeNull();
+  });
+
+  it("forgets the conflict and the target id once the channel has no target at all", async () => {
+    const cache = cacheFor({});
+    await store.update((s) => {
+      s.cache.lastTargetId = "gone";
+      s.cache.targetConflict = { code: "TARGET_DRIFT", message: "drifted", ids: ["a", "b"] };
+    });
+
+    await cache.refresh();
+    expect(store.get().cache.targetConflict).toBeNull();
+    expect(store.get().cache.lastTargetId).toBeNull();
+    expect(store.get().cache.status.noTarget).toBe(true);
+  });
+
+  it("replays once when the timer and a manual refresh overlap", async () => {
+    const cache = cacheFor({ active: [live("new-one", "Studio's title")] });
+    const replayed: unknown[] = [];
+    cache.setReplayHandler(async (p) => void replayed.push(p));
+    await arm("ghost-we-edited");
+
+    await Promise.all([cache.refresh(), cache.refresh()]);
+    expect(replayed).toHaveLength(1);
   });
 
   it("does not call a show ending 'drift' — a new target after live is expected", async () => {

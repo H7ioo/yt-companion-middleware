@@ -28,6 +28,8 @@ export function FillPage({ route }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   // Companion may reload the same deep link; guard the variable-less auto-fire so it runs once.
   const fired = useRef(false);
+  // Set when a fill actually applied, so the popup's close is read as success, not cancel.
+  const applied = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -81,14 +83,25 @@ export function FillPage({ route }: Props) {
   // The popup fires the action and returns its result; on success we bounce to Companion.
   const fire = async (presetId: string, vars: Record<string, string>) => {
     const r = await api.action.preset(presetId, vars);
-    if (r.success && route.redirect) goTo(route.redirect);
+    if (r.success) {
+      applied.current = true;
+      if (route.redirect) goTo(route.redirect);
+    }
     return r;
   };
 
   if (phase.kind === "fill") {
+    const preset = phase.preset;
+    // The popup closes itself on success as well as on cancel. A success must not be treated as
+    // "the operator backed out": with a redirect it would race the bounce to Companion and win,
+    // and without one it would drop the phone operator on the dashboard with no confirmation.
+    const close = () => {
+      if (applied.current) setPhase({ kind: "applied", preset });
+      else goTo("/");
+    };
     return (
       <FillShell>
-        <PresetFillModal preset={phase.preset} fire={fire} onClose={() => goTo("/")} />
+        <PresetFillModal preset={preset} fire={fire} onClose={close} />
       </FillShell>
     );
   }

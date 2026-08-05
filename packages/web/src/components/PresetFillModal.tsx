@@ -8,6 +8,8 @@ interface Props {
   /** Fires the action; resolves with the endpoint's success/error body. */
   fire: (presetId: string, vars: Record<string, string>) => Promise<PresetActionResult>;
   onClose: () => void;
+  /** Fired the first time the operator edits a value — "someone is answering this popup". */
+  onDirty?: () => void;
 }
 
 const lastUsedKey = (id: string) => `yt-fill-last:${id}`;
@@ -33,7 +35,7 @@ const SOURCE_LABEL: Record<VarSource, string> = {
  * placeholders for inline defaults / fallbacks, last-used values prefilled per preset, and
  * a live preview of the resolved title/description that mirrors the server engine exactly.
  */
-export function PresetFillModal({ preset, fire, onClose }: Props) {
+export function PresetFillModal({ preset, fire, onClose, onDirty }: Props) {
   const vars = useMemo(() => extractVars(preset), [preset]);
   const [values, setValues] = useState<Record<string, string>>(() => {
     const last = loadLastUsed(preset.id);
@@ -50,6 +52,7 @@ export function PresetFillModal({ preset, fire, onClose }: Props) {
   const set = (name: string, value: string) => {
     setValues((v) => ({ ...v, [name]: value }));
     setResult(null);
+    onDirty?.();
   };
 
   const submit = async (e: React.FormEvent) => {

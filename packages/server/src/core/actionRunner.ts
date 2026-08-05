@@ -1,6 +1,11 @@
 import type { youtube_v3 } from "googleapis";
 import type { JsonStore } from "../storage/jsonStore.js";
-import type { PendingMetadata, PrivacyStatus, UndoSnapshot } from "../storage/schema.js";
+import type {
+  PendingMetadata,
+  PrivacyStatus,
+  TargetConflict,
+  UndoSnapshot,
+} from "../storage/schema.js";
 import { AppError } from "./errors.js";
 import { applyPlan, getBroadcast, resolveTarget, toStatus } from "../youtube/broadcasts.js";
 import { resolve, presetToPayload, type BroadcastResource, type MetadataPayload } from "./resolve.js";
@@ -200,23 +205,25 @@ export class ActionRunner {
     );
   }
 
+  /** A drift conflict already on the cache, which only a later refresh can clear. */
+  private keptDrift(): TargetConflict | null {
+    const existing = this.store.get().cache.targetConflict;
+    return existing?.code === "TARGET_DRIFT" ? existing : null;
+  }
+
   /** The GET -> merge -> PUT pipeline (PRD §3.3, §6). */
   private async applyPayload(
     input: PayloadInput,
     opts: { skipDefaults?: boolean; replay?: boolean } = {},
   ): Promise<ActionResult> {
     try {
-      const { conflict, ...target } = await resolveTarget(this.yt);
+      // autoStartMint is a refresh-time signal (see stateCache.driftConflict); dropped here so
+      // the action result stays the {id, isLive} pair the API contract promises.
+      const { conflict, autoStartMint: _mint, ...target } = await resolveTarget(this.yt);
       const current = await getBroadcast(this.yt, target.id);
       const payload = typeof input === "function" ? input(current as BroadcastResource) : input;
       // Capture the current owned fields so the last change can be undone (PRD feature: undo).
       await this.cache.setUndoSnapshot(snapshotOf(current as BroadcastResource));
-      // Applying while idle writes to a broadcast that may not be the one YouTube ends up
-      // airing, so remember the intent. A replay is itself the resolution of an earlier latch
-      // and must not re-arm it, or a channel that keeps minting broadcasts would loop.
-      if (!target.isLive && !opts.replay) {
-        await this.cache.setPendingMetadata(pendingFrom(payload, target.id));
-      }
       // skipDefaults suppresses the app-default fallback for category/stream binding (an
       // explicit payload value still wins) — so a targeted action like privacy-toggle or
       // undo doesn't drag in the default category/stream it never meant to touch.
@@ -226,11 +233,24 @@ export class ActionRunner {
       const plan = resolve(current as BroadcastResource, payload, defaults);
       await applyPlan(this.yt, plan);
 
+      // Applying while idle writes to a broadcast that may not be the one YouTube ends up
+      // airing, so remember the intent — but only once the write actually landed. Arming ahead
+      // of applyPlan meant a YouTube-rejected edit still got replayed onto the next broadcast
+      // to go live. A replay is itself the resolution of an earlier latch and must not re-arm
+      // it, or a channel that keeps minting broadcasts would loop.
+      if (!target.isLive && !opts.replay) {
+        await this.cache.setPendingMetadata(pendingFrom(payload, target.id));
+      }
+
       const status = { ...toStatus(plan.broadcast), noTarget: false };
       await this.cache.writeCache({
         status,
         lastRefreshedAt: new Date().toISOString(),
-        targetConflict: conflict,
+        // resolveTarget only ever reports ambiguity among the broadcasts it can see; it never
+        // reports drift, which is the cache comparing refreshes over time. Writing its answer
+        // straight through would clear a live TARGET_DRIFT banner just because the operator
+        // pressed a preset key — the stray broadcasts would still be there.
+        targetConflict: conflict ?? this.keptDrift(),
         lastTargetId: target.id,
         // Landing on the live broadcast is the end of the road for any latched intent.
         ...(target.isLive ? { pendingMetadata: null } : {}),

@@ -19,6 +19,14 @@ export interface TargetInfo {
 }
 
 /**
+ * How close to air a freshly-created upcoming broadcast has to be before we read it as one
+ * YouTube minted for an auto-start encoder session rather than one a human made in Studio.
+ * PRD-12 documents the mint as landing about a minute before air; five minutes covers clock
+ * skew and a slow refresh without swallowing a broadcast scheduled for later tonight.
+ */
+const AUTO_START_MINT_MS = 5 * 60 * 1000;
+
+/**
  * An upcoming broadcast whose scheduled start is older than this is a leftover, not the next
  * show. YouTube never garbage-collects an event you created and abandoned, so a channel
  * accumulates them — and a stale one used to win target selection outright, because the old
@@ -44,6 +52,22 @@ export interface TargetConflict {
 export interface TargetResolution extends TargetInfo {
   /** Non-null when the pick is ambiguous — surfaced to the operator, never thrown. */
   conflict: TargetConflict | null;
+  /**
+   * The pick is an upcoming broadcast that was created moments ago and is scheduled to start
+   * about now — the shape of an auto-start mint. Callers use it to tell "YouTube is about to
+   * start the show" apart from "someone is creating broadcasts behind my back".
+   */
+  autoStartMint: boolean;
+}
+
+/** True when `b` looks like the broadcast YouTube mints as an auto-start session begins. */
+export function isAutoStartMint(b: youtube_v3.Schema$LiveBroadcast, now: number): boolean {
+  const scheduled = Date.parse(b.snippet?.scheduledStartTime ?? "");
+  if (Number.isNaN(scheduled) || Math.abs(scheduled - now) > AUTO_START_MINT_MS) return false;
+  const created = Date.parse(b.snippet?.publishedAt ?? "");
+  // No creation time: the "starting about now" half is the signal we have, and it is the half
+  // that matters — a leftover from last week never matches it.
+  return Number.isNaN(created) || now - created <= AUTO_START_MINT_MS;
 }
 
 /**
@@ -139,7 +163,7 @@ export async function resolveTarget(
     }
     // Live is unambiguous by comparison — the encoder feeds exactly one broadcast, so there is
     // nothing for the operator to disambiguate even when a stale upcoming still exists.
-    return { id: active[0].id!, isLive: true, conflict: null };
+    return { id: active[0].id!, isLive: true, conflict: null, autoStartMint: false };
   }
 
   // Scheduled but not yet live. Prefer the broadcast closest to going live — one that is
@@ -154,7 +178,12 @@ export async function resolveTarget(
         `[broadcasts] ${picked.conflict.message} (selected ${picked.chosen.id}, life=${picked.chosen.status?.lifeCycleStatus})`,
       );
     }
-    return { id: picked.chosen.id!, isLive: false, conflict: picked.conflict };
+    return {
+      id: picked.chosen.id!,
+      isLive: false,
+      conflict: picked.conflict,
+      autoStartMint: isAutoStartMint(picked.chosen, now),
+    };
   }
 
   // Legacy only: YouTube stopped auto-creating persistent "default" broadcasts on 2020-09-01,
@@ -164,7 +193,7 @@ export async function resolveTarget(
   if (persistent.length > 0) {
     // Prefer the most recently created persistent container if several exist.
     persistent.sort((a, b) => createTimeMs(b) - createTimeMs(a));
-    return { id: persistent[0].id!, isLive: false, conflict: null };
+    return { id: persistent[0].id!, isLive: false, conflict: null, autoStartMint: false };
   }
 
   throw new AppError("NO_TARGET_FOUND");

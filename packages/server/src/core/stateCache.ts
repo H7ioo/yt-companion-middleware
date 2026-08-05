@@ -29,9 +29,14 @@ const PENDING_TTL_MS = 6 * 60 * 60 * 1000;
  */
 function driftConflict(
   previous: CacheState,
-  target: { id: string; isLive: boolean },
+  target: { id: string; isLive: boolean; autoStartMint: boolean },
 ): TargetConflict | null {
   if (target.isLive || !previous.lastTargetId || previous.lastTargetId === target.id) return null;
+  // The show starting is not drift. With an auto-start encoder YouTube mints the broadcast that
+  // airs about a minute before air (PRD-12 §2), so the target legitimately changes while still
+  // idle — warning "close Studio's stream page" seconds before going live is pure noise, and the
+  // pending-metadata replay already handles the handover.
+  if (target.autoStartMint) return null;
   if (previous.status.isLive) return null; // a show just ended — a new target is expected
   return {
     code: "TARGET_DRIFT",
@@ -44,6 +49,8 @@ function driftConflict(
 export class StateCache {
   private health: HealthState = initialHealth();
   private timer: NodeJS.Timeout | null = null;
+  /** The refresh currently in flight, if any — see the note on refresh(). */
+  private inFlight: Promise<void> | null = null;
   /** Set post-construction via setReplayHandler — see the note there on the runner/cache cycle. */
   private replay: ((pending: PendingMetadata) => Promise<unknown>) | null = null;
 
@@ -71,8 +78,24 @@ export class StateCache {
     return this.store.get().cache;
   }
 
-  /** Perform a live GET and repopulate the cache. Updates health on success/failure. */
-  async refresh(): Promise<void> {
+  /**
+   * Perform a live GET and repopulate the cache. Updates health on success/failure.
+   *
+   * Concurrent callers (the background timer and a manual /action/refresh) share the in-flight
+   * run rather than racing. Two overlapping refreshes would both read the same armed latch and
+   * replay it twice — a double write to the live broadcast, with the second replay's undo
+   * snapshot capturing the first one's result.
+   */
+  refresh(): Promise<void> {
+    if (this.inFlight) return this.inFlight;
+    const run = this.runRefresh().finally(() => {
+      this.inFlight = null;
+    });
+    this.inFlight = run;
+    return run;
+  }
+
+  private async runRefresh(): Promise<void> {
     // Master switch off: make no YouTube call. The background timer keeps ticking so polling
     // resumes the instant the operator re-enables the API, but while off it costs zero quota.
     if (!this.store.get().service.apiEnabled) return;
@@ -108,6 +131,11 @@ export class StateCache {
           health: "ok",
           healthMessage: null,
           lastRefreshedAt: new Date().toISOString(),
+          // The channel has no target at all, so any conflict about *which* target we picked is
+          // over. Forgetting the id matters just as much: keeping it would make the next
+          // broadcast created — the normal way a show is set up — look like drift.
+          targetConflict: null,
+          lastTargetId: null,
         });
         return;
       }
@@ -117,6 +145,9 @@ export class StateCache {
         threshold: this.opts.healthFailureThreshold,
         message: mapped.message,
       });
+      // targetConflict/lastTargetId are deliberately left alone: the call failed, so we learned
+      // nothing new about the target. Clearing them would drop a real conflict on one flaky
+      // request; they are recomputed by the next refresh that actually reaches YouTube.
       await this.writeCache({
         health: this.health.status,
         healthMessage: this.health.message,
