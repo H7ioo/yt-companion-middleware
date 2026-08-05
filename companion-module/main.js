@@ -27,6 +27,7 @@ const FEEDBACK_IDS = [
 	'on_air',
 	'busy',
 	'api_disabled',
+	'target_conflict',
 	'health_state',
 	'health_color',
 	'active_preset',
@@ -337,6 +338,8 @@ class YtMiddlewareInstance extends InstanceBase {
 			{ variableId: 'quota_limit', name: 'YouTube quota limit' },
 			{ variableId: 'quota_remaining', name: 'YouTube quota remaining' },
 			{ variableId: 'undo_label', name: 'Undo target label' },
+			{ variableId: 'target_conflict', name: 'Target conflict code (blank when unambiguous)' },
+			{ variableId: 'target_conflict_message', name: 'Target conflict explanation' },
 			{ variableId: 'last_error', name: 'Last action error (code + message)' },
 			{ variableId: 'dashboard_url', name: 'Dashboard base URL' },
 		])
@@ -388,6 +391,15 @@ class YtMiddlewareInstance extends InstanceBase {
 				defaultStyle: { bgcolor: COMPANION_COLORS.apiOff, color: combineRgb(0, 0, 0) },
 				options: [],
 				callback: () => this.latest?.apiEnabled === false,
+			},
+			target_conflict: {
+				type: 'boolean',
+				name: 'Target conflict (wrong broadcast may air)',
+				description:
+					'True when the middleware cannot be sure the broadcast it edits is the one that goes to air — a stray upcoming event, two broadcasts on one stream key, or the target changing on its own. Amber, not red: YouTube is reachable, the aim is not certain.',
+				defaultStyle: { bgcolor: COMPANION_COLORS.apiOff, color: combineRgb(0, 0, 0) },
+				options: [],
+				callback: () => Boolean(this.latest?.targetConflict),
 			},
 			health_state: {
 				type: 'boolean',

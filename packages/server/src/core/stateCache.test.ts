@@ -88,3 +88,149 @@ describe("StateCache activity logging (issue 018 / PRD-06 §3)", () => {
     expect(logger.list()).toHaveLength(0);
   });
 });
+
+/**
+ * A client that reports a fixed set of broadcasts, so a refresh can be pointed at an idle
+ * channel, a live one, or a channel whose live broadcast is not the one we last edited.
+ */
+function clientWith(broadcasts: Record<string, youtube_v3.Schema$LiveBroadcast[]>) {
+  return {
+    liveBroadcasts: {
+      list: async (params: youtube_v3.Params$Resource$Livebroadcasts$List) => {
+        if (params.id) {
+          const all = Object.values(broadcasts).flat();
+          return { data: { items: all.filter((b) => params.id!.includes(b.id!)) } };
+        }
+        if (params.broadcastStatus === "active") return { data: { items: broadcasts.active ?? [] } };
+        if (params.broadcastStatus === "upcoming")
+          return { data: { items: broadcasts.upcoming ?? [] } };
+        return { data: { items: [] } };
+      },
+    },
+  } as unknown as youtube_v3.Youtube;
+}
+
+const live = (id: string, title: string) => ({
+  id,
+  snippet: { title },
+  status: { lifeCycleStatus: "live", privacyStatus: "public" },
+});
+const upcoming = (id: string, title: string) => ({
+  id,
+  snippet: { title, scheduledStartTime: new Date().toISOString() },
+  status: { lifeCycleStatus: "ready", privacyStatus: "public" },
+});
+
+/**
+ * The go-live fix (PRD-12 §2). With an auto-start encoder, YouTube mints the broadcast that
+ * airs about a minute before air — so a title set beforehand lands on a broadcast that never
+ * goes live. The cache spots the mismatch and replays the intent onto the real one.
+ */
+describe("StateCache pending-metadata replay", () => {
+  let store: JsonStore;
+  let dir: string;
+  let logger: Logger;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-replay-"));
+    store = new JsonStore(path.join(dir, "store.json"));
+    await store.init();
+    logger = new Logger();
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  const arm = (targetId: string, capturedAt = new Date().toISOString()) =>
+    store.update((s) => {
+      s.cache.pendingMetadata = { payload: { title: "Tonight" }, targetId, capturedAt };
+    });
+
+  function cacheFor(broadcasts: Record<string, youtube_v3.Schema$LiveBroadcast[]>) {
+    return new StateCache(
+      clientWith(broadcasts),
+      store,
+      { refreshIntervalMs: 60_000, healthFailureThreshold: 3 },
+      undefined,
+      logger,
+    );
+  }
+
+  it("replays onto the broadcast that actually went live", async () => {
+    const cache = cacheFor({ active: [live("new-one", "Studio's title")] });
+    const replayed: unknown[] = [];
+    cache.setReplayHandler(async (p) => void replayed.push(p));
+    await arm("ghost-we-edited");
+
+    await cache.refresh();
+
+    expect(replayed).toHaveLength(1);
+    expect(store.get().cache.pendingMetadata).toBeNull();
+    expect(logger.list()[0].message).toMatch(/re-applied your metadata/i);
+  });
+
+  it("does not replay when the live broadcast is the one we already edited", async () => {
+    const cache = cacheFor({ active: [live("same-one", "Tonight")] });
+    const replayed: unknown[] = [];
+    cache.setReplayHandler(async (p) => void replayed.push(p));
+    await arm("same-one");
+
+    await cache.refresh();
+    expect(replayed).toHaveLength(0);
+  });
+
+  it("does not replay while still idle — nothing has gone live yet", async () => {
+    const cache = cacheFor({ upcoming: [upcoming("up-1", "waiting")] });
+    const replayed: unknown[] = [];
+    cache.setReplayHandler(async (p) => void replayed.push(p));
+    await arm("ghost");
+
+    await cache.refresh();
+    expect(replayed).toHaveLength(0);
+    expect(store.get().cache.pendingMetadata).not.toBeNull();
+  });
+
+  it("drops a stale latch instead of putting yesterday's title on tonight's show", async () => {
+    const cache = cacheFor({ active: [live("new-one", "Studio's title")] });
+    const replayed: unknown[] = [];
+    cache.setReplayHandler(async (p) => void replayed.push(p));
+    await arm("ghost", new Date(Date.now() - 7 * 3600_000).toISOString());
+
+    await cache.refresh();
+    expect(replayed).toHaveLength(0);
+    expect(store.get().cache.pendingMetadata).toBeNull();
+  });
+
+  it("clears the latch and logs when the replay itself fails, so it cannot re-fire all show", async () => {
+    const cache = cacheFor({ active: [live("new-one", "Studio's title")] });
+    cache.setReplayHandler(() => Promise.reject(new Error("YouTube said no")));
+    await arm("ghost");
+
+    await cache.refresh();
+    expect(store.get().cache.pendingMetadata).toBeNull();
+    expect(logger.list()[0].message).toMatch(/could not re-apply/i);
+  });
+
+  it("flags target drift when the edited broadcast changes while still idle", async () => {
+    const cache = cacheFor({ upcoming: [upcoming("second", "another")] });
+    await store.update((s) => {
+      s.cache.lastTargetId = "first";
+      s.cache.status = { title: "x", privacyStatus: "public", isLive: false, noTarget: false };
+    });
+
+    await cache.refresh();
+    expect(store.get().cache.targetConflict?.code).toBe("TARGET_DRIFT");
+  });
+
+  it("does not call a show ending 'drift' — a new target after live is expected", async () => {
+    const cache = cacheFor({ upcoming: [upcoming("next", "next show")] });
+    await store.update((s) => {
+      s.cache.lastTargetId = "the-show-that-just-ended";
+      s.cache.status = { title: "x", privacyStatus: "public", isLive: true, noTarget: false };
+    });
+
+    await cache.refresh();
+    expect(store.get().cache.targetConflict).toBeNull();
+  });
+});

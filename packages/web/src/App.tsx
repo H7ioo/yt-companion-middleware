@@ -13,6 +13,7 @@ import {
 import { StatusRail } from "./components/StatusRail.js";
 import { ReauthBanner } from "./components/ReauthBanner.js";
 import { FirewallGuidance } from "./components/FirewallGuidance.js";
+import { TargetConflictBanner } from "./components/TargetConflictBanner.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { PresetForm } from "./components/PresetForm.js";
 import { PresetFillModal } from "./components/PresetFillModal.js";
@@ -443,6 +444,16 @@ export function App() {
         {/* Firewall guidance — a network-level fault, never reauth (PRD-06 §2, issue 019). */}
         {state?.health === "offline" ? (
           <FirewallGuidance applyState={setState} flash={flash} />
+        ) : null}
+
+        {/* Target conflict — healthy connection, ambiguous aim (PRD-12 §3). Shown alongside health
+            banners rather than instead of them: they answer different questions. */}
+        {state?.targetConflict ? (
+          <TargetConflictBanner
+            conflict={state.targetConflict}
+            onRefresh={refreshSession}
+            refreshing={refreshing}
+          />
         ) : null}
 
         {/* Presets */}

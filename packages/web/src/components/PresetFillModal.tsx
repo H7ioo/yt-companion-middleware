@@ -60,14 +60,20 @@ export function PresetFillModal({ preset, fire, onClose }: Props) {
     );
     try {
       const r = await fire(preset.id, sending);
-      setResult(r);
       if (r.success) {
         try {
           localStorage.setItem(lastUsedKey(preset.id), JSON.stringify(values));
         } catch {
           /* storage full or blocked — last-used prefill is best-effort */
         }
+        // Close on success. An inline "Applied" line that leaves the dialog standing reads as
+        // "nothing happened" mid-show — the operator's confirmation is the toast `fire` raises
+        // plus the status rail changing. A failure keeps the dialog open with the values intact
+        // so the fill can be corrected and retried.
+        onClose();
+        return;
       }
+      setResult(r);
     } catch (err) {
       setResult({ success: false, error: { code: "NETWORK", message: (err as Error).message } });
     } finally {
@@ -107,6 +113,11 @@ export function PresetFillModal({ preset, fire, onClose }: Props) {
                   placeholder={placeholder}
                   aria-invalid={v.required && values[v.name].trim() === ""}
                   autoFocus={i === 0}
+                  // Last-used values are prefilled as real values (the placeholder slot already
+                  // carries the preset's own default/fallback, so it can't also mean "last used").
+                  // Selecting on focus makes the stale text one keystroke to replace and Tab to
+                  // keep — what you see is always what gets sent.
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => set(v.name, e.target.value)}
                 />
               </div>
@@ -136,19 +147,16 @@ export function PresetFillModal({ preset, fire, onClose }: Props) {
             </p>
           ) : null}
 
+          {/* Only ever a failure — a success closes the dialog rather than reporting inline. */}
           {result ? (
-            result.success ? (
-              <p className="fill-result fill-result--ok">Applied “{preview.title}” to YouTube.</p>
-            ) : (
-              <p className="fill-result fill-result--err">
-                {result.error?.message ?? "Action failed."}
-              </p>
-            )
+            <p className="fill-result fill-result--err">
+              {result.error?.message ?? "Action failed."}
+            </p>
           ) : null}
         </div>
         <div className="modal__foot">
           <button type="button" className="btn btn--ghost" onClick={onClose}>
-            {result?.success ? "Close" : "Cancel"}
+            Cancel
           </button>
           <button type="submit" className="btn btn--primary" disabled={busy}>
             {busy ? "Applying…" : "Apply now"}

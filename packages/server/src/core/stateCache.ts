@@ -1,6 +1,6 @@
 import type { youtube_v3 } from "googleapis";
 import type { JsonStore } from "../storage/jsonStore.js";
-import type { CacheState } from "../storage/schema.js";
+import type { CacheState, PendingMetadata, TargetConflict } from "../storage/schema.js";
 import { getBroadcast, resolveTarget, toStatus } from "../youtube/broadcasts.js";
 import { isAuthError, isNetworkError, mapYouTubeError } from "../youtube/client.js";
 import { initialHealth, onFailure, onSuccess, type HealthState } from "./health.js";
@@ -15,9 +15,37 @@ import { categoryForCode, levelForCode, type Logger } from "./logger.js";
  * timer every `refreshIntervalMs` to catch out-of-band changes (e.g. a stream ended from
  * YouTube Studio).
  */
+/**
+ * How long a latched intent stays valid. Long enough to cover setting a title well before the
+ * show and YouTube minting the broadcast at the last minute; short enough that yesterday's title
+ * never lands on tonight's stream.
+ */
+const PENDING_TTL_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * The target changed while we were idle and nothing else explained it — something outside this
+ * app (almost always YouTube Studio) is creating broadcasts. Reported only when idle: once live,
+ * the active broadcast is authoritative and a change of id is just the show starting.
+ */
+function driftConflict(
+  previous: CacheState,
+  target: { id: string; isLive: boolean },
+): TargetConflict | null {
+  if (target.isLive || !previous.lastTargetId || previous.lastTargetId === target.id) return null;
+  if (previous.status.isLive) return null; // a show just ended — a new target is expected
+  return {
+    code: "TARGET_DRIFT",
+    message:
+      "The broadcast being edited changed on its own — something else (usually YouTube Studio) is creating broadcasts. Close Studio's stream page, or check which one you are about to start.",
+    ids: [previous.lastTargetId, target.id],
+  };
+}
+
 export class StateCache {
   private health: HealthState = initialHealth();
   private timer: NodeJS.Timeout | null = null;
+  /** Set post-construction via setReplayHandler — see the note there on the runner/cache cycle. */
+  private replay: ((pending: PendingMetadata) => Promise<unknown>) | null = null;
 
   constructor(
     private readonly yt: youtube_v3.Youtube,
@@ -50,17 +78,23 @@ export class StateCache {
     if (!this.store.get().service.apiEnabled) return;
     const wasUnhealthy = this.health.status !== "ok";
     try {
-      const target = await resolveTarget(this.yt);
+      const { conflict, ...target } = await resolveTarget(this.yt);
       const broadcast = await getBroadcast(this.yt, target.id);
       const status = toStatus(broadcast);
       this.health = onSuccess(this.health);
       this.logRecovery(wasUnhealthy);
+      const previous = this.snapshot();
       await this.writeCache({
         status: { ...status, noTarget: false },
         health: "ok",
         healthMessage: null,
         lastRefreshedAt: new Date().toISOString(),
+        targetConflict: conflict ?? driftConflict(previous, target),
+        lastTargetId: target.id,
       });
+      // Ordered after the cache write so the dashboard reflects the live broadcast even if the
+      // replay itself fails; the replay writes the cache again on success.
+      await this.replayPendingIfNeeded(previous, target);
     } catch (err) {
       const mapped = mapYouTubeError(err);
       // An idle channel with no active/persistent broadcast is an expected state, not a
@@ -109,6 +143,45 @@ export class StateCache {
     this.events?.emitChange();
   }
 
+  /**
+   * Lands metadata the operator set while idle onto the broadcast that actually went live.
+   *
+   * Fires exactly when the shape of the go-live bug appears: something is live now, it is not
+   * the broadcast we wrote to, and a latched intent is still fresh. The replay is cleared
+   * whether it succeeds or fails — a stuck latch would re-fire every refresh for the rest of the
+   * show, which is far worse than one missed title.
+   */
+  private async replayPendingIfNeeded(
+    previous: CacheState,
+    target: { id: string; isLive: boolean },
+  ): Promise<void> {
+    const pending = previous.pendingMetadata;
+    if (!pending || !this.replay) return;
+    if (!target.isLive || target.id === pending.targetId) return;
+    if (Date.parse(pending.capturedAt) < Date.now() - PENDING_TTL_MS) {
+      await this.writeCache({ pendingMetadata: null });
+      return;
+    }
+    await this.writeCache({ pendingMetadata: null });
+    try {
+      await this.replay(pending);
+      this.logger?.push({
+        level: "info",
+        category: "action",
+        code: null,
+        message: `YouTube started a new broadcast — re-applied your metadata${pending.payload.title ? ` (“${pending.payload.title}”)` : ""}`,
+      });
+    } catch (err) {
+      const mapped = mapYouTubeError(err);
+      this.logger?.push({
+        level: "warn",
+        category: categoryForCode(mapped.code),
+        code: mapped.code,
+        message: `Could not re-apply your metadata to the new broadcast: ${mapped.message}`,
+      });
+    }
+  }
+
   /** Records which preset was last applied (PRD §5.4 active-preset feedback). */
   async setActivePreset(presetId: string | null): Promise<void> {
     await this.writeCache({ activePresetId: presetId });
@@ -117,6 +190,19 @@ export class StateCache {
   /** Stores the pre-change metadata so the last action can be undone. */
   async setUndoSnapshot(snapshot: CacheState["undoSnapshot"]): Promise<void> {
     await this.writeCache({ undoSnapshot: snapshot });
+  }
+
+  /** Arms (or clears) the intent to re-apply metadata onto whatever broadcast goes live next. */
+  async setPendingMetadata(pending: CacheState["pendingMetadata"]): Promise<void> {
+    await this.writeCache({ pendingMetadata: pending });
+  }
+
+  /**
+   * Wires the replay callback after construction. The runner needs the cache and the cache needs
+   * the runner, so the cycle is broken here rather than in either constructor.
+   */
+  setReplayHandler(replay: (pending: PendingMetadata) => Promise<unknown>): void {
+    this.replay = replay;
   }
 
   start(): void {

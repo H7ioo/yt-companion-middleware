@@ -1,4 +1,4 @@
-import type { HealthStatus } from "./schema.js";
+import type { HealthStatus, TargetConflict } from "./schema.js";
 
 /**
  * Canonical user-facing vocabulary — the single source of truth for state names and their
@@ -103,5 +103,35 @@ export const HEALTH_GLOSSARY: Record<HealthStatus, HealthTerm> = {
       "The saved YouTube sign-in stopped working. No retry will fix it — reconnect to resume actions and status.",
     keyColor: "Red",
     remedy: "reconnect",
+  },
+};
+
+/**
+ * The target-conflict slice of the glossary: the app is reaching YouTube fine, but the broadcast
+ * it edits may not be the one that airs. Deliberately not a health state — health answers "can we
+ * reach YouTube", this answers "are we pointed at the right thing", and folding the two together
+ * would make a perfectly-connected app read as broken.
+ *
+ * `label` names the state; the specific counts and titles ride on the conflict's own `message`,
+ * because those are per-channel facts the server discovers rather than fixed vocabulary.
+ */
+export interface TargetConflictTerm {
+  label: string;
+  /** What the operator does about it, in one sentence. */
+  remedy: string;
+}
+
+export const TARGET_CONFLICT_GLOSSARY: Record<TargetConflict["code"], TargetConflictTerm> = {
+  SHARED_STREAM_KEY: {
+    label: "Two broadcasts share your stream key",
+    remedy: "Delete the one you are not starting, then refresh.",
+  },
+  MULTIPLE_UPCOMING: {
+    label: "More than one broadcast is waiting",
+    remedy: "Delete the strays in YouTube Studio, then refresh.",
+  },
+  TARGET_DRIFT: {
+    label: "The broadcast being edited changed on its own",
+    remedy: "Close Studio's stream page so it stops creating broadcasts, then refresh.",
   },
 };

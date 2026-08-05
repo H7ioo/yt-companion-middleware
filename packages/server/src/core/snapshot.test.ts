@@ -37,6 +37,7 @@ function state(over: Partial<DashboardState> = {}): DashboardState {
     undo: null,
     apiEnabled: true,
     fillRequest: null,
+    targetConflict: null,
     ...over,
   };
 }

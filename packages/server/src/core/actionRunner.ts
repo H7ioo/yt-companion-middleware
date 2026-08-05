@@ -1,6 +1,6 @@
 import type { youtube_v3 } from "googleapis";
 import type { JsonStore } from "../storage/jsonStore.js";
-import type { PrivacyStatus, UndoSnapshot } from "../storage/schema.js";
+import type { PendingMetadata, PrivacyStatus, UndoSnapshot } from "../storage/schema.js";
 import { AppError } from "./errors.js";
 import { applyPlan, getBroadcast, resolveTarget, toStatus } from "../youtube/broadcasts.js";
 import { resolve, presetToPayload, type BroadcastResource, type MetadataPayload } from "./resolve.js";
@@ -45,6 +45,23 @@ export function snapshotOf(current: BroadcastResource): UndoSnapshot {
     label: (current.snippet?.title as string | undefined) ?? null,
     capturedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Narrows a payload to the fields worth replaying onto a broadcast YouTube minted after the
+ * fact. Stream binding is excluded (the encoder is already feeding the live broadcast by then);
+ * a payload carrying none of these latches nothing.
+ */
+export function pendingFrom(payload: MetadataPayload, targetId: string): PendingMetadata | null {
+  const carried = {
+    title: payload.title,
+    description: payload.description,
+    privacyStatus: payload.privacyStatus,
+    category: payload.category,
+  };
+  const hasIntent = Object.values(carried).some((v) => v !== undefined);
+  if (!hasIntent) return null;
+  return { payload: carried, targetId, capturedAt: new Date().toISOString() };
 }
 
 export interface ActionResult {
@@ -167,17 +184,39 @@ export class ActionRunner {
     });
   }
 
+  /**
+   * Re-applies metadata that was set while idle onto the broadcast that actually went live
+   * (PRD-12 §2). Called by the state cache the moment it sees a live broadcast whose id differs
+   * from the one the operator wrote to — the "set the title, then go live" fix.
+   *
+   * `skipDefaults` because this replays a specific captured intent: the app default category and
+   * stream binding were already resolved when the operator applied it, and re-binding a stream
+   * that is mid-broadcast would cut the feed.
+   */
+  async replayPending(pending: PendingMetadata): Promise<ActionResult> {
+    this.assertEnabled();
+    return this.enqueue(() =>
+      this.applyPayload(pending.payload, { skipDefaults: true, replay: true }),
+    );
+  }
+
   /** The GET -> merge -> PUT pipeline (PRD §3.3, §6). */
   private async applyPayload(
     input: PayloadInput,
-    opts: { skipDefaults?: boolean } = {},
+    opts: { skipDefaults?: boolean; replay?: boolean } = {},
   ): Promise<ActionResult> {
     try {
-      const target = await resolveTarget(this.yt);
+      const { conflict, ...target } = await resolveTarget(this.yt);
       const current = await getBroadcast(this.yt, target.id);
       const payload = typeof input === "function" ? input(current as BroadcastResource) : input;
       // Capture the current owned fields so the last change can be undone (PRD feature: undo).
       await this.cache.setUndoSnapshot(snapshotOf(current as BroadcastResource));
+      // Applying while idle writes to a broadcast that may not be the one YouTube ends up
+      // airing, so remember the intent. A replay is itself the resolution of an earlier latch
+      // and must not re-arm it, or a channel that keeps minting broadcasts would loop.
+      if (!target.isLive && !opts.replay) {
+        await this.cache.setPendingMetadata(pendingFrom(payload, target.id));
+      }
       // skipDefaults suppresses the app-default fallback for category/stream binding (an
       // explicit payload value still wins) — so a targeted action like privacy-toggle or
       // undo doesn't drag in the default category/stream it never meant to touch.
@@ -188,7 +227,14 @@ export class ActionRunner {
       await applyPlan(this.yt, plan);
 
       const status = { ...toStatus(plan.broadcast), noTarget: false };
-      await this.cache.writeCache({ status, lastRefreshedAt: new Date().toISOString() });
+      await this.cache.writeCache({
+        status,
+        lastRefreshedAt: new Date().toISOString(),
+        targetConflict: conflict,
+        lastTargetId: target.id,
+        // Landing on the live broadcast is the end of the road for any latched intent.
+        ...(target.isLive ? { pendingMetadata: null } : {}),
+      });
       this.logger?.push({
         level: "info",
         category: "action",

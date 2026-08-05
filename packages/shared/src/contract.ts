@@ -1,4 +1,4 @@
-import type { HealthStatus } from "./schema.js";
+import type { HealthStatus, TargetConflict } from "./schema.js";
 
 /**
  * HTTP/DTO contract types — the response shapes the server produces and the web app consumes.
@@ -104,6 +104,12 @@ export interface DashboardState {
   apiEnabled: boolean;
   /** Unclaimed fill request from a Companion key, or null. Rides the same push as everything else. */
   fillRequest: FillRequest | null;
+  /**
+   * Set when the broadcast we edit may not be the one that airs — a stray upcoming event, two
+   * broadcasts sharing a stream key, or the target changing under us. Independent of `health`:
+   * this is "pointed at the wrong thing", not "cannot reach YouTube".
+   */
+  targetConflict: TargetConflict | null;
 }
 
 /** Severity of a dashboard activity-log entry (PRD-06 §3). Drives the panel's colour coding. */

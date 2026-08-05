@@ -35,6 +35,7 @@ export function buildDashboardState(
       : null,
     apiEnabled: store.get().service.apiEnabled,
     fillRequest: fills.pending(),
+    targetConflict: c.targetConflict,
   };
 }
 
@@ -73,5 +74,6 @@ export function changeSignature(s: DashboardState): string {
     s.apiEnabled,
     quotaBucket,
     s.fillRequest?.id ?? null,
+    s.targetConflict?.code ?? null,
   ]);
 }
