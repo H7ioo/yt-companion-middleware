@@ -4,6 +4,55 @@ All notable changes to the desktop app and the middleware. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this file is **generated** from the
 Conventional Commit history by `npm run changelog` — edit the commits, not this file.
 
+## [2.3.1-nightly.20260716.9] - 2026-07-17
+
+### Fixed
+
+- **fill:** close an unanswered fill popup at expiry, TTL 60s -> 30s
+
+## [2.3.1-nightly.20260716.8] - 2026-07-17
+
+### Added
+
+- **companion:** redesign preset key palette and type sizes
+
+### Fixed
+
+- **update:** name the installer without spaces so the feed URL resolves
+
+## [2.3.1-nightly.20260716.7] - 2026-07-17
+
+### Fixed
+
+- **fill:** publish ntfy push as JSON so non-Latin-1 titles deliver
+
+## [2.3.1-nightly.20260716.6] - 2026-07-17
+
+### Added
+
+- **update:** show download progress and surface failed downloads
+
+### Documentation
+
+- **changelog:** regenerate from commit history
+
+## [2.3.0] - 2026-07-15
+
+### Fixed
+
+- **fill:** broadcast fill popup to every dashboard, not one claimer
+
+## [2.2.2-nightly.20260715.4] - 2026-07-15
+
+_No user-facing changes._
+
+## [2.2.2-nightly.20260714.2] - 2026-07-15
+
+### Added
+
+- **update:** add a manual check-for-updates button
+- **companion:** request fill from a key via dashboard popup or phone push
+
 ## [2.2.2-nightly.20260714.1] - 2026-07-15
 
 _No user-facing changes._
