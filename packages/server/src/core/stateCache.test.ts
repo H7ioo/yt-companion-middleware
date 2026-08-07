@@ -6,6 +6,7 @@ import type { youtube_v3 } from "googleapis";
 import { JsonStore } from "../storage/jsonStore.js";
 import { StateCache } from "./stateCache.js";
 import { Logger } from "./logger.js";
+import { AppError } from "./errors.js";
 
 /** A YouTube client whose broadcast list rejects with `err`, to drive the failure path. */
 function failingClient(err: unknown): youtube_v3.Youtube {
@@ -237,6 +238,15 @@ describe("StateCache pending-metadata replay", () => {
     await cache.refresh();
     expect(store.get().cache.pendingMetadata).toBeNull();
     expect(logger.list()[0].message).toMatch(/could not re-apply/i);
+  });
+
+  it("keeps the latch when the runner was busy — no YouTube call was made", async () => {
+    const cache = cacheFor({ active: [live("new-one", "Studio's title")] });
+    cache.setReplayHandler(() => Promise.reject(new AppError("BUSY_TRY_AGAIN")));
+    await arm("ghost");
+
+    await cache.refresh();
+    expect(store.get().cache.pendingMetadata?.targetId).toBe("ghost");
   });
 
   it("flags target drift when the edited broadcast changes while still idle", async () => {

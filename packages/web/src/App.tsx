@@ -813,6 +813,9 @@ export function App() {
 
       {filling ? (
         <PresetFillModal
+          // Remount per preset: a second fill request swaps `preset` in place, and the modal's
+          // `values` state would still be keyed to the previous preset's variables.
+          key={filling.id}
           preset={filling}
           fire={fireFilledPreset}
           onDirty={() => {

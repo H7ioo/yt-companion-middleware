@@ -74,6 +74,10 @@ export function changeSignature(s: DashboardState): string {
     s.apiEnabled,
     quotaBucket,
     s.fillRequest?.id ?? null,
-    s.targetConflict?.code ?? null,
+    // The whole conflict, not just its code: the banner names the stray broadcast ids, so a
+    // conflict that keeps its code while the ids or count change still has to push.
+    s.targetConflict
+      ? [s.targetConflict.code, s.targetConflict.message, s.targetConflict.ids]
+      : null,
   ]);
 }

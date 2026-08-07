@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
 import type { youtube_v3 } from "googleapis";
-import { ActionRunner, togglePrivacy, snapshotOf } from "./actionRunner.js";
+import { ActionRunner, togglePrivacy, snapshotOf, mergePending } from "./actionRunner.js";
 import type { BroadcastResource } from "./resolve.js";
 import { AppError } from "./errors.js";
 import { JsonStore } from "../storage/jsonStore.js";
@@ -57,6 +57,44 @@ describe("snapshotOf (undo capture)", () => {
   it("omits stream binding when the target has none", () => {
     const snap = snapshotOf({ ...broadcast, contentDetails: {} });
     expect(snap.payload.streamBoundId).toBeUndefined();
+  });
+});
+
+describe("mergePending (latch accumulation while idle)", () => {
+  const armed = {
+    payload: { title: "Tonight", description: "Doors at 7" },
+    targetId: "ghost",
+    capturedAt: "2026-08-06T18:00:00Z",
+  };
+
+  it("keeps earlier fields when a narrower action follows", () => {
+    // Set a title, then flip privacy: the latch has to describe the ghost broadcast's final
+    // owned state, or the replay lands privacy and leaves YouTube's default title on air.
+    const merged = mergePending(armed, { privacyStatus: "public" }, "ghost");
+    expect(merged?.payload).toEqual({
+      title: "Tonight",
+      description: "Doors at 7",
+      privacyStatus: "public",
+      category: undefined,
+    });
+  });
+
+  it("lets a later action overwrite a field it does carry", () => {
+    expect(mergePending(armed, { title: "New title" }, "ghost")?.payload.title).toBe("New title");
+  });
+
+  it("leaves the latch standing when the action carries nothing replayable", () => {
+    expect(mergePending(armed, { streamBoundId: "stream-9" }, "ghost")).toEqual(armed);
+  });
+
+  it("starts fresh when the target changed — another broadcast holds the old fields", () => {
+    const merged = mergePending(armed, { privacyStatus: "public" }, "other");
+    expect(merged?.targetId).toBe("other");
+    expect(merged?.payload.title).toBeUndefined();
+  });
+
+  it("arms nothing when there is no latch and no replayable field", () => {
+    expect(mergePending(null, { streamBoundId: "stream-9" }, "ghost")).toBeNull();
   });
 });
 

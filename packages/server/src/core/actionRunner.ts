@@ -69,6 +69,36 @@ export function pendingFrom(payload: MetadataPayload, targetId: string): Pending
   return { payload: carried, targetId, capturedAt: new Date().toISOString() };
 }
 
+/**
+ * Folds a new idle action into whatever intent is already latched for the same broadcast.
+ *
+ * The latch has to describe the ghost broadcast's *final* owned state, not the last action's
+ * fields: set a title, then flip privacy, and a wholesale replace would drop the title — the
+ * replay would then land privacy on the broadcast that airs and leave YouTube's default title
+ * on screen. A narrower action only overwrites the fields it actually carries.
+ *
+ * A different target means a different broadcast holds those earlier fields, so nothing is
+ * carried over — the new action starts the latch fresh.
+ */
+export function mergePending(
+  existing: PendingMetadata | null | undefined,
+  payload: MetadataPayload,
+  targetId: string,
+): PendingMetadata | null {
+  const next = pendingFrom(payload, targetId);
+  if (!existing || existing.targetId !== targetId) return next;
+  // An action carrying none of the replayable fields (a bare stream re-bind) says nothing about
+  // the latched intent, so it leaves it standing rather than disarming it.
+  if (!next) return existing;
+  return {
+    ...next,
+    payload: {
+      ...existing.payload,
+      ...Object.fromEntries(Object.entries(next.payload).filter(([, v]) => v !== undefined)),
+    },
+  };
+}
+
 export interface ActionResult {
   status: { title: string | null; privacyStatus: string | null; isLive: boolean };
   target: { id: string; isLive: boolean };
@@ -239,7 +269,8 @@ export class ActionRunner {
       // to go live. A replay is itself the resolution of an earlier latch and must not re-arm
       // it, or a channel that keeps minting broadcasts would loop.
       if (!target.isLive && !opts.replay) {
-        await this.cache.setPendingMetadata(pendingFrom(payload, target.id));
+        const existing = this.store.get().cache.pendingMetadata;
+        await this.cache.setPendingMetadata(mergePending(existing, payload, target.id));
       }
 
       const status = { ...toStatus(plan.broadcast), noTarget: false };

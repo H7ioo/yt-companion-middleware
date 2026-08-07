@@ -179,6 +179,38 @@ describe("pickUpcoming", () => {
   it("returns null for an empty list", () => {
     expect(pickUpcoming([], NOW)).toBeNull();
   });
+
+  it("does not let a stray scheduled earlier today beat the broadcast minted for air", () => {
+    // Same-day strays survive the 12h staleness filter, so ordering has to demote them: with
+    // the old "earliest scheduled start" tiebreak this reproduced the go-live regression.
+    const earlierToday = {
+      ...ghost,
+      snippet: { ...ghost.snippet, scheduledStartTime: hoursAgo(3) },
+    };
+    expect(pickUpcoming([earlierToday, real], NOW)?.chosen.id).toBe("kn_lwgeVyNY");
+  });
+
+  it("prefers the mint over a stray scheduled for later tonight", () => {
+    const laterTonight = {
+      ...ghost,
+      snippet: { ...ghost.snippet, scheduledStartTime: hoursAhead(3) },
+    };
+    expect(pickUpcoming([laterTonight, real], NOW)?.chosen.id).toBe("kn_lwgeVyNY");
+  });
+
+  it("picks the most recent among past-due candidates — just-missed beats this morning", () => {
+    const thisMorning = {
+      ...ghost,
+      id: "morning",
+      snippet: { ...ghost.snippet, scheduledStartTime: hoursAgo(8) },
+    };
+    const justMissed = {
+      ...ghost,
+      id: "just-missed",
+      snippet: { ...ghost.snippet, scheduledStartTime: hoursAgo(1) },
+    };
+    expect(pickUpcoming([thisMorning, justMissed], NOW)?.chosen.id).toBe("just-missed");
+  });
 });
 
 describe("getBroadcast", () => {

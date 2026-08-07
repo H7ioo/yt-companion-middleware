@@ -211,6 +211,13 @@ export class StateCache {
       });
     } catch (err) {
       const mapped = mapYouTubeError(err);
+      // These two are rejected by the runner before it touches YouTube — the busy queue was full,
+      // or the API is switched off. Nothing was written, so re-arm and let the next refresh try
+      // again; only a failure that actually reached YouTube burns the latch.
+      if (mapped.code === "BUSY_TRY_AGAIN" || mapped.code === "SERVICE_DISABLED") {
+        await this.writeCache({ pendingMetadata: pending });
+        return;
+      }
       this.logger?.push({
         level: "warn",
         category: categoryForCode(mapped.code),

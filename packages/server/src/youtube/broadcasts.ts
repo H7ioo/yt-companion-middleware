@@ -90,13 +90,17 @@ export function pickUpcoming(
   });
   const candidates = fresh.length > 0 ? fresh : upcoming;
 
-  // Closest to air first: encoder-bound over a stub, then soonest scheduled, then most recently
-  // created. The last tiebreak matters because YouTube mints the broadcast for an auto-start
-  // session moments before it goes live — when scheduled times tie, newest is the real one.
+  // Closest to air first: encoder-bound over a stub, then still-to-start over past-due, then
+  // soonest scheduled, then most recently created. The past-due rank matters because the
+  // staleness filter above only drops leftovers older than 12h — a stray scheduled earlier
+  // *today* would otherwise win outright over the broadcast YouTube mints at air time. The
+  // create-time tiebreak matters because that mint lands moments before going live, so when
+  // scheduled times tie, newest is the real one.
   const sorted = [...candidates].sort(
     (a, b) =>
       readinessRank(b) - readinessRank(a) ||
-      scheduledStartMs(a) - scheduledStartMs(b) ||
+      pastDueRank(a, now) - pastDueRank(b, now) ||
+      scheduledCompare(a, b, now) ||
       createTimeMs(b) - createTimeMs(a),
   );
 
@@ -295,6 +299,27 @@ function startTimeMs(b: youtube_v3.Schema$LiveBroadcast): number {
 }
 function scheduledStartMs(b: youtube_v3.Schema$LiveBroadcast): number {
   return Date.parse(b.snippet?.scheduledStartTime ?? "") || Number.MAX_SAFE_INTEGER;
+}
+/**
+ * 0 = still to start (or no scheduled time), 1 = its scheduled start has already passed. The
+ * grace window is the auto-start mint window: a broadcast YouTube minted for a session starting
+ * "now" drifts a few seconds into the past immediately, and must not be demoted below a stray
+ * scheduled for tonight.
+ */
+function pastDueRank(b: youtube_v3.Schema$LiveBroadcast, now: number): number {
+  return scheduledStartMs(b) < now - AUTO_START_MINT_MS ? 1 : 0;
+}
+/**
+ * Soonest first among broadcasts still to start; most recent first among past-due ones, where
+ * "just missed its slot" is far more likely to be the show than "was due this morning".
+ */
+function scheduledCompare(
+  a: youtube_v3.Schema$LiveBroadcast,
+  b: youtube_v3.Schema$LiveBroadcast,
+  now: number,
+): number {
+  const [as, bs] = [scheduledStartMs(a), scheduledStartMs(b)];
+  return pastDueRank(a, now) === 1 ? bs - as : as - bs;
 }
 /** Higher = closer to going live. Prefers an encoder-bound broadcast over a stub. */
 function readinessRank(b: youtube_v3.Schema$LiveBroadcast): number {
