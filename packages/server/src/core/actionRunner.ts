@@ -1,6 +1,11 @@
 import type { youtube_v3 } from "googleapis";
 import type { JsonStore } from "../storage/jsonStore.js";
-import type { PrivacyStatus, UndoSnapshot } from "../storage/schema.js";
+import type {
+  PendingMetadata,
+  PrivacyStatus,
+  TargetConflict,
+  UndoSnapshot,
+} from "../storage/schema.js";
 import { AppError } from "./errors.js";
 import { applyPlan, getBroadcast, resolveTarget, toStatus } from "../youtube/broadcasts.js";
 import { resolve, presetToPayload, type BroadcastResource, type MetadataPayload } from "./resolve.js";
@@ -47,6 +52,55 @@ export function snapshotOf(current: BroadcastResource): UndoSnapshot {
   };
 }
 
+/**
+ * Narrows a payload to the fields worth replaying onto a broadcast YouTube minted after the
+ * fact. Stream binding is excluded (the encoder is already feeding the live broadcast by then);
+ * a payload carrying none of these latches nothing.
+ */
+export function pendingFrom(payload: MetadataPayload, targetId: string): PendingMetadata | null {
+  const carried = {
+    title: payload.title,
+    description: payload.description,
+    privacyStatus: payload.privacyStatus,
+    category: payload.category,
+  };
+  const hasIntent = Object.values(carried).some((v) => v !== undefined);
+  if (!hasIntent) return null;
+  return { payload: carried, targetId, capturedAt: new Date().toISOString() };
+}
+
+/**
+ * Folds a new idle action into whatever intent is already latched for the same broadcast.
+ *
+ * The latch has to describe the ghost broadcast's *final* owned state, not the last action's
+ * fields: set a title, then flip privacy, and a wholesale replace would drop the title — the
+ * replay would then land privacy on the broadcast that airs and leave YouTube's default title
+ * on screen. A narrower action only overwrites the fields it actually carries.
+ *
+ * A different target means a different broadcast holds those earlier fields, so nothing is
+ * carried over — the new action starts the latch fresh.
+ */
+export function mergePending(
+  existing: PendingMetadata | null | undefined,
+  payload: MetadataPayload,
+  targetId: string,
+): PendingMetadata | null {
+  const next = pendingFrom(payload, targetId);
+  // An action carrying none of the replayable fields (a bare stream re-bind) says nothing about
+  // the latched intent, so it leaves it standing rather than disarming it. This holds whichever
+  // broadcast it ran against: a re-bind on some other target is still no reason to drop a title
+  // the operator set for tonight.
+  if (!next) return existing ?? null;
+  if (!existing || existing.targetId !== targetId) return next;
+  return {
+    ...next,
+    payload: {
+      ...existing.payload,
+      ...Object.fromEntries(Object.entries(next.payload).filter(([, v]) => v !== undefined)),
+    },
+  };
+}
+
 export interface ActionResult {
   status: { title: string | null; privacyStatus: string | null; isLive: boolean };
   target: { id: string; isLive: boolean };
@@ -62,6 +116,13 @@ export interface ActionResult {
 export class ActionRunner {
   private busy = false;
   private queued: (() => void) | null = null;
+  /**
+   * When an operator action last landed a write on YouTube. Read only by replayPending, to tell
+   * "my latched payload is still the newest thing the operator asked for" from "they have edited
+   * since". Replays do not update it — a replay is the resolution of an older intent, never a
+   * newer one.
+   */
+  private lastAppliedAt: number | null = null;
 
   constructor(
     private readonly yt: youtube_v3.Youtube,
@@ -167,13 +228,47 @@ export class ActionRunner {
     });
   }
 
+  /**
+   * Re-applies metadata that was set while idle onto the broadcast that actually went live
+   * (PRD-12 §2). Called by the state cache the moment it sees a live broadcast whose id differs
+   * from the one the operator wrote to — the "set the title, then go live" fix.
+   *
+   * `skipDefaults` because this replays a specific captured intent: the app default category and
+   * stream binding were already resolved when the operator applied it, and re-binding a stream
+   * that is mid-broadcast would cut the feed.
+   *
+   * Returns null when the replay was superseded and nothing was written.
+   */
+  async replayPending(pending: PendingMetadata): Promise<ActionResult | null> {
+    this.assertEnabled();
+    return this.enqueue(async () => {
+      // The replay queues behind operator actions, so by the time it runs an action that started
+      // moments earlier may already have written newer metadata to the broadcast that aired.
+      // Writing the older latched payload on top would silently revert that edit — precisely when
+      // the operator is fixing what is on screen. Their newer intent wins; the latch is already
+      // cleared by the caller either way.
+      if (this.lastAppliedAt !== null && this.lastAppliedAt > Date.parse(pending.capturedAt)) {
+        return null;
+      }
+      return this.applyPayload(pending.payload, { skipDefaults: true, replay: true });
+    });
+  }
+
+  /** A drift conflict already on the cache, which only a later refresh can clear. */
+  private keptDrift(): TargetConflict | null {
+    const existing = this.store.get().cache.targetConflict;
+    return existing?.code === "TARGET_DRIFT" ? existing : null;
+  }
+
   /** The GET -> merge -> PUT pipeline (PRD §3.3, §6). */
   private async applyPayload(
     input: PayloadInput,
-    opts: { skipDefaults?: boolean } = {},
+    opts: { skipDefaults?: boolean; replay?: boolean } = {},
   ): Promise<ActionResult> {
     try {
-      const target = await resolveTarget(this.yt);
+      // autoStartMint is a refresh-time signal (see stateCache.driftConflict); dropped here so
+      // the action result stays the {id, isLive} pair the API contract promises.
+      const { conflict, autoStartMint: _mint, ...target } = await resolveTarget(this.yt);
       const current = await getBroadcast(this.yt, target.id);
       const payload = typeof input === "function" ? input(current as BroadcastResource) : input;
       // Capture the current owned fields so the last change can be undone (PRD feature: undo).
@@ -186,9 +281,33 @@ export class ActionRunner {
         : this.store.get().defaults;
       const plan = resolve(current as BroadcastResource, payload, defaults);
       await applyPlan(this.yt, plan);
+      // Stamped before the latch is armed below, so the latch this very action creates always
+      // carries the later timestamp and is never mistaken for superseded by its own action.
+      if (!opts.replay) this.lastAppliedAt = Date.now();
+
+      // Applying while idle writes to a broadcast that may not be the one YouTube ends up
+      // airing, so remember the intent — but only once the write actually landed. Arming ahead
+      // of applyPlan meant a YouTube-rejected edit still got replayed onto the next broadcast
+      // to go live. A replay is itself the resolution of an earlier latch and must not re-arm
+      // it, or a channel that keeps minting broadcasts would loop.
+      if (!target.isLive && !opts.replay) {
+        const existing = this.store.get().cache.pendingMetadata;
+        await this.cache.setPendingMetadata(mergePending(existing, payload, target.id));
+      }
 
       const status = { ...toStatus(plan.broadcast), noTarget: false };
-      await this.cache.writeCache({ status, lastRefreshedAt: new Date().toISOString() });
+      await this.cache.writeCache({
+        status,
+        lastRefreshedAt: new Date().toISOString(),
+        // resolveTarget only ever reports ambiguity among the broadcasts it can see; it never
+        // reports drift, which is the cache comparing refreshes over time. Writing its answer
+        // straight through would clear a live TARGET_DRIFT banner just because the operator
+        // pressed a preset key — the stray broadcasts would still be there.
+        targetConflict: conflict ?? this.keptDrift(),
+        lastTargetId: target.id,
+        // Landing on the live broadcast is the end of the road for any latched intent.
+        ...(target.isLive ? { pendingMetadata: null } : {}),
+      });
       this.logger?.push({
         level: "info",
         category: "action",

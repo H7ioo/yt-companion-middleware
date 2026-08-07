@@ -31,6 +31,8 @@ export function mapVariables(state, presets = []) {
     quota_limit: num(quota.limit),
     quota_remaining: num(quota.remaining),
     undo_label: s.undo?.label ?? '',
+    target_conflict: s.targetConflict?.code ?? '',
+    target_conflict_message: s.targetConflict?.message ?? '',
   };
 }
 

@@ -711,9 +711,6 @@ textarea {
   font-size: 13px;
   line-height: 1.4;
 }
-.fill-result--ok {
-  color: var(--ready);
-}
 .fill-result--err {
   color: var(--live);
 }
@@ -1487,6 +1484,67 @@ textarea {
   flex: none;
   display: flex;
   gap: 8px;
+}
+
+/* ---- Target conflict (the wrong broadcast may be about to air) ------------ */
+/* Amber, matching `degraded`: the connection is fine, the aim is not. The ids are set in mono and
+   listed rather than described — the operator's fix is to match them against YouTube Studio and
+   delete a stray, so the identifiers are the payload, not decoration. */
+
+.conflict {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 20px;
+  background: var(--bg-rack);
+  border: var(--seam-line);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius);
+}
+.conflict__lamp {
+  flex: none;
+  margin-top: 5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 4px rgba(255, 176, 32, 0.14);
+}
+.conflict__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.conflict__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink);
+}
+.conflict__note {
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+.conflict__ids {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.conflict__ids li {
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  background: var(--bg-inset);
+  border: var(--seam-line);
+  border-radius: 3px;
+}
+.conflict__action {
+  margin-left: auto;
+  flex: none;
 }
 
 /* ---- What's New (release notes for the running/offered build) ------------- */

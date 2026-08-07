@@ -54,6 +54,44 @@ export const undoSnapshotSchema = z.object({
 });
 export type UndoSnapshot = z.infer<typeof undoSnapshotSchema>;
 
+/**
+ * A warning that the broadcast we are editing may not be the one that goes to air. Kept
+ * separate from `health` on purpose: health answers "can we reach YouTube", this answers "are
+ * we pointed at the right thing". A channel can be perfectly healthy and still ambiguous —
+ * which is exactly the state that makes a pre-live title change silently do nothing.
+ */
+export const targetConflictSchema = z.object({
+  code: z.enum(["SHARED_STREAM_KEY", "MULTIPLE_UPCOMING", "TARGET_DRIFT"]),
+  message: z.string(),
+  ids: z.array(z.string()).default([]),
+});
+export type TargetConflict = z.infer<typeof targetConflictSchema>;
+
+/**
+ * Metadata applied while idle, held so it can be re-applied if YouTube goes live on a
+ * *different* broadcast than the one we wrote to.
+ *
+ * This is the fix for "set the title, then go live, and nothing happened": with an auto-start
+ * encoder YouTube mints the broadcast that actually airs roughly a minute before air, so at the
+ * moment the operator sets the title the real target does not exist yet. Rather than ask them to
+ * re-apply mid-show, we remember the intent and land it once the real broadcast appears.
+ *
+ * `streamBoundId` is deliberately not carried: by the time this replays, the encoder is already
+ * feeding the live broadcast and re-binding would interrupt it.
+ */
+export const pendingMetadataSchema = z.object({
+  payload: z.object({
+    title: z.string().optional(),
+    description: z.string().optional(),
+    privacyStatus: privacyStatusSchema.optional(),
+    category: z.string().nullable().optional(),
+  }),
+  /** The broadcast this was written to. A live broadcast with a different id triggers the replay. */
+  targetId: z.string(),
+  capturedAt: z.string(),
+});
+export type PendingMetadata = z.infer<typeof pendingMetadataSchema>;
+
 /** Cached status/health state served to Companion feedback endpoints (PRD §5.4). */
 export const cacheSchema = z.object({
   status: z
@@ -70,6 +108,10 @@ export const cacheSchema = z.object({
   health: healthStatusSchema.default("ok"),
   healthMessage: z.string().nullable().default(null),
   lastRefreshedAt: z.string().nullable().default(null),
+  targetConflict: targetConflictSchema.nullable().default(null),
+  pendingMetadata: pendingMetadataSchema.nullable().default(null),
+  /** Id of the last resolved target, so a change while idle can be spotted as drift. */
+  lastTargetId: z.string().nullable().default(null),
 });
 export type CacheState = z.infer<typeof cacheSchema>;
 

@@ -425,6 +425,20 @@ describe("dashboard routes", () => {
     expect(res.body.quota).toMatchObject({ limit: 10000 });
   });
 
+  it("serves the first paint from the shared builder, not a hand-rolled subset", async () => {
+    // This route used to duplicate the payload by hand, so every field added to the contract was
+    // missing until the next SSE push. Pin the assembled-only fields and the contract's full key
+    // set so a future addition can't silently go missing on load.
+    await call("POST", "/api/action/refresh");
+    const state = await call("GET", "/api/dashboard/state");
+    const refresh = await call("POST", "/api/action/refresh");
+
+    expect(typeof state.body.displayLabel).toBe("string");
+    expect(state.body).toHaveProperty("targetConflict");
+    const { success, error, ...refreshState } = refresh.body;
+    expect(Object.keys(state.body).sort()).toEqual(Object.keys(refreshState).sort());
+  });
+
   it("round-trips preset CRUD, and 404s an unknown id", async () => {
     const id = await createPreset({ title: "One" });
     const list = await call("GET", "/api/dashboard/presets");

@@ -13,6 +13,7 @@ import {
 import { StatusRail } from "./components/StatusRail.js";
 import { ReauthBanner } from "./components/ReauthBanner.js";
 import { FirewallGuidance } from "./components/FirewallGuidance.js";
+import { TargetConflictBanner } from "./components/TargetConflictBanner.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { PresetForm } from "./components/PresetForm.js";
 import { PresetFillModal } from "./components/PresetFillModal.js";
@@ -239,6 +240,7 @@ export function App() {
     if (extractVars(p).length > 0) {
       // Operator-opened: never subject to the fill request's expiry close.
       fillOpenedBy.current = null;
+      fillAnswered.current = false;
       setFilling(p);
       return;
     }
@@ -261,11 +263,18 @@ export function App() {
   // Which request's popup is on screen, if any. Lets the expiry push close a popup nobody
   // answered without ever touching an operator-opened one (applyPreset also drives `filling`).
   const fillOpenedBy = useRef<string | null>(null);
+  // The newest request id seen on a push, kept in a ref so the async open below can tell whether
+  // its request is still the current one after awaiting the preset list.
+  const latestFill = useRef<string | null>(null);
+  // Set once the operator types into the popup. Half-answered work is theirs, not the server's:
+  // the expiry push may close an untouched popup, never one being filled in.
+  const fillAnswered = useRef(false);
   useEffect(() => {
     const request = state?.fillRequest;
+    latestFill.current = request?.id ?? null;
     // The slot expired (or was replaced): a request-opened popup must not outlive its moment —
     // the server signals expiry precisely so this push arrives.
-    if (fillOpenedBy.current && fillOpenedBy.current !== request?.id) {
+    if (fillOpenedBy.current && fillOpenedBy.current !== request?.id && !fillAnswered.current) {
       fillOpenedBy.current = null;
       setFilling(null);
     }
@@ -277,8 +286,13 @@ export function App() {
       const preset =
         presets.find((p) => p.id === request.presetId) ??
         (await api.presets.list()).find((p) => p.id === request.presetId);
+      // That refetch can outlive the request: by now it may have expired or been superseded.
+      // Opening anyway would show a stale preset and leave fillOpenedBy pointing at a dead id,
+      // so nothing could close it.
+      if (latestFill.current !== request.id) return;
       if (preset) {
         fillOpenedBy.current = request.id;
+        fillAnswered.current = false;
         setFilling(preset);
       } else flash(`Companion asked to fill unknown preset “${request.presetId}”`, "err");
     })();
@@ -443,6 +457,16 @@ export function App() {
         {/* Firewall guidance — a network-level fault, never reauth (PRD-06 §2, issue 019). */}
         {state?.health === "offline" ? (
           <FirewallGuidance applyState={setState} flash={flash} />
+        ) : null}
+
+        {/* Target conflict — healthy connection, ambiguous aim (PRD-12 §3). Shown alongside health
+            banners rather than instead of them: they answer different questions. */}
+        {state?.targetConflict ? (
+          <TargetConflictBanner
+            conflict={state.targetConflict}
+            onRefresh={refreshSession}
+            refreshing={refreshing}
+          />
         ) : null}
 
         {/* Presets */}
@@ -789,10 +813,17 @@ export function App() {
 
       {filling ? (
         <PresetFillModal
+          // Remount per preset: a second fill request swaps `preset` in place, and the modal's
+          // `values` state would still be keyed to the previous preset's variables.
+          key={filling.id}
           preset={filling}
           fire={fireFilledPreset}
+          onDirty={() => {
+            fillAnswered.current = true;
+          }}
           onClose={() => {
             fillOpenedBy.current = null;
+            fillAnswered.current = false;
             setFilling(null);
           }}
         />

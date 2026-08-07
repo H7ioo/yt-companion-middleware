@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -6,6 +6,7 @@ import type { youtube_v3 } from "googleapis";
 import { JsonStore } from "../storage/jsonStore.js";
 import { StateCache } from "./stateCache.js";
 import { Logger } from "./logger.js";
+import { AppError } from "./errors.js";
 
 /** A YouTube client whose broadcast list rejects with `err`, to drive the failure path. */
 function failingClient(err: unknown): youtube_v3.Youtube {
@@ -86,5 +87,339 @@ describe("StateCache activity logging (issue 018 / PRD-06 §3)", () => {
     );
     await cache.refresh();
     expect(logger.list()).toHaveLength(0);
+  });
+});
+
+/**
+ * A client that reports a fixed set of broadcasts, so a refresh can be pointed at an idle
+ * channel, a live one, or a channel whose live broadcast is not the one we last edited.
+ */
+function clientWith(broadcasts: Record<string, youtube_v3.Schema$LiveBroadcast[]>) {
+  return {
+    liveBroadcasts: {
+      list: async (params: youtube_v3.Params$Resource$Livebroadcasts$List) => {
+        if (params.id) {
+          const all = Object.values(broadcasts).flat();
+          return { data: { items: all.filter((b) => params.id!.includes(b.id!)) } };
+        }
+        if (params.broadcastStatus === "active") return { data: { items: broadcasts.active ?? [] } };
+        if (params.broadcastStatus === "upcoming")
+          return { data: { items: broadcasts.upcoming ?? [] } };
+        return { data: { items: [] } };
+      },
+    },
+  } as unknown as youtube_v3.Youtube;
+}
+
+const live = (id: string, title: string) => ({
+  id,
+  snippet: { title },
+  status: { lifeCycleStatus: "live", privacyStatus: "public" },
+});
+/** A scheduled show later tonight — not the broadcast YouTube mints as an auto-start begins. */
+const upcoming = (id: string, title: string) => ({
+  id,
+  snippet: {
+    title,
+    scheduledStartTime: new Date(Date.now() + 2 * 3600_000).toISOString(),
+    publishedAt: new Date(Date.now() - 2 * 3600_000).toISOString(),
+  },
+  status: { lifeCycleStatus: "ready", privacyStatus: "public" },
+});
+
+/** The broadcast YouTube creates moments before an auto-start session goes to air (PRD-12 §2). */
+const mintedNow = (id: string, title: string) => ({
+  id,
+  snippet: {
+    title,
+    scheduledStartTime: new Date().toISOString(),
+    publishedAt: new Date().toISOString(),
+  },
+  status: { lifeCycleStatus: "ready", privacyStatus: "public" },
+});
+
+/**
+ * The go-live fix (PRD-12 §2). With an auto-start encoder, YouTube mints the broadcast that
+ * airs about a minute before air — so a title set beforehand lands on a broadcast that never
+ * goes live. The cache spots the mismatch and replays the intent onto the real one.
+ */
+describe("StateCache pending-metadata replay", () => {
+  let store: JsonStore;
+  let dir: string;
+  let logger: Logger;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-replay-"));
+    store = new JsonStore(path.join(dir, "store.json"));
+    await store.init();
+    logger = new Logger();
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  const arm = (targetId: string, capturedAt = new Date().toISOString()) =>
+    store.update((s) => {
+      s.cache.pendingMetadata = { payload: { title: "Tonight" }, targetId, capturedAt };
+    });
+
+  function cacheFor(broadcasts: Record<string, youtube_v3.Schema$LiveBroadcast[]>) {
+    return new StateCache(
+      clientWith(broadcasts),
+      store,
+      { refreshIntervalMs: 60_000, healthFailureThreshold: 3 },
+      undefined,
+      logger,
+    );
+  }
+
+  it("replays onto the broadcast that actually went live", async () => {
+    const cache = cacheFor({ active: [live("new-one", "Studio's title")] });
+    const replayed: unknown[] = [];
+    cache.setReplayHandler(async (p) => void replayed.push(p));
+    await arm("ghost-we-edited");
+
+    await cache.refresh();
+
+    expect(replayed).toHaveLength(1);
+    expect(store.get().cache.pendingMetadata).toBeNull();
+    expect(logger.list()[0].message).toMatch(/re-applied your metadata/i);
+  });
+
+  it("does not replay when the live broadcast is the one we already edited", async () => {
+    const cache = cacheFor({ active: [live("same-one", "Tonight")] });
+    const replayed: unknown[] = [];
+    cache.setReplayHandler(async (p) => void replayed.push(p));
+    await arm("same-one");
+
+    await cache.refresh();
+    expect(replayed).toHaveLength(0);
+  });
+
+  it("disarms once the broadcast we edited airs, so the next show can't inherit its title", async () => {
+    // Caught in a live test on 2026-08-05: the intent was satisfied but the latch stayed primed,
+    // leaving this show's title queued for whatever went live next inside the TTL.
+    const cache = cacheFor({ active: [live("same-one", "Tonight")] });
+    cache.setReplayHandler(async () => {});
+    await arm("same-one");
+
+    await cache.refresh();
+    expect(store.get().cache.pendingMetadata).toBeNull();
+  });
+
+  it("does not replay while still idle — nothing has gone live yet", async () => {
+    const cache = cacheFor({ upcoming: [upcoming("up-1", "waiting")] });
+    const replayed: unknown[] = [];
+    cache.setReplayHandler(async (p) => void replayed.push(p));
+    await arm("ghost");
+
+    await cache.refresh();
+    expect(replayed).toHaveLength(0);
+    expect(store.get().cache.pendingMetadata).not.toBeNull();
+  });
+
+  it("drops a stale latch instead of putting yesterday's title on tonight's show", async () => {
+    const cache = cacheFor({ active: [live("new-one", "Studio's title")] });
+    const replayed: unknown[] = [];
+    cache.setReplayHandler(async (p) => void replayed.push(p));
+    await arm("ghost", new Date(Date.now() - 7 * 3600_000).toISOString());
+
+    await cache.refresh();
+    expect(replayed).toHaveLength(0);
+    expect(store.get().cache.pendingMetadata).toBeNull();
+  });
+
+  it("clears the latch and logs when the replay itself fails, so it cannot re-fire all show", async () => {
+    const cache = cacheFor({ active: [live("new-one", "Studio's title")] });
+    cache.setReplayHandler(() => Promise.reject(new Error("YouTube said no")));
+    await arm("ghost");
+
+    await cache.refresh();
+    expect(store.get().cache.pendingMetadata).toBeNull();
+    expect(logger.list()[0].message).toMatch(/could not re-apply/i);
+  });
+
+  it("keeps the latch when the runner was busy — no YouTube call was made", async () => {
+    const cache = cacheFor({ active: [live("new-one", "Studio's title")] });
+    cache.setReplayHandler(() => Promise.reject(new AppError("BUSY_TRY_AGAIN")));
+    await arm("ghost");
+
+    await cache.refresh();
+    expect(store.get().cache.pendingMetadata?.targetId).toBe("ghost");
+  });
+
+  it("flags target drift when the edited broadcast changes while still idle", async () => {
+    // Drift is a change observed *while running*, so the cache has to see "first" for itself
+    // before a switch to "second" means anything.
+    const broadcasts: Record<string, youtube_v3.Schema$LiveBroadcast[]> = {
+      upcoming: [upcoming("first", "tonight")],
+    };
+    const cache = cacheFor(broadcasts);
+    await cache.refresh();
+    broadcasts.upcoming = [upcoming("second", "another")];
+
+    await cache.refresh();
+    expect(store.get().cache.targetConflict?.code).toBe("TARGET_DRIFT");
+  });
+
+  it("does not call a target id left over from a previous run 'drift'", async () => {
+    // lastTargetId is persisted, so after a restart it names last session's target. Comparing
+    // against it raised a drift banner for a whole refresh interval — usually during setup.
+    const cache = cacheFor({ upcoming: [upcoming("tonight", "tonight")] });
+    await store.update((s) => {
+      s.cache.lastTargetId = "yesterdays-show";
+      s.cache.status = { title: "x", privacyStatus: "public", isLive: false, noTarget: false };
+    });
+
+    await cache.refresh();
+    expect(store.get().cache.targetConflict).toBeNull();
+    expect(store.get().cache.lastTargetId).toBe("tonight");
+  });
+
+  it("does not call the auto-start mint 'drift' — that is the show starting (PRD-12 §2)", async () => {
+    const broadcasts: Record<string, youtube_v3.Schema$LiveBroadcast[]> = {
+      upcoming: [upcoming("the-one-we-edited", "tonight")],
+    };
+    const cache = cacheFor(broadcasts);
+    await cache.refresh();
+    broadcasts.upcoming = [mintedNow("minted", "tonight")];
+
+    await cache.refresh();
+    expect(store.get().cache.targetConflict).toBeNull();
+  });
+
+  it("forgets the conflict and the target id once the channel has no target at all", async () => {
+    const cache = cacheFor({});
+    await store.update((s) => {
+      s.cache.lastTargetId = "gone";
+      s.cache.targetConflict = { code: "TARGET_DRIFT", message: "drifted", ids: ["a", "b"] };
+    });
+
+    await cache.refresh();
+    expect(store.get().cache.targetConflict).toBeNull();
+    expect(store.get().cache.lastTargetId).toBeNull();
+    expect(store.get().cache.status.noTarget).toBe(true);
+  });
+
+  it("replays once when the timer and a manual refresh overlap", async () => {
+    const cache = cacheFor({ active: [live("new-one", "Studio's title")] });
+    const replayed: unknown[] = [];
+    cache.setReplayHandler(async (p) => void replayed.push(p));
+    await arm("ghost-we-edited");
+
+    await Promise.all([cache.refresh(), cache.refresh()]);
+    expect(replayed).toHaveLength(1);
+  });
+
+  it("does not call a show ending 'drift' — a new target after live is expected", async () => {
+    const broadcasts: Record<string, youtube_v3.Schema$LiveBroadcast[]> = {
+      active: [live("the-show-that-just-ended", "on air")],
+    };
+    const cache = cacheFor(broadcasts);
+    await cache.refresh();
+    broadcasts.active = [];
+    broadcasts.upcoming = [upcoming("next", "next show")];
+
+    await cache.refresh();
+    expect(store.get().cache.targetConflict).toBeNull();
+  });
+
+  it("does not overwrite a newer latch when re-arming after a busy replay", async () => {
+    // The replay was rejected before touching YouTube, so the latch is re-armed — but an action
+    // that ran meanwhile has latched the operator's current intent, and that one wins.
+    const cache = cacheFor({ active: [live("new-one", "Studio's title")] });
+    cache.setReplayHandler(async () => {
+      await store.update((s) => {
+        s.cache.pendingMetadata = { payload: { title: "Newer" }, targetId: "ghost-2", capturedAt: new Date().toISOString() };
+      });
+      throw new AppError("BUSY_TRY_AGAIN");
+    });
+    await arm("ghost");
+
+    await cache.refresh();
+    expect(store.get().cache.pendingMetadata?.payload.title).toBe("Newer");
+  });
+});
+
+describe("StateCache refresh scheduling", () => {
+  let store: JsonStore;
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-refresh-"));
+    store = new JsonStore(path.join(dir, "store.json"));
+    await store.init();
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("gives up on a request that never answers instead of wedging every later refresh", async () => {
+    vi.useFakeTimers();
+    // googleapis has no request timeout: a half-open socket leaves the promise pending forever,
+    // and with refreshes deduped onto the in-flight run that would freeze health on stale state.
+    const cache = new StateCache(
+      { liveBroadcasts: { list: () => new Promise(() => {}) } } as unknown as youtube_v3.Youtube,
+      store,
+      { refreshIntervalMs: 60_000, healthFailureThreshold: 1 },
+    );
+
+    const hung = cache.refresh();
+    await vi.advanceTimersByTimeAsync(25_000);
+    await hung;
+
+    expect(store.get().cache.health).not.toBe("ok");
+    // The slot is free again, so the next refresh actually runs.
+    expect(store.get().cache.healthMessage).toMatch(/did not respond/i);
+  });
+
+  it("forces a fresh look rather than answering Re-check from a read that predates the fix", async () => {
+    let calls = 0;
+    let release: (() => void) | null = null;
+    const cache = new StateCache(
+      {
+        liveBroadcasts: {
+          list: async (p: youtube_v3.Params$Resource$Livebroadcasts$List) => {
+            if (p.broadcastStatus === "active") {
+              calls += 1;
+              if (calls === 1) await new Promise<void>((r) => (release = r));
+            }
+            return { data: { items: [] } };
+          },
+        },
+      } as unknown as youtube_v3.Youtube,
+      store,
+      { refreshIntervalMs: 60_000, healthFailureThreshold: 3 },
+    );
+
+    const first = cache.refresh();
+    const forced = cache.refresh({ force: true });
+    release!();
+    await Promise.all([first, forced]);
+
+    expect(calls).toBeGreaterThan(1);
+  });
+
+  it("still shares the in-flight run with an unforced caller", async () => {
+    // Count the "active" query only — resolveTarget makes three list calls per refresh.
+    let calls = 0;
+    const cache = new StateCache(
+      {
+        liveBroadcasts: {
+          list: async (p: youtube_v3.Params$Resource$Livebroadcasts$List) => {
+            if (p.broadcastStatus === "active") calls += 1;
+            return { data: { items: [] } };
+          },
+        },
+      } as unknown as youtube_v3.Youtube,
+      store,
+      { refreshIntervalMs: 60_000, healthFailureThreshold: 3 },
+    );
+
+    await Promise.all([cache.refresh(), cache.refresh()]);
+    expect(calls).toBe(1);
   });
 });

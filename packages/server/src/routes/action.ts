@@ -76,7 +76,10 @@ export function actionRouter(ctx: AppContext): Router {
   router.post("/refresh", async (_req, res) => {
     try {
       if (!ctx.store.get().service.apiEnabled) throw new AppError("SERVICE_DISABLED");
-      await ctx.cache.refresh();
+      // force: this route is an explicit "look again now" — the dashboard's Re-check button after
+      // the operator deleted a stray broadcast. Joining a refresh that started before the deletion
+      // would answer from a stale read and report the fix as unfixed.
+      await ctx.cache.refresh({ force: true });
       // Respond with the same fully-assembled dashboard state the state route, SSE, and webhook
       // produce — never the raw cache snapshot, which carries no quota/undo/busy/apiEnabled/label
       // and would make the client blank those fields until the next background push (PRD-10 §1).

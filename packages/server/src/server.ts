@@ -161,6 +161,9 @@ async function bootOnce(
       logger,
     );
     const runner = new ActionRunner(yt, store, cache, events, logger);
+    // Breaks the runner/cache cycle: the cache spots a new broadcast going live, the runner is
+    // what can write to it. See StateCache.replayPendingIfNeeded.
+    cache.setReplayHandler((pending) => runner.replayPending(pending));
     const fills = new FillRequests(events);
     ctx = { store, runner, cache, yt, quota, events, logger, fills, regionCode: config.regionCode };
 
