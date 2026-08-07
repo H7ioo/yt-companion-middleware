@@ -86,10 +86,12 @@ export function mergePending(
   targetId: string,
 ): PendingMetadata | null {
   const next = pendingFrom(payload, targetId);
-  if (!existing || existing.targetId !== targetId) return next;
   // An action carrying none of the replayable fields (a bare stream re-bind) says nothing about
-  // the latched intent, so it leaves it standing rather than disarming it.
-  if (!next) return existing;
+  // the latched intent, so it leaves it standing rather than disarming it. This holds whichever
+  // broadcast it ran against: a re-bind on some other target is still no reason to drop a title
+  // the operator set for tonight.
+  if (!next) return existing ?? null;
+  if (!existing || existing.targetId !== targetId) return next;
   return {
     ...next,
     payload: {
@@ -114,6 +116,13 @@ export interface ActionResult {
 export class ActionRunner {
   private busy = false;
   private queued: (() => void) | null = null;
+  /**
+   * When an operator action last landed a write on YouTube. Read only by replayPending, to tell
+   * "my latched payload is still the newest thing the operator asked for" from "they have edited
+   * since". Replays do not update it — a replay is the resolution of an older intent, never a
+   * newer one.
+   */
+  private lastAppliedAt: number | null = null;
 
   constructor(
     private readonly yt: youtube_v3.Youtube,
@@ -227,12 +236,22 @@ export class ActionRunner {
    * `skipDefaults` because this replays a specific captured intent: the app default category and
    * stream binding were already resolved when the operator applied it, and re-binding a stream
    * that is mid-broadcast would cut the feed.
+   *
+   * Returns null when the replay was superseded and nothing was written.
    */
-  async replayPending(pending: PendingMetadata): Promise<ActionResult> {
+  async replayPending(pending: PendingMetadata): Promise<ActionResult | null> {
     this.assertEnabled();
-    return this.enqueue(() =>
-      this.applyPayload(pending.payload, { skipDefaults: true, replay: true }),
-    );
+    return this.enqueue(async () => {
+      // The replay queues behind operator actions, so by the time it runs an action that started
+      // moments earlier may already have written newer metadata to the broadcast that aired.
+      // Writing the older latched payload on top would silently revert that edit — precisely when
+      // the operator is fixing what is on screen. Their newer intent wins; the latch is already
+      // cleared by the caller either way.
+      if (this.lastAppliedAt !== null && this.lastAppliedAt > Date.parse(pending.capturedAt)) {
+        return null;
+      }
+      return this.applyPayload(pending.payload, { skipDefaults: true, replay: true });
+    });
   }
 
   /** A drift conflict already on the cache, which only a later refresh can clear. */
@@ -262,6 +281,9 @@ export class ActionRunner {
         : this.store.get().defaults;
       const plan = resolve(current as BroadcastResource, payload, defaults);
       await applyPlan(this.yt, plan);
+      // Stamped before the latch is armed below, so the latch this very action creates always
+      // carries the later timestamp and is never mistaken for superseded by its own action.
+      if (!opts.replay) this.lastAppliedAt = Date.now();
 
       // Applying while idle writes to a broadcast that may not be the one YouTube ends up
       // airing, so remember the intent — but only once the write actually landed. Arming ahead

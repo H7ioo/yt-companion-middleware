@@ -90,21 +90,30 @@ export function pickUpcoming(
   });
   const candidates = fresh.length > 0 ? fresh : upcoming;
 
-  // Closest to air first: encoder-bound over a stub, then still-to-start over past-due, then
-  // soonest scheduled, then most recently created. The past-due rank matters because the
-  // staleness filter above only drops leftovers older than 12h — a stray scheduled earlier
-  // *today* would otherwise win outright over the broadcast YouTube mints at air time. The
-  // create-time tiebreak matters because that mint lands moments before going live, so when
-  // scheduled times tie, newest is the real one.
+  // Closest to air first: the broadcast YouTube just minted for this session, then still-to-start
+  // over past-due, then encoder-bound over a stub, then soonest scheduled, then newest.
+  //
+  // The mint rank leads because it is the one signal that identifies the broadcast going to air
+  // outright. Readiness deliberately sits *below* past-due: it used to lead, and a stray left in
+  // `testing` from earlier today then beat the freshly-minted `ready` broadcast — exactly the
+  // miss the past-due rank was added to prevent. The create-time tiebreak matters because the
+  // mint lands moments before going live, so when scheduled times tie, newest is the real one.
   const sorted = [...candidates].sort(
     (a, b) =>
-      readinessRank(b) - readinessRank(a) ||
+      mintRank(b, now) - mintRank(a, now) ||
       pastDueRank(a, now) - pastDueRank(b, now) ||
+      readinessRank(b) - readinessRank(a) ||
       scheduledCompare(a, b, now) ||
       createTimeMs(b) - createTimeMs(a),
   );
 
-  return { chosen: sorted[0], conflict: conflictAmong(candidates, sorted[0]) };
+  const chosen = sorted[0];
+  // An auto-start mint is not ambiguity: YouTube created it for the session that is starting, so
+  // it *is* the broadcast going to air. Telling the operator to "delete the ones you are not
+  // using" seconds before air — when the other id is their own scheduled event — invites them to
+  // delete the real show. Same suppression as driftConflict in stateCache.
+  const conflict = isAutoStartMint(chosen, now) ? null : conflictAmong(candidates, chosen);
+  return { chosen, conflict };
 }
 
 /**
@@ -299,6 +308,10 @@ function startTimeMs(b: youtube_v3.Schema$LiveBroadcast): number {
 }
 function scheduledStartMs(b: youtube_v3.Schema$LiveBroadcast): number {
   return Date.parse(b.snippet?.scheduledStartTime ?? "") || Number.MAX_SAFE_INTEGER;
+}
+/** 1 = the broadcast YouTube minted for the session starting now, 0 = anything else. */
+function mintRank(b: youtube_v3.Schema$LiveBroadcast, now: number): number {
+  return isAutoStartMint(b, now) ? 1 : 0;
 }
 /**
  * 0 = still to start (or no scheduled time), 1 = its scheduled start has already passed. The

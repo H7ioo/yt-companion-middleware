@@ -137,21 +137,46 @@ describe("pickUpcoming", () => {
   });
 
   it("flags the shared stream key when both are bound to the same encoder", () => {
-    // Both fresh, so both survive the staleness filter and the ambiguity is real.
+    // Both fresh and both scheduled for later, so both survive the staleness filter, neither is
+    // an auto-start mint, and the ambiguity is real.
     const alsoFresh = { ...ghost, snippet: { ...ghost.snippet, scheduledStartTime: hoursAhead(1) } };
-    const conflict = pickUpcoming([alsoFresh, real], NOW)?.conflict;
+    const tonight = { ...real, snippet: { ...real.snippet, scheduledStartTime: hoursAhead(3) } };
+    const conflict = pickUpcoming([alsoFresh, tonight], NOW)?.conflict;
     expect(conflict?.code).toBe("SHARED_STREAM_KEY");
     expect(conflict?.ids).toEqual(expect.arrayContaining(["X8tfFO-lL7w", "kn_lwgeVyNY"]));
   });
 
   it("flags plain ambiguity when several upcoming use different stream keys", () => {
+    const tonight = { ...real, snippet: { ...real.snippet, scheduledStartTime: hoursAhead(1) } };
     const other = {
       id: "other",
       status: { lifeCycleStatus: "ready" },
       snippet: { scheduledStartTime: hoursAhead(2) },
       contentDetails: { boundStreamId: "stream-B" },
     };
-    expect(pickUpcoming([real, other], NOW)?.conflict?.code).toBe("MULTIPLE_UPCOMING");
+    expect(pickUpcoming([tonight, other], NOW)?.conflict?.code).toBe("MULTIPLE_UPCOMING");
+  });
+
+  it("stays quiet when the pick is the auto-start mint — that is the show, not ambiguity", () => {
+    // `real` is what YouTube mints as the session begins; the operator's own scheduled event is
+    // the other id. Telling them to "delete the ones you are not using" seconds before air asks
+    // them to delete the real show.
+    const scheduled = { ...ghost, snippet: { ...ghost.snippet, scheduledStartTime: hoursAhead(1) } };
+    const picked = pickUpcoming([scheduled, real], NOW);
+    expect(picked?.chosen.id).toBe("kn_lwgeVyNY");
+    expect(picked?.conflict).toBeNull();
+  });
+
+  it("picks the freshly minted broadcast over a stray left in testing earlier today", () => {
+    // Readiness used to be the first sort key, so a stray already bound to an encoder beat the
+    // mint outright — the same miss the past-due rank was added to prevent.
+    const strayInTesting = {
+      id: "stray",
+      status: { lifeCycleStatus: "testing" },
+      snippet: { title: "abandoned", scheduledStartTime: hoursAgo(4) },
+      contentDetails: { boundStreamId: "stream-A" },
+    };
+    expect(pickUpcoming([strayInTesting, real], NOW)?.chosen.id).toBe("kn_lwgeVyNY");
   });
 
   it("reports no conflict for a single upcoming broadcast", () => {

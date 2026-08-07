@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -250,22 +250,40 @@ describe("StateCache pending-metadata replay", () => {
   });
 
   it("flags target drift when the edited broadcast changes while still idle", async () => {
-    const cache = cacheFor({ upcoming: [upcoming("second", "another")] });
-    await store.update((s) => {
-      s.cache.lastTargetId = "first";
-      s.cache.status = { title: "x", privacyStatus: "public", isLive: false, noTarget: false };
-    });
+    // Drift is a change observed *while running*, so the cache has to see "first" for itself
+    // before a switch to "second" means anything.
+    const broadcasts: Record<string, youtube_v3.Schema$LiveBroadcast[]> = {
+      upcoming: [upcoming("first", "tonight")],
+    };
+    const cache = cacheFor(broadcasts);
+    await cache.refresh();
+    broadcasts.upcoming = [upcoming("second", "another")];
 
     await cache.refresh();
     expect(store.get().cache.targetConflict?.code).toBe("TARGET_DRIFT");
   });
 
-  it("does not call the auto-start mint 'drift' — that is the show starting (PRD-12 §2)", async () => {
-    const cache = cacheFor({ upcoming: [mintedNow("minted", "tonight")] });
+  it("does not call a target id left over from a previous run 'drift'", async () => {
+    // lastTargetId is persisted, so after a restart it names last session's target. Comparing
+    // against it raised a drift banner for a whole refresh interval — usually during setup.
+    const cache = cacheFor({ upcoming: [upcoming("tonight", "tonight")] });
     await store.update((s) => {
-      s.cache.lastTargetId = "the-one-we-edited";
+      s.cache.lastTargetId = "yesterdays-show";
       s.cache.status = { title: "x", privacyStatus: "public", isLive: false, noTarget: false };
     });
+
+    await cache.refresh();
+    expect(store.get().cache.targetConflict).toBeNull();
+    expect(store.get().cache.lastTargetId).toBe("tonight");
+  });
+
+  it("does not call the auto-start mint 'drift' — that is the show starting (PRD-12 §2)", async () => {
+    const broadcasts: Record<string, youtube_v3.Schema$LiveBroadcast[]> = {
+      upcoming: [upcoming("the-one-we-edited", "tonight")],
+    };
+    const cache = cacheFor(broadcasts);
+    await cache.refresh();
+    broadcasts.upcoming = [mintedNow("minted", "tonight")];
 
     await cache.refresh();
     expect(store.get().cache.targetConflict).toBeNull();
@@ -295,13 +313,113 @@ describe("StateCache pending-metadata replay", () => {
   });
 
   it("does not call a show ending 'drift' — a new target after live is expected", async () => {
-    const cache = cacheFor({ upcoming: [upcoming("next", "next show")] });
-    await store.update((s) => {
-      s.cache.lastTargetId = "the-show-that-just-ended";
-      s.cache.status = { title: "x", privacyStatus: "public", isLive: true, noTarget: false };
-    });
+    const broadcasts: Record<string, youtube_v3.Schema$LiveBroadcast[]> = {
+      active: [live("the-show-that-just-ended", "on air")],
+    };
+    const cache = cacheFor(broadcasts);
+    await cache.refresh();
+    broadcasts.active = [];
+    broadcasts.upcoming = [upcoming("next", "next show")];
 
     await cache.refresh();
     expect(store.get().cache.targetConflict).toBeNull();
+  });
+
+  it("does not overwrite a newer latch when re-arming after a busy replay", async () => {
+    // The replay was rejected before touching YouTube, so the latch is re-armed — but an action
+    // that ran meanwhile has latched the operator's current intent, and that one wins.
+    const cache = cacheFor({ active: [live("new-one", "Studio's title")] });
+    cache.setReplayHandler(async () => {
+      await store.update((s) => {
+        s.cache.pendingMetadata = { payload: { title: "Newer" }, targetId: "ghost-2", capturedAt: new Date().toISOString() };
+      });
+      throw new AppError("BUSY_TRY_AGAIN");
+    });
+    await arm("ghost");
+
+    await cache.refresh();
+    expect(store.get().cache.pendingMetadata?.payload.title).toBe("Newer");
+  });
+});
+
+describe("StateCache refresh scheduling", () => {
+  let store: JsonStore;
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-refresh-"));
+    store = new JsonStore(path.join(dir, "store.json"));
+    await store.init();
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("gives up on a request that never answers instead of wedging every later refresh", async () => {
+    vi.useFakeTimers();
+    // googleapis has no request timeout: a half-open socket leaves the promise pending forever,
+    // and with refreshes deduped onto the in-flight run that would freeze health on stale state.
+    const cache = new StateCache(
+      { liveBroadcasts: { list: () => new Promise(() => {}) } } as unknown as youtube_v3.Youtube,
+      store,
+      { refreshIntervalMs: 60_000, healthFailureThreshold: 1 },
+    );
+
+    const hung = cache.refresh();
+    await vi.advanceTimersByTimeAsync(25_000);
+    await hung;
+
+    expect(store.get().cache.health).not.toBe("ok");
+    // The slot is free again, so the next refresh actually runs.
+    expect(store.get().cache.healthMessage).toMatch(/did not respond/i);
+  });
+
+  it("forces a fresh look rather than answering Re-check from a read that predates the fix", async () => {
+    let calls = 0;
+    let release: (() => void) | null = null;
+    const cache = new StateCache(
+      {
+        liveBroadcasts: {
+          list: async (p: youtube_v3.Params$Resource$Livebroadcasts$List) => {
+            if (p.broadcastStatus === "active") {
+              calls += 1;
+              if (calls === 1) await new Promise<void>((r) => (release = r));
+            }
+            return { data: { items: [] } };
+          },
+        },
+      } as unknown as youtube_v3.Youtube,
+      store,
+      { refreshIntervalMs: 60_000, healthFailureThreshold: 3 },
+    );
+
+    const first = cache.refresh();
+    const forced = cache.refresh({ force: true });
+    release!();
+    await Promise.all([first, forced]);
+
+    expect(calls).toBeGreaterThan(1);
+  });
+
+  it("still shares the in-flight run with an unforced caller", async () => {
+    // Count the "active" query only — resolveTarget makes three list calls per refresh.
+    let calls = 0;
+    const cache = new StateCache(
+      {
+        liveBroadcasts: {
+          list: async (p: youtube_v3.Params$Resource$Livebroadcasts$List) => {
+            if (p.broadcastStatus === "active") calls += 1;
+            return { data: { items: [] } };
+          },
+        },
+      } as unknown as youtube_v3.Youtube,
+      store,
+      { refreshIntervalMs: 60_000, healthFailureThreshold: 3 },
+    );
+
+    await Promise.all([cache.refresh(), cache.refresh()]);
+    expect(calls).toBe(1);
   });
 });

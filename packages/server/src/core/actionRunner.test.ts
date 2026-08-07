@@ -93,6 +93,12 @@ describe("mergePending (latch accumulation while idle)", () => {
     expect(merged?.payload.title).toBeUndefined();
   });
 
+  it("leaves the latch standing when a bare re-bind runs against another broadcast", () => {
+    // Nothing replayable was carried, so nothing was said about tonight's title — whichever
+    // broadcast the re-bind touched. Wiping the latch here would lose a still-valid intent.
+    expect(mergePending(armed, { streamBoundId: "stream-9" }, "other")).toEqual(armed);
+  });
+
   it("arms nothing when there is no latch and no replayable field", () => {
     expect(mergePending(null, { streamBoundId: "stream-9" }, "ghost")).toBeNull();
   });
@@ -198,6 +204,33 @@ describe("ActionRunner cache writes", () => {
   it("does not latch an edit YouTube rejected — it would land on the next show for nothing", async () => {
     await expect(runnerFor(true).runUpdate({ title: "Tonight" })).rejects.toThrow();
     expect(store.get().cache.pendingMetadata).toBeNull();
+  });
+
+  it("drops a replay the operator has already overtaken", async () => {
+    // The replay queues behind operator actions. If one landed after the latch was captured, the
+    // operator's newer edit is what should be on screen — replaying the older payload on top
+    // would revert them just as they are fixing it.
+    const runner = runnerFor();
+    await runner.runUpdate({ title: "Operator's fix" });
+    const stale = {
+      payload: { title: "Latched earlier" },
+      targetId: "ghost",
+      capturedAt: new Date(Date.now() - 60_000).toISOString(),
+    };
+
+    expect(await runner.replayPending(stale)).toBeNull();
+  });
+
+  it("still replays a latch newer than the last operator action", async () => {
+    const runner = runnerFor();
+    await runner.runUpdate({ title: "Earlier" });
+    const fresh = {
+      payload: { title: "Latched after" },
+      targetId: "ghost",
+      capturedAt: new Date(Date.now() + 1000).toISOString(),
+    };
+
+    expect(await runner.replayPending(fresh)).not.toBeNull();
   });
 
   it("keeps a drift warning standing — applying a preset does not delete the stray broadcasts", async () => {

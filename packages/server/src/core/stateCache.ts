@@ -23,6 +23,32 @@ import { categoryForCode, levelForCode, type Logger } from "./logger.js";
 const PENDING_TTL_MS = 6 * 60 * 60 * 1000;
 
 /**
+ * How long one refresh may take before it is abandoned as hung.
+ *
+ * The googleapis client has no request timeout of its own, so a socket that opens and then never
+ * answers (captive portal, half-open NAT) leaves the promise pending forever. With refreshes
+ * deduped onto the in-flight run, that one request would wedge every later refresh: health would
+ * stay green on stale state and /action/refresh would never respond. Generous enough that a slow
+ * link still completes within the 60s refresh interval.
+ */
+const REFRESH_TIMEOUT_MS = 20_000;
+
+/** Rejects with a NETWORK_ERROR-shaped failure if `p` has not settled within the timeout. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const err = new Error(`YouTube did not respond within ${Math.round(ms / 1000)}s`) as Error & {
+        code?: string;
+      };
+      err.code = "ETIMEDOUT";
+      reject(err);
+    }, ms);
+    timer.unref?.(); // never hold the process open on the watchdog alone
+    p.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
+/**
  * The target changed while we were idle and nothing else explained it — something outside this
  * app (almost always YouTube Studio) is creating broadcasts. Reported only when idle: once live,
  * the active broadcast is authoritative and a change of id is just the show starting.
@@ -53,6 +79,14 @@ export class StateCache {
   private inFlight: Promise<void> | null = null;
   /** Set post-construction via setReplayHandler — see the note there on the runner/cache cycle. */
   private replay: ((pending: PendingMetadata) => Promise<unknown>) | null = null;
+  /**
+   * No refresh has reached YouTube yet in this process. `lastTargetId` is persisted in the store,
+   * so after a restart it names last session's target — comparing against it would raise a
+   * TARGET_DRIFT banner for a full refresh interval, typically mid pre-show setup, when nothing
+   * has drifted at all. Drift is a claim about change *observed while running*, so the first
+   * refresh only records the target.
+   */
+  private firstRefresh = true;
 
   constructor(
     private readonly yt: youtube_v3.Youtube,
@@ -85,11 +119,24 @@ export class StateCache {
    * run rather than racing. Two overlapping refreshes would both read the same armed latch and
    * replay it twice — a double write to the live broadcast, with the second replay's undo
    * snapshot capturing the first one's result.
+   *
+   * `force` opts out of joining an in-flight run and chains a fresh one behind it instead. The
+   * operator pressing "Re-check" after deleting a stray broadcast needs an answer from a call
+   * made *after* the deletion; joining a refresh that started earlier would report their correct
+   * fix as unfixed.
    */
-  refresh(): Promise<void> {
-    if (this.inFlight) return this.inFlight;
-    const run = this.runRefresh().finally(() => {
-      this.inFlight = null;
+  refresh(opts: { force?: boolean } = {}): Promise<void> {
+    if (this.inFlight && !opts.force) return this.inFlight;
+    const prior = this.inFlight;
+    const run: Promise<void> = (async () => {
+      // Its failure is its own caller's business — runRefresh already recorded it on health.
+      if (prior) await prior.catch(() => {});
+      await withTimeout(this.runRefresh(), REFRESH_TIMEOUT_MS).catch((err) =>
+        this.recordFailure(err),
+      );
+    })().finally(() => {
+      // Only clear if no later forced refresh has since taken the slot.
+      if (this.inFlight === run) this.inFlight = null;
     });
     this.inFlight = run;
     return run;
@@ -107,12 +154,14 @@ export class StateCache {
       this.health = onSuccess(this.health);
       this.logRecovery(wasUnhealthy);
       const previous = this.snapshot();
+      const first = this.firstRefresh;
+      this.firstRefresh = false;
       await this.writeCache({
         status: { ...status, noTarget: false },
         health: "ok",
         healthMessage: null,
         lastRefreshedAt: new Date().toISOString(),
-        targetConflict: conflict ?? driftConflict(previous, target),
+        targetConflict: conflict ?? (first ? null : driftConflict(previous, target)),
         lastTargetId: target.id,
       });
       // Ordered after the cache write so the dashboard reflects the live broadcast even if the
@@ -139,27 +188,37 @@ export class StateCache {
         });
         return;
       }
-      const kind = isAuthError(mapped) ? "auth" : isNetworkError(mapped) ? "network" : "transient";
-      this.health = onFailure(this.health, {
-        kind,
-        threshold: this.opts.healthFailureThreshold,
-        message: mapped.message,
-      });
-      // targetConflict/lastTargetId are deliberately left alone: the call failed, so we learned
-      // nothing new about the target. Clearing them would drop a real conflict on one flaky
-      // request; they are recomputed by the next refresh that actually reaches YouTube.
-      await this.writeCache({
-        health: this.health.status,
-        healthMessage: this.health.message,
-      });
-      this.logger?.push({
-        level: levelForCode(mapped.code),
-        category: categoryForCode(mapped.code),
-        code: mapped.code,
-        message: mapped.message,
-      });
-      console.warn(`[stateCache] refresh failed (${mapped.code}): ${mapped.message}`);
+      await this.recordFailure(mapped);
     }
+  }
+
+  /**
+   * Degrades health and reports a failed refresh. Called from runRefresh's own catch, and from
+   * refresh() for a run abandoned by the watchdog — that rejection never reaches the catch below,
+   * because the hung request simply never settles.
+   */
+  private async recordFailure(err: unknown): Promise<void> {
+    const mapped = mapYouTubeError(err);
+    const kind = isAuthError(mapped) ? "auth" : isNetworkError(mapped) ? "network" : "transient";
+    this.health = onFailure(this.health, {
+      kind,
+      threshold: this.opts.healthFailureThreshold,
+      message: mapped.message,
+    });
+    // targetConflict/lastTargetId are deliberately left alone: the call failed, so we learned
+    // nothing new about the target. Clearing them would drop a real conflict on one flaky
+    // request; they are recomputed by the next refresh that actually reaches YouTube.
+    await this.writeCache({
+      health: this.health.status,
+      healthMessage: this.health.message,
+    });
+    this.logger?.push({
+      level: levelForCode(mapped.code),
+      category: categoryForCode(mapped.code),
+      code: mapped.code,
+      message: mapped.message,
+    });
+    console.warn(`[stateCache] refresh failed (${mapped.code}): ${mapped.message}`);
   }
 
   /**
@@ -202,7 +261,9 @@ export class StateCache {
     }
     await this.writeCache({ pendingMetadata: null });
     try {
-      await this.replay(pending);
+      // null means the runner dropped the replay because a newer operator action already wrote to
+      // the broadcast that aired. Nothing was applied, and nothing should be said about it.
+      if ((await this.replay(pending)) === null) return;
       this.logger?.push({
         level: "info",
         category: "action",
@@ -215,7 +276,10 @@ export class StateCache {
       // or the API is switched off. Nothing was written, so re-arm and let the next refresh try
       // again; only a failure that actually reached YouTube burns the latch.
       if (mapped.code === "BUSY_TRY_AGAIN" || mapped.code === "SERVICE_DISABLED") {
-        await this.writeCache({ pendingMetadata: pending });
+        // Only if nothing newer was latched while we were away. An action that ran meanwhile
+        // arms its own latch describing the operator's current intent; writing the pre-failure
+        // payload back over it would revert their edit on the next refresh.
+        if (!this.snapshot().pendingMetadata) await this.writeCache({ pendingMetadata: pending });
         return;
       }
       this.logger?.push({
