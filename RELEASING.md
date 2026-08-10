@@ -130,19 +130,34 @@ What that needs from a release:
   from the feed and the app stays quiet there. Portable users re-download.
 - Update failures (offline, GitHub unreachable) are logged and ignored; the app keeps running.
 
-## Nightly channel
+## Beta channel
 
 The `Nightly` workflow ([.github/workflows/nightly.yml](.github/workflows/nightly.yml)) publishes a
-Windows build as a GitHub **pre-release** tagged `v<next-patch>-nightly.<date>.<run>` — daily at
+Windows build as a GitHub **pre-release** tagged `v<next-patch>-beta.<date>.<run>` — daily at
 03:00 UTC when `main` has new commits, or on demand via workflow_dispatch. It runs the same
-checks gate as a release, but only builds the desktop app (no Companion `.tgz`).
+checks gate as a release, but only builds the desktop app (no Companion `.tgz`). The workflow's
+name is its cadence; `beta` is the channel it publishes into.
 
-Channel behaviour needs no updater code: electron-updater offers pre-releases only to apps whose
-own version is a pre-release. So stable installs never see nightlies; installing a nightly exe
-once opts that machine into the nightly feed, and the next stable release (higher semver than any
-of its nightlies) promotes it back to the stable channel automatically. Old nightlies are pruned
-to the newest 7. Nightly tags are created by the release API and never trigger the `Release`
-workflow.
+Stable installs never see betas: electron-updater offers pre-releases only to apps whose own
+version is a pre-release. Installing a beta exe opts that machine into the beta feed, where it
+follows newer betas **and** the next stable release (`2.2.2-beta.x` < `2.2.2`), which is how a
+tester is promoted back to stable. Old pre-releases are pruned to the newest 7. Pre-release tags
+are created by the release API and never trigger the `Release` workflow.
+
+**The `beta` identifier is load-bearing — do not rename it.** electron-updater's `GitHubProvider`
+walks the releases Atom feed and only accepts a *stable* entry when the running build's channel is
+`alpha` or `beta` (its `shouldFetchVersion` check). Any other identifier is a "custom channel"
+that matches only entries of its own kind, so those installs can never be offered a stable release
+— they freeze on that channel permanently, reporting "no update available" forever. This is not
+hypothetical: the channel used to be `-nightly.`, and every nightly install sat on
+`2.3.1-nightly.9` while stable shipped `2.4.0`. Those installs cannot recover on their own and
+must reinstall from the latest stable exe. [packages/desktop/updater.mjs](packages/desktop/updater.mjs)
+sets `allowPrerelease` explicitly and logs an error on startup if the running version's identifier
+is one stable can't reach.
+
+The nightly build passes `-c.publish.channel=beta`, so electron-builder emits `beta.yml` rather
+than `latest.yml` — that is the channel file a beta install requests. Stable releases keep
+`latest.yml`.
 
 ## Notes
 

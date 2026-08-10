@@ -237,10 +237,14 @@ export const api = {
     /** Installs the staged update and restarts. Only ever called from an explicit operator click. */
     install: () =>
       req<{ installing: boolean }>("/api/dashboard/app/update/install", { method: "POST" }),
-    /** Operator-triggered update re-check; resolves once the check settles. */
+    /**
+     * Operator-triggered update re-check; resolves once the check settles. `checked` is false when
+     * the request was a no-op (a check or download was already running).
+     */
     check: () =>
-      req<{ update: import("@app/shared").UpdateState }>("/api/dashboard/app/update/check", {
-        method: "POST",
-      }),
+      req<{ update: import("@app/shared").UpdateState; checked: boolean }>(
+        "/api/dashboard/app/update/check",
+        { method: "POST" },
+      ),
   },
 };

@@ -19,6 +19,7 @@
  * @typedef {{
  *   autoDownload: boolean,
  *   autoInstallOnAppQuit: boolean,
+ *   allowPrerelease: boolean,
  *   on(event: string, listener: (payload: any) => void): unknown,
  *   checkForUpdates(): Promise<unknown>,
  *   quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void,
@@ -37,6 +38,44 @@ export function isUpdateSupported({ isPackaged, platform, env = {} }) {
   if (platform !== "win32") return false;
   if (env.PORTABLE_EXECUTABLE_DIR) return false; // electron-builder marks the portable exe with this
   return true;
+}
+
+/**
+ * Pre-release identifiers electron-updater's GitHubProvider treats as first-class. Its feed walk
+ * only accepts a stable entry when the running channel is one of these (`shouldFetchVersion`);
+ * any other identifier is a "custom channel" that matches *only* its own kind. That is not a
+ * detail we can ignore: a build on a custom channel can never be offered a stable release, so it
+ * freezes on that channel forever. This is exactly what happened to the old `-nightly.` tags,
+ * which sat on 2.3.1-nightly.9 while stable moved to 2.4.0 (see RELEASING.md → Beta channel).
+ */
+const PROMOTABLE_CHANNELS = ["alpha", "beta"];
+
+/**
+ * The update channel this build follows, derived from its own version.
+ *
+ * electron-updater infers the same thing implicitly (`allowPrerelease = hasPrereleaseComponents`),
+ * but the inference is invisible and was silently wrong for a whole channel, so state it here:
+ *
+ * - a stable build sets `allowPrerelease = false` and follows `/releases/latest` — stable only;
+ * - a `-beta.` build sets `allowPrerelease = true` and walks the feed, taking whichever comes
+ *   first, a newer beta or a newer stable. That is how a beta tester is promoted back to stable.
+ *
+ * We deliberately do NOT set `updater.channel`: leaving it null lets the provider read the channel
+ * off our own version (which is what we want), and its setter has the side effect of turning
+ * `allowDowngrade` on.
+ *
+ * @param {string | undefined} version this build's version, e.g. "2.5.1-beta.20260810.3"
+ * @returns {{ allowPrerelease: boolean, channel: string | null, frozen: boolean }} `channel` is the
+ *   pre-release identifier (null on stable); `frozen` flags a channel stable can never reach.
+ */
+export function resolveChannel(version) {
+  const match = /^\d+\.\d+\.\d+-([0-9A-Za-z-]+)/.exec(String(version ?? ""));
+  const channel = match ? match[1] : null;
+  return {
+    allowPrerelease: channel !== null,
+    channel,
+    frozen: channel !== null && !PROMOTABLE_CHANNELS.includes(channel),
+  };
 }
 
 /**
@@ -68,6 +107,7 @@ export function normalizeNotes(releaseNotes) {
  * @param {object} options
  * @param {Updater} options.updater electron-updater's autoUpdater
  * @param {boolean} options.supported result of {@link isUpdateSupported}
+ * @param {string} options.currentVersion this build's version — picks the channel, see {@link resolveChannel}
  * @param {LogFn} [options.log]
  * @param {(state: UpdateState) => void} [options.onState] called on every state change (tray menu)
  * @param {() => void} [options.beforeInstall] last-chance hook — shut the embedded server down
@@ -75,6 +115,7 @@ export function normalizeNotes(releaseNotes) {
 export function createUpdateController({
   updater,
   supported,
+  currentVersion,
   log = () => {},
   onState = () => {},
   beforeInstall = () => {},
@@ -96,11 +137,11 @@ export function createUpdateController({
     // tell "the download broke" (worth a banner + retry) apart from "the check failed" (silent).
     const downloading = state.status === "downloading";
     log("error", `Update ${downloading ? "download" : "check"} failed: ${message}`);
-    setState(
-      downloading
-        ? { status: "error", error: message, version: state.version, notes: state.notes }
-        : { status: "error", error: message },
-    );
+    // The offered version rides through the failure whenever one is known. Without it a failed
+    // *retry* of a broken download would land on a versionless error, the dashboard's
+    // describeUpdate() would return null, and the banner — Retry button and all — would vanish
+    // until the app restarted. A check that failed with nothing on offer has no version anyway.
+    setState({ status: "error", error: message, version: state.version, notes: state.notes });
   }
 
   updater.on("update-available", (info) => {
@@ -130,7 +171,9 @@ export function createUpdateController({
   updater.on("error", fail);
 
   async function runCheck() {
-    setState({ status: "checking" });
+    // Carry the offered version across the check for the same reason fail() does: a re-check
+    // launched from an error state must not blank the banner while it runs.
+    setState({ status: "checking", version: state.version, notes: state.notes });
     try {
       await updater.checkForUpdates();
     } catch (err) {
@@ -150,6 +193,20 @@ export function createUpdateController({
       }
       updater.autoDownload = true;
       updater.autoInstallOnAppQuit = false; // never mid-stream, never behind the operator's back
+      // Set the channel explicitly rather than inheriting electron-updater's implicit inference —
+      // that inference froze every `-nightly.` install out of the stable channel unnoticed.
+      const { allowPrerelease, channel, frozen } = resolveChannel(currentVersion);
+      updater.allowPrerelease = allowPrerelease;
+      if (frozen) {
+        log(
+          "error",
+          `Version ${currentVersion} is on the "${channel}" pre-release channel, which stable ` +
+            `releases can never reach — this build will only ever see other "${channel}" builds. ` +
+            `Pre-release tags must use ${PROMOTABLE_CHANNELS.map((c) => `"${c}"`).join(" or ")}.`,
+        );
+      } else {
+        log("info", `Following the ${channel ?? "stable"} update channel`);
+      }
       await runCheck();
     },
 
@@ -157,15 +214,18 @@ export function createUpdateController({
      * Operator-triggered re-check (the launch check happens once; a release published after that
      * would otherwise go unseen until restart). No-op while a check or download is already in
      * flight, and when a download is staged — re-checking there could only re-download.
-     * Resolves to the state after the check settles.
-     * @returns {Promise<UpdateState>}
+     * Resolves to the state after the check settles, with `checked` reporting whether a check
+     * actually ran: the dashboard must not answer a no-op with "you're up to date", which claims
+     * a check happened when none did.
+     * @returns {Promise<{ state: UpdateState, checked: boolean }>}
      */
     async check() {
-      if (supported && (state.status === "idle" || state.status === "error")) {
+      const checked = supported && (state.status === "idle" || state.status === "error");
+      if (checked) {
         log("info", "Manual update check requested");
         await runCheck();
       }
-      return state;
+      return { state, checked };
     },
 
     /**

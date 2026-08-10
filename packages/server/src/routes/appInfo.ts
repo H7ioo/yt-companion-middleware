@@ -10,8 +10,12 @@ export interface UpdateHost {
   getState(): UpdateState;
   /** Installs the downloaded update and restarts. Returns false when nothing is staged. */
   installAndRestart(): boolean;
-  /** Operator-triggered re-check. Resolves to the state once the check settles. */
-  check(): Promise<UpdateState>;
+  /**
+   * Operator-triggered re-check. Resolves to the state once the check settles; `checked` is false
+   * when the request was a no-op (a check or download was already in flight, or this build has no
+   * updater) so the dashboard can avoid claiming a check it never ran.
+   */
+  check(): Promise<{ state: UpdateState; checked: boolean }>;
 }
 
 export interface AppInfoDeps {
@@ -54,7 +58,7 @@ export function appInfoRouter({ version, changelog, updates }: AppInfoDeps): Rou
       return;
     }
     void updates.check().then(
-      (update) => res.json({ update }),
+      ({ state, checked }) => res.json({ update: state, checked }),
       () => res.status(500).json({ error: "Update check failed." }),
     );
   });

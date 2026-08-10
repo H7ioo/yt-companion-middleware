@@ -1,13 +1,21 @@
 // @ts-check
 import { describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "node:events";
-import { isUpdateSupported, createUpdateController, normalizeNotes } from "./updater.mjs";
+import {
+  isUpdateSupported,
+  createUpdateController,
+  normalizeNotes,
+  resolveChannel,
+} from "./updater.mjs";
 
 /** Minimal stand-in for electron-updater's autoUpdater (an EventEmitter + the calls we make). */
 function fakeUpdater() {
   const updater = Object.assign(new EventEmitter(), {
     autoDownload: true,
     autoInstallOnAppQuit: true,
+    // electron-updater infers this from the running version in its constructor; the controller
+    // overwrites it explicitly, so start it wrong to prove the override happens.
+    allowPrerelease: true,
     logger: null,
     checkForUpdates: vi.fn(async () => ({})),
     quitAndInstall: vi.fn(),
@@ -19,7 +27,14 @@ function controller(overrides = {}) {
   const updater = fakeUpdater();
   const log = vi.fn();
   const onState = vi.fn();
-  const ctl = createUpdateController({ updater, log, onState, supported: true, ...overrides });
+  const ctl = createUpdateController({
+    updater,
+    log,
+    onState,
+    supported: true,
+    currentVersion: "2.4.0",
+    ...overrides,
+  });
   return { updater, log, onState, ctl };
 }
 
@@ -39,6 +54,37 @@ describe("isUpdateSupported", () => {
 
   it("skips non-Windows builds — only the NSIS target publishes a feed", () => {
     expect(isUpdateSupported({ isPackaged: true, platform: "linux", env: {} })).toBe(false);
+  });
+});
+
+describe("resolveChannel", () => {
+  it("keeps a stable build on the stable channel", () => {
+    expect(resolveChannel("2.4.0")).toEqual({ allowPrerelease: false, channel: null, frozen: false });
+  });
+
+  it("puts a beta build on the beta channel, which stable releases can reach", () => {
+    expect(resolveChannel("2.4.1-beta.20260810.3")).toEqual({
+      allowPrerelease: true,
+      channel: "beta",
+      frozen: false,
+    });
+    expect(resolveChannel("2.4.1-alpha.1").frozen).toBe(false);
+  });
+
+  // The bug this whole change exists for: electron-updater's feed walk only lets alpha/beta match
+  // a stable entry, so any other identifier is a dead end no stable release can ever reach.
+  it("flags a custom pre-release channel as frozen out of the stable channel", () => {
+    expect(resolveChannel("2.3.1-nightly.20260716.9")).toEqual({
+      allowPrerelease: true,
+      channel: "nightly",
+      frozen: true,
+    });
+    expect(resolveChannel("2.3.1-rc.1").frozen).toBe(true);
+  });
+
+  it("treats an unparseable version as stable rather than guessing", () => {
+    expect(resolveChannel(undefined).allowPrerelease).toBe(false);
+    expect(resolveChannel("").allowPrerelease).toBe(false);
   });
 });
 
@@ -75,6 +121,22 @@ describe("createUpdateController", () => {
     expect(updater.autoInstallOnAppQuit).toBe(false);
     expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
     expect(ctl.getState().status).toBe("checking");
+  });
+
+  it("pins the channel explicitly instead of inheriting electron-updater's inference", async () => {
+    const stable = controller({ currentVersion: "2.4.0" });
+    await stable.ctl.start();
+    expect(stable.updater.allowPrerelease).toBe(false);
+
+    const beta = controller({ currentVersion: "2.4.1-beta.20260810.3" });
+    await beta.ctl.start();
+    expect(beta.updater.allowPrerelease).toBe(true);
+  });
+
+  it("logs an error when the build sits on a channel stable releases cannot reach", async () => {
+    const { ctl, log } = controller({ currentVersion: "2.3.1-nightly.20260716.9" });
+    await ctl.start();
+    expect(log).toHaveBeenCalledWith("error", expect.stringContaining("can never reach"));
   });
 
   it("does not check at all on an unsupported build", async () => {
@@ -171,7 +233,32 @@ describe("createUpdateController", () => {
       updater.emit("update-available", { version: "2.2.1" });
       return {};
     });
-    expect((await ctl.check()).status).toBe("downloading");
+    expect((await ctl.check()).state.status).toBe("downloading");
+  });
+
+  // Without this the banner (and its Retry button) vanishes mid-retry and stays gone if the retry
+  // also fails, because a versionless error state gives the dashboard nothing to render.
+  it("holds the offered version across a retry that fails again", async () => {
+    const { updater, ctl } = controller();
+    await ctl.start();
+    updater.emit("update-available", { version: "2.2.1", releaseNotes: "Fixes." });
+    updater.emit("error", new Error("net::ERR_CONNECTION_RESET"));
+
+    updater.checkForUpdates.mockRejectedValueOnce(new Error("offline"));
+    const { state } = await ctl.check();
+    expect(state).toMatchObject({ status: "error", error: "offline", version: "2.2.1", notes: "Fixes." });
+  });
+
+  it("reports checked:false when the request was a no-op, so the UI cannot claim a result", async () => {
+    const { updater, ctl } = controller();
+    await ctl.start(); // leaves status "checking" — a check is already in flight
+    expect(await ctl.check()).toMatchObject({ checked: false });
+
+    updater.emit("update-not-available", {});
+    expect(await ctl.check()).toMatchObject({ checked: true });
+
+    const unsupported = controller({ supported: false });
+    expect(await unsupported.ctl.check()).toMatchObject({ checked: false });
   });
 
   it("goes back to idle when the running version is current", async () => {
@@ -192,8 +279,9 @@ describe("createUpdateController", () => {
       updater.emit("update-available", { version: "2.2.1" });
       return {};
     });
-    const state = await ctl.check();
+    const { state, checked } = await ctl.check();
     expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+    expect(checked).toBe(true);
     expect(state).toMatchObject({ status: "downloading", version: "2.2.1" });
   });
 
@@ -207,7 +295,7 @@ describe("createUpdateController", () => {
       updater.emit("update-not-available", {});
       return {};
     });
-    const state = await ctl.check();
+    const { state } = await ctl.check();
     expect(state.status).toBe("idle");
   });
 
@@ -215,13 +303,13 @@ describe("createUpdateController", () => {
     const { updater, ctl } = controller();
     await ctl.start();
     updater.emit("update-available", { version: "2.2.1" });
-    expect((await ctl.check()).status).toBe("downloading");
+    expect((await ctl.check()).state.status).toBe("downloading");
     updater.emit("update-downloaded", { version: "2.2.1" });
-    expect((await ctl.check()).status).toBe("downloaded");
+    expect((await ctl.check()).state.status).toBe("downloaded");
     expect(updater.checkForUpdates).toHaveBeenCalledTimes(1); // launch check only
 
     const unsupported = controller({ supported: false });
-    expect((await unsupported.ctl.check()).status).toBe("unsupported");
+    expect((await unsupported.ctl.check()).state.status).toBe("unsupported");
     expect(unsupported.updater.checkForUpdates).not.toHaveBeenCalled();
   });
 
