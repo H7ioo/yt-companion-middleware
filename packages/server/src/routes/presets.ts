@@ -110,7 +110,10 @@ export function presetsRouter(ctx: AppContext): Router {
     }
     await ctx.store.update((s) => {
       s.presets = s.presets.filter((p) => p.id !== id);
-      if (s.cache.activePresetId === id) s.cache.activePresetId = null;
+      if (s.cache.activePresetId === id) {
+        s.cache.activePresetId = null;
+        s.cache.activePresetTitle = null;
+      }
     });
     res.json({ success: true });
   });

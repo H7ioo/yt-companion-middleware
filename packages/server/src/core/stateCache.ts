@@ -88,6 +88,13 @@ export class StateCache {
    */
   private firstRefresh = true;
 
+  /**
+   * Bumped every time the active preset is set or cleared. A refresh samples it before its GET and
+   * hands it back to reconcileActivePreset, which then knows whether the title it is holding
+   * predates the preset now on record.
+   */
+  private presetEpoch = 0;
+
   constructor(
     private readonly yt: youtube_v3.Youtube,
     private readonly store: JsonStore,
@@ -147,6 +154,10 @@ export class StateCache {
     // resumes the instant the operator re-enables the API, but while off it costs zero quota.
     if (!this.store.get().service.apiEnabled) return;
     const wasUnhealthy = this.health.status !== "ok";
+    // Captured before the GET: a preset applied while these calls are in flight makes the title
+    // we are about to read stale, and reconciling a fresh preset against a pre-action title would
+    // clear it the instant it was pressed. See reconcileActivePreset.
+    const presetEpoch = this.presetEpoch;
     try {
       const { conflict, ...target } = await resolveTarget(this.yt);
       const broadcast = await getBroadcast(this.yt, target.id);
@@ -156,6 +167,11 @@ export class StateCache {
       const previous = this.snapshot();
       const first = this.firstRefresh;
       this.firstRefresh = false;
+      // A latched replay about to land the operator's metadata on this freshly minted broadcast
+      // means the title just read is YouTube's placeholder, not evidence the preset came off air.
+      // Skipping the reconcile leaves the preset lit; if the replay fails, the next refresh (with
+      // the latch now cleared) reconciles and drops it.
+      const replaying = this.replayEligible(previous, target);
       await this.writeCache({
         status: { ...status, noTarget: false },
         health: "ok",
@@ -163,6 +179,8 @@ export class StateCache {
         lastRefreshedAt: new Date().toISOString(),
         targetConflict: conflict ?? (first ? null : driftConflict(previous, target)),
         lastTargetId: target.id,
+        // Read before this write lands, so it compares against the preset recorded so far.
+        ...(replaying ? {} : this.reconcileActivePreset(status.title ?? null, presetEpoch)),
       });
       // Ordered after the cache write so the dashboard reflects the live broadcast even if the
       // replay itself fails; the replay writes the cache again on success.
@@ -185,6 +203,8 @@ export class StateCache {
           // broadcast created — the normal way a show is set up — look like drift.
           targetConflict: null,
           lastTargetId: null,
+          // No broadcast at all, so no preset is on air either.
+          ...this.reconcileActivePreset(null, presetEpoch),
         });
         return;
       }
@@ -248,14 +268,10 @@ export class StateCache {
     const pending = previous.pendingMetadata;
     if (!pending || !this.replay) return;
     if (!target.isLive) return;
-    // The broadcast we wrote to is the one that aired: the intent is already satisfied, so disarm
-    // rather than leave it primed. Found in a live test — a latch left armed here would replay
-    // this show's title onto the next show started inside the TTL.
-    if (target.id === pending.targetId) {
-      await this.writeCache({ pendingMetadata: null });
-      return;
-    }
-    if (Date.parse(pending.capturedAt) < Date.now() - PENDING_TTL_MS) {
+    // Not eligible, but still latched: disarm rather than leave it primed. Found in a live test —
+    // a latch left armed after the broadcast we wrote to aired would replay this show's title
+    // onto the next show started inside the TTL.
+    if (!this.replayEligible(previous, target)) {
       await this.writeCache({ pendingMetadata: null });
       return;
     }
@@ -291,9 +307,54 @@ export class StateCache {
     }
   }
 
-  /** Records which preset was last applied (PRD §5.4 active-preset feedback). */
-  async setActivePreset(presetId: string | null): Promise<void> {
-    await this.writeCache({ activePresetId: presetId });
+  /**
+   * Whether a latched intent will actually be replayed onto `target`: something is live now, it
+   * is not the broadcast we wrote to, and the latch is still fresh. Shared with runRefresh, which
+   * has to know a replay is coming *before* it reconciles the active preset.
+   */
+  private replayEligible(previous: CacheState, target: { id: string; isLive: boolean }): boolean {
+    const pending = previous.pendingMetadata;
+    if (!pending || !this.replay) return false;
+    if (!target.isLive) return false;
+    if (target.id === pending.targetId) return false;
+    return Date.parse(pending.capturedAt) >= Date.now() - PENDING_TTL_MS;
+  }
+
+  /**
+   * Records which preset was last applied (PRD §5.4 active-preset feedback). `title` is the text
+   * that preset actually wrote, kept so a later refresh can tell the preset is still what is on
+   * air — see reconcileActivePreset.
+   */
+  async setActivePreset(presetId: string | null, title: string | null = null): Promise<void> {
+    this.presetEpoch += 1;
+    await this.writeCache({
+      activePresetId: presetId,
+      activePresetTitle: presetId ? title : null,
+    });
+  }
+
+  /**
+   * Drops the active preset when the live title no longer matches what that preset wrote.
+   *
+   * Every route through this app clears the active preset itself, but an edit made in YouTube
+   * Studio (or the mobile app, or by a second operator) never reaches them — the preset key on
+   * Companion stayed lit, and the slug image kept naming a preset that was no longer on air.
+   * Returns the patch to fold into the caller's cache write rather than writing itself, so the
+   * refresh still lands in a single store update.
+   *
+   * `epoch` is the preset generation observed before the refresh's GET. A refresh that started
+   * before a preset was applied is carrying a title from before that write; comparing it would
+   * clear the preset the operator just pressed, and — unlike the equally stale `status` in the
+   * same patch — nothing later puts it back. A newer generation means "not my business, skip".
+   */
+  private reconcileActivePreset(title: string | null, epoch: number): Partial<CacheState> {
+    if (epoch !== this.presetEpoch) return {};
+    const c = this.snapshot();
+    if (!c.activePresetId || c.activePresetTitle === null) return {};
+    // Trimmed on both sides: YouTube normalizes what it stores, so a title that came back with
+    // surrounding whitespace stripped is the same title, not an edit made elsewhere.
+    if (c.activePresetTitle.trim() === (title ?? "").trim()) return {};
+    return { activePresetId: null, activePresetTitle: null };
   }
 
   /** Stores the pre-change metadata so the last action can be undone. */

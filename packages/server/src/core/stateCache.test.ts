@@ -423,3 +423,131 @@ describe("StateCache refresh scheduling", () => {
     expect(calls).toBe(1);
   });
 });
+
+/**
+ * The active preset describes what is on air, so it has to survive only as long as that is true.
+ * Every in-app route clears it explicitly; an edit made in YouTube Studio reaches none of them,
+ * and left the Companion key lit on a preset that was no longer applied.
+ */
+describe("StateCache active-preset reconciliation", () => {
+  let store: JsonStore;
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-active-preset-"));
+    store = new JsonStore(path.join(dir, "store.json"));
+    await store.init();
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  function cacheFor(broadcasts: Record<string, youtube_v3.Schema$LiveBroadcast[]>) {
+    return new StateCache(clientWith(broadcasts), store, {
+      refreshIntervalMs: 60_000,
+      healthFailureThreshold: 3,
+    });
+  }
+
+  it("keeps the active preset while YouTube still holds the title it wrote", async () => {
+    const cache = cacheFor({ active: [live("bc1", "Jumu'ah")] });
+    await cache.setActivePreset("p1", "Jumu'ah");
+
+    await cache.refresh();
+
+    expect(store.get().cache.activePresetId).toBe("p1");
+  });
+
+  it("drops the active preset when the title was changed in YouTube Studio", async () => {
+    const cache = cacheFor({ active: [live("bc1", "Jumu'ah")] });
+    await cache.setActivePreset("p1", "Jumu'ah");
+
+    await cache.refresh(); // still matching
+    // The operator retitles the same broadcast from Studio; the next poll sees the new title.
+    const edited = cacheFor({ active: [live("bc1", "Edited in Studio")] });
+    await edited.refresh();
+
+    expect(store.get().cache.activePresetId).toBeNull();
+    expect(store.get().cache.activePresetTitle).toBeNull();
+  });
+
+  it("drops the active preset when the channel has no broadcast at all", async () => {
+    await cacheFor({}).setActivePreset("p1", "Jumu'ah");
+
+    await cacheFor({}).refresh();
+
+    expect(store.get().cache.activePresetId).toBeNull();
+  });
+
+  it("leaves a pre-upgrade active preset alone (no recorded title to compare)", async () => {
+    // A store written before activePresetTitle existed defaults it to null — reconciling on that
+    // would clear a preset that may well still be on air.
+    await store.update((s) => {
+      s.cache.activePresetId = "p1";
+      s.cache.activePresetTitle = null;
+    });
+
+    await cacheFor({ active: [live("bc1", "Anything")] }).refresh();
+
+    expect(store.get().cache.activePresetId).toBe("p1");
+  });
+
+  it("keeps the active preset when YouTube trimmed the title it stored", async () => {
+    // YouTube normalizes what it stores; the preset is still what is on air, and treating the
+    // difference as an outside edit would drop the highlight on every single poll.
+    const cache = cacheFor({ active: [live("bc1", "Jumu'ah")] });
+    await cache.setActivePreset("p1", "Jumu'ah ");
+
+    await cache.refresh();
+
+    expect(store.get().cache.activePresetId).toBe("p1");
+  });
+
+  it("keeps the active preset a replay is about to re-apply to the new broadcast", async () => {
+    // The go-live case (PRD-12 §2): the operator applied a preset while idle, YouTube minted a
+    // different broadcast, and this refresh reads its default title. The replay puts the preset's
+    // metadata on air moments later, so the title read here is no reason to clear it.
+    const cache = cacheFor({ active: [live("new-one", "Live stream")] });
+    cache.setReplayHandler(async () => undefined);
+    await cache.setActivePreset("p1", "Jumu'ah");
+    await store.update((s) => {
+      s.cache.pendingMetadata = {
+        payload: { title: "Jumu'ah" },
+        targetId: "ghost-we-edited",
+        capturedAt: new Date().toISOString(),
+      };
+    });
+
+    await cache.refresh();
+
+    expect(store.get().cache.activePresetId).toBe("p1");
+  });
+
+  it("keeps a preset applied while a refresh was already in flight", async () => {
+    // That refresh is carrying the title from before the press. Clearing on it would dark the key
+    // the operator just lit, and nothing later puts it back.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slowClient = {
+      liveBroadcasts: {
+        list: async () => {
+          await gate;
+          return { data: { items: [live("bc1", "Title from before the press")] } };
+        },
+      },
+    } as unknown as youtube_v3.Youtube;
+    const cache = new StateCache(slowClient, store, {
+      refreshIntervalMs: 60_000,
+      healthFailureThreshold: 3,
+    });
+
+    const inFlight = cache.refresh();
+    await cache.setActivePreset("p1", "Jumu'ah");
+    release();
+    await inFlight;
+
+    expect(store.get().cache.activePresetId).toBe("p1");
+    expect(store.get().cache.activePresetTitle).toBe("Jumu'ah");
+  });
+});

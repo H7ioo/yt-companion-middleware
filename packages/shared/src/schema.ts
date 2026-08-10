@@ -104,6 +104,14 @@ export const cacheSchema = z.object({
     })
     .default({ title: null, privacyStatus: null, isLive: false, noTarget: false }),
   activePresetId: z.string().nullable().default(null),
+  /**
+   * The title the active preset actually wrote (templates already resolved). A refresh compares
+   * it against what YouTube reports: once they diverge the metadata was changed somewhere else —
+   * YouTube Studio, the mobile app, another operator — so the preset is no longer what is on air
+   * and its Companion highlight has to drop. Null means "don't reconcile" (nothing applied, or a
+   * store written before this field existed).
+   */
+  activePresetTitle: z.string().nullable().default(null),
   undoSnapshot: undoSnapshotSchema.nullable().default(null),
   health: healthStatusSchema.default("ok"),
   healthMessage: z.string().nullable().default(null),

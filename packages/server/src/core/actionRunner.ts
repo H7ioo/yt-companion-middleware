@@ -173,7 +173,11 @@ export class ActionRunner {
       payload.title = resolved.title;
       payload.description = resolved.description;
       const result = await this.applyPayload(payload);
-      await this.cache.setActivePreset(presetId);
+      // The title this action actually put on the broadcast, templates resolved — taken from the
+      // merged plan (what we sent), since the PUT response is not read back. A refresh compares
+      // against it to notice the metadata being changed outside this app; the comparison trims,
+      // so YouTube normalizing the stored value is not mistaken for such an edit.
+      await this.cache.setActivePreset(presetId, result.status.title ?? resolved.title);
       return { ...result, resolvedVars: resolved.resolvedVars };
     });
   }
