@@ -112,6 +112,15 @@ export const cacheSchema = z.object({
    * store written before this field existed).
    */
   activePresetTitle: z.string().nullable().default(null),
+  /**
+   * The broadcast `activePresetTitle` was written to. The title comparison above is only evidence
+   * of an outside edit when it reads *the same broadcast the preset wrote to*: with an auto-start
+   * encoder YouTube mints a fresh broadcast about a minute before air (PRD-12 §2), and reconciling
+   * the preset against that new broadcast's placeholder title would drop it while the pending
+   * replay is still on its way to landing the preset's own metadata there. Null means "don't
+   * reconcile by target" (a store written before this field existed).
+   */
+  activePresetTargetId: z.string().nullable().default(null),
   undoSnapshot: undoSnapshotSchema.nullable().default(null),
   health: healthStatusSchema.default("ok"),
   healthMessage: z.string().nullable().default(null),

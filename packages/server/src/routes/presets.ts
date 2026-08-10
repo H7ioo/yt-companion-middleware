@@ -113,6 +113,7 @@ export function presetsRouter(ctx: AppContext): Router {
       if (s.cache.activePresetId === id) {
         s.cache.activePresetId = null;
         s.cache.activePresetTitle = null;
+        s.cache.activePresetTargetId = null;
       }
     });
     res.json({ success: true });

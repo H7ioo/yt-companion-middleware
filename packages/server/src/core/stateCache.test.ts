@@ -524,6 +524,80 @@ describe("StateCache active-preset reconciliation", () => {
     expect(store.get().cache.activePresetId).toBe("p1");
   });
 
+  it("keeps the active preset through the pre-live mint window", async () => {
+    // The same go-live case one poll earlier: YouTube has minted the broadcast that will air but
+    // it is not live yet, so the replay cannot fire and the eligibility guard does not bite. The
+    // title read is YouTube's placeholder on a broadcast the preset never wrote to — clearing on
+    // it darks the key permanently, because the replay that follows never re-lights it.
+    const cache = cacheFor({ upcoming: [mintedNow("new-one", "Live stream")] });
+    cache.setReplayHandler(async () => undefined);
+    await cache.setActivePreset("p1", "Jumu'ah", "ghost-we-edited");
+    await store.update((s) => {
+      s.cache.pendingMetadata = {
+        payload: { title: "Jumu'ah" },
+        targetId: "ghost-we-edited",
+        capturedAt: new Date().toISOString(),
+      };
+    });
+
+    await cache.refresh();
+
+    expect(store.get().cache.activePresetId).toBe("p1");
+  });
+
+  it("keeps the active preset when the broadcast list is momentarily empty", async () => {
+    // The upcoming -> active handover can answer with nothing at all for a poll. The preset was
+    // written to a broadcast that still exists; a list that cannot see it is not evidence the
+    // preset came off air.
+    await cacheFor({}).setActivePreset("p1", "Jumu'ah", "bc1");
+
+    await cacheFor({}).refresh();
+
+    expect(store.get().cache.activePresetId).toBe("p1");
+    expect(store.get().cache.activePresetTitle).toBe("Jumu'ah");
+  });
+
+  it("re-points the active preset at the broadcast a replay landed on", async () => {
+    // Once the replay has put the preset's metadata on the new broadcast, that broadcast is the
+    // one to reconcile against — otherwise the preset names a stale id and never drops again.
+    const cache = cacheFor({ active: [live("new-one", "Live stream")] });
+    cache.setReplayHandler(async () => ({}));
+    await cache.setActivePreset("p1", "Jumu'ah", "ghost-we-edited");
+    await store.update((s) => {
+      s.cache.pendingMetadata = {
+        payload: { title: "Jumu'ah" },
+        targetId: "ghost-we-edited",
+        capturedAt: new Date().toISOString(),
+      };
+    });
+
+    await cache.refresh();
+    expect(store.get().cache.activePresetTargetId).toBe("new-one");
+
+    // And an outside edit to that broadcast now drops the preset, as it always did.
+    await cacheFor({ active: [live("new-one", "Edited in Studio")] }).refresh();
+    expect(store.get().cache.activePresetId).toBeNull();
+  });
+
+  it("drops the active preset when the replayed metadata is not what the preset wrote", async () => {
+    // The latch carried a later ad-hoc edit, so what is on air after the replay is not the preset.
+    const cache = cacheFor({ active: [live("new-one", "Live stream")] });
+    cache.setReplayHandler(async () => ({}));
+    await cache.setActivePreset("p1", "Jumu'ah", "ghost-we-edited");
+    await store.update((s) => {
+      s.cache.pendingMetadata = {
+        payload: { title: "Something else entirely" },
+        targetId: "ghost-we-edited",
+        capturedAt: new Date().toISOString(),
+      };
+    });
+
+    await cache.refresh();
+
+    expect(store.get().cache.activePresetId).toBeNull();
+    expect(store.get().cache.activePresetTargetId).toBeNull();
+  });
+
   it("keeps a preset applied while a refresh was already in flight", async () => {
     // That refresh is carrying the title from before the press. Clearing on it would dark the key
     // the operator just lit, and nothing later puts it back.

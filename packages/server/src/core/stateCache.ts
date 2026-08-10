@@ -180,7 +180,9 @@ export class StateCache {
         targetConflict: conflict ?? (first ? null : driftConflict(previous, target)),
         lastTargetId: target.id,
         // Read before this write lands, so it compares against the preset recorded so far.
-        ...(replaying ? {} : this.reconcileActivePreset(status.title ?? null, presetEpoch)),
+        ...(replaying
+          ? {}
+          : this.reconcileActivePreset(status.title ?? null, presetEpoch, target.id)),
       });
       // Ordered after the cache write so the dashboard reflects the live broadcast even if the
       // replay itself fails; the replay writes the cache again on success.
@@ -203,8 +205,12 @@ export class StateCache {
           // broadcast created — the normal way a show is set up — look like drift.
           targetConflict: null,
           lastTargetId: null,
-          // No broadcast at all, so no preset is on air either.
-          ...this.reconcileActivePreset(null, presetEpoch),
+          // No broadcast at all, so no preset is on air either — unless the preset was written to
+          // a broadcast this refresh simply could not see. An empty list is routinely transient
+          // during the upcoming -> active handover, and clearing on it drops the preset for good
+          // (the replay lands the title but never re-lights the key), so pass no target id and let
+          // reconcileActivePreset hold on to a preset that names one.
+          ...this.reconcileActivePreset(null, presetEpoch, null),
         });
         return;
       }
@@ -280,6 +286,7 @@ export class StateCache {
       // null means the runner dropped the replay because a newer operator action already wrote to
       // the broadcast that aired. Nothing was applied, and nothing should be said about it.
       if ((await this.replay(pending)) === null) return;
+      await this.adoptReplayedTarget(target.id, pending.payload.title ?? null);
       this.logger?.push({
         level: "info",
         category: "action",
@@ -308,6 +315,25 @@ export class StateCache {
   }
 
   /**
+   * Moves the active preset onto the broadcast a replay just landed on, so later refreshes can go
+   * back to reconciling it. Without this the preset would name a broadcast that is no longer the
+   * target and stay lit forever, immune to the outside-edit check that is the whole point of
+   * reconcileActivePreset.
+   *
+   * The replayed title is what is on air now: if it is not what the preset wrote (the latch
+   * carried an ad-hoc edit, or no title at all), the preset is genuinely off air and drops.
+   */
+  private async adoptReplayedTarget(targetId: string, title: string | null): Promise<void> {
+    const c = this.snapshot();
+    if (!c.activePresetId || c.activePresetTitle === null) return;
+    if (c.activePresetTitle.trim() !== (title ?? "").trim()) {
+      await this.setActivePreset(null);
+      return;
+    }
+    await this.setActivePreset(c.activePresetId, c.activePresetTitle, targetId);
+  }
+
+  /**
    * Whether a latched intent will actually be replayed onto `target`: something is live now, it
    * is not the broadcast we wrote to, and the latch is still fresh. Shared with runRefresh, which
    * has to know a replay is coming *before* it reconciles the active preset.
@@ -325,11 +351,16 @@ export class StateCache {
    * that preset actually wrote, kept so a later refresh can tell the preset is still what is on
    * air — see reconcileActivePreset.
    */
-  async setActivePreset(presetId: string | null, title: string | null = null): Promise<void> {
+  async setActivePreset(
+    presetId: string | null,
+    title: string | null = null,
+    targetId: string | null = null,
+  ): Promise<void> {
     this.presetEpoch += 1;
     await this.writeCache({
       activePresetId: presetId,
       activePresetTitle: presetId ? title : null,
+      activePresetTargetId: presetId ? targetId : null,
     });
   }
 
@@ -346,15 +377,25 @@ export class StateCache {
    * before a preset was applied is carrying a title from before that write; comparing it would
    * clear the preset the operator just pressed, and — unlike the equally stale `status` in the
    * same patch — nothing later puts it back. A newer generation means "not my business, skip".
+   *
+   * `targetId` is the broadcast the title was read from. A different broadcast is not an outside
+   * edit — it is a target switch, and the only thing that can say whether the preset survived it
+   * is the pending replay (see adoptReplayedTarget). Only a title read from the very broadcast
+   * the preset wrote to is evidence about that preset.
    */
-  private reconcileActivePreset(title: string | null, epoch: number): Partial<CacheState> {
+  private reconcileActivePreset(
+    title: string | null,
+    epoch: number,
+    targetId: string | null,
+  ): Partial<CacheState> {
     if (epoch !== this.presetEpoch) return {};
     const c = this.snapshot();
     if (!c.activePresetId || c.activePresetTitle === null) return {};
+    if (c.activePresetTargetId !== null && c.activePresetTargetId !== targetId) return {};
     // Trimmed on both sides: YouTube normalizes what it stores, so a title that came back with
     // surrounding whitespace stripped is the same title, not an edit made elsewhere.
     if (c.activePresetTitle.trim() === (title ?? "").trim()) return {};
-    return { activePresetId: null, activePresetTitle: null };
+    return { activePresetId: null, activePresetTitle: null, activePresetTargetId: null };
   }
 
   /** Stores the pre-change metadata so the last action can be undone. */

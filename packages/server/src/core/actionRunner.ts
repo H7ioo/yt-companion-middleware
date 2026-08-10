@@ -177,7 +177,14 @@ export class ActionRunner {
       // merged plan (what we sent), since the PUT response is not read back. A refresh compares
       // against it to notice the metadata being changed outside this app; the comparison trims,
       // so YouTube normalizing the stored value is not mistaken for such an edit.
-      await this.cache.setActivePreset(presetId, result.status.title ?? resolved.title);
+      // The target id goes on record too: it scopes the reconcile to the broadcast this preset
+      // actually wrote to, so a target switch (an auto-start mint, a transient empty list) is not
+      // mistaken for the metadata being changed outside the app.
+      await this.cache.setActivePreset(
+        presetId,
+        result.status.title ?? resolved.title,
+        result.target.id,
+      );
       return { ...result, resolvedVars: resolved.resolvedVars };
     });
   }
