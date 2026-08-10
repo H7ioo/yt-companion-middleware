@@ -73,13 +73,17 @@ export function App() {
   const checkForUpdates = useCallback(async () => {
     setCheckingUpdate(true);
     try {
-      const { update } = await api.app.check();
+      const { update, checked } = await api.app.check();
       const info = await api.app.info();
       setAppInfo((prev) => (appInfoChanged(prev, info) ? info : prev));
       if (update.status === "downloading" || update.status === "downloaded") {
         flash(`Update v${update.version ?? "?"} found — downloading in the background`);
       } else if (update.status === "error") {
         flash(update.error ?? "Update check failed", "err");
+      } else if (!checked) {
+        // The request was a no-op — a check was already in flight. Saying "up to date" here would
+        // report a result from a check that never ran.
+        flash("A check is already running");
       } else {
         flash("You're up to date");
       }

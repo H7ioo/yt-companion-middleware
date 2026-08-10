@@ -171,6 +171,7 @@ function startUpdates() {
       platform: process.platform,
       env: process.env,
     }),
+    currentVersion: app.getVersion(),
     log: (level, message) => logUpdate(level, message),
     onState: refreshTrayMenu,
     // quitAndInstall() quits the app, which runs the will-quit handler that closes the server.
@@ -202,7 +203,11 @@ async function startEmbeddedServer() {
    *   bundledClient?: { clientId: string, clientSecret: string },
    *   appVersion?: string,
    *   changelogPath?: string,
-   *   updates?: { getState: () => UpdateState, installAndRestart: () => boolean, check: () => Promise<UpdateState> },
+   *   updates?: {
+   *     getState: () => UpdateState,
+   *     installAndRestart: () => boolean,
+   *     check: () => Promise<{ state: UpdateState, checked: boolean }>,
+   *   },
    * }} StartServerOptions
    * @type {{ startServer: (options?: StartServerOptions) => Promise<ServerHandle> }}
    */
@@ -222,7 +227,8 @@ async function startEmbeddedServer() {
     updates: {
       getState: () => updates?.getState() ?? { status: "unsupported" },
       installAndRestart: () => updates?.installAndRestart() ?? false,
-      check: async () => (updates ? await updates.check() : { status: "unsupported" }),
+      check: async () =>
+        updates ? await updates.check() : { state: { status: "unsupported" }, checked: false },
     },
   });
 }

@@ -66,7 +66,7 @@ describe("GET /api/dashboard/app", () => {
     const updates: UpdateHost = {
       getState: () => ({ status: "downloaded", version: "2.2.0", notes: "Streaming-safe auto-update." }),
       installAndRestart: () => true,
-      check: async () => ({ status: "downloaded", version: "2.2.0" }),
+      check: async () => ({ state: { status: "downloaded", version: "2.2.0" }, checked: true }),
     };
     const url = await boot({ updates });
     const { body } = await call(`${url}/api/dashboard/app`);
@@ -79,7 +79,7 @@ describe("GET /api/dashboard/app", () => {
     const updates: UpdateHost = {
       getState: () => ({ status: "downloaded", version: "2.2.0" }),
       installAndRestart: () => true,
-      check: async () => ({ status: "downloaded", version: "2.2.0" }),
+      check: async () => ({ state: { status: "downloaded", version: "2.2.0" }, checked: true }),
     };
     const url = await boot({ updates });
     const { body } = await call(`${url}/api/dashboard/app`);
@@ -95,7 +95,9 @@ describe("GET /api/dashboard/app", () => {
 
 describe("POST /api/dashboard/app/update/check", () => {
   it("triggers a re-check and answers with the settled state", async () => {
-    const check = vi.fn(async () => ({ status: "downloading", version: "2.3.0" }) as const);
+    const check = vi.fn(
+      async () => ({ state: { status: "downloading", version: "2.3.0" }, checked: true }) as const,
+    );
     const updates: UpdateHost = {
       getState: () => ({ status: "idle" }),
       installAndRestart: () => false,
@@ -105,7 +107,22 @@ describe("POST /api/dashboard/app/update/check", () => {
     const { status, body } = await call(`${url}/api/dashboard/app/update/check`, "POST");
     expect(status).toBe(200);
     expect(body.update).toEqual({ status: "downloading", version: "2.3.0" });
+    expect(body.checked).toBe(true);
     expect(check).toHaveBeenCalledTimes(1);
+  });
+
+  // A check already in flight makes the request a no-op. The dashboard needs to know, or it
+  // reports "you're up to date" off a check that never ran.
+  it("reports checked:false when the updater no-opped the request", async () => {
+    const updates: UpdateHost = {
+      getState: () => ({ status: "checking" }),
+      installAndRestart: () => false,
+      check: async () => ({ state: { status: "checking" }, checked: false }),
+    };
+    const url = await boot({ updates });
+    const { status, body } = await call(`${url}/api/dashboard/app/update/check`, "POST");
+    expect(status).toBe(200);
+    expect(body.checked).toBe(false);
   });
 
   it("refuses on a host with no updater at all", async () => {
@@ -122,7 +139,7 @@ describe("POST /api/dashboard/app/update/install", () => {
     const updates: UpdateHost = {
       getState: () => ({ status: "downloaded", version: "2.2.0" }),
       installAndRestart,
-      check: async () => ({ status: "downloaded", version: "2.2.0" }),
+      check: async () => ({ state: { status: "downloaded", version: "2.2.0" }, checked: true }),
     };
     const url = await boot({ updates });
     const { status } = await call(`${url}/api/dashboard/app/update/install`, "POST");
@@ -134,7 +151,7 @@ describe("POST /api/dashboard/app/update/install", () => {
     const updates: UpdateHost = {
       getState: () => ({ status: "checking" }),
       installAndRestart: () => false,
-      check: async () => ({ status: "checking" }),
+      check: async () => ({ state: { status: "checking" }, checked: false }),
     };
     const url = await boot({ updates });
     const { status, body } = await call(`${url}/api/dashboard/app/update/install`, "POST");
