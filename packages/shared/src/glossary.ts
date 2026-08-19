@@ -134,4 +134,8 @@ export const TARGET_CONFLICT_GLOSSARY: Record<TargetConflict["code"], TargetConf
     label: "The broadcast being edited changed on its own",
     remedy: "Close Studio's stream page so it stops creating broadcasts, then refresh.",
   },
+  PINNED_TARGET_GONE: {
+    label: "The broadcast you pinned no longer exists",
+    remedy: "Pick the broadcast to edit again, or clear the pin to go back to automatic.",
+  },
 };

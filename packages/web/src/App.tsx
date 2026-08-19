@@ -14,6 +14,7 @@ import { StatusRail } from "./components/StatusRail.js";
 import { ReauthBanner } from "./components/ReauthBanner.js";
 import { FirewallGuidance } from "./components/FirewallGuidance.js";
 import { TargetConflictBanner } from "./components/TargetConflictBanner.js";
+import { TargetPicker } from "./components/TargetPicker.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { PresetForm } from "./components/PresetForm.js";
 import { PresetFillModal } from "./components/PresetFillModal.js";
@@ -77,7 +78,9 @@ export function App() {
       const info = await api.app.info();
       setAppInfo((prev) => (appInfoChanged(prev, info) ? info : prev));
       if (update.status === "downloading" || update.status === "downloaded") {
-        flash(`Update v${update.version ?? "?"} found — downloading in the background`);
+        flash(
+          `Update v${update.version ?? "?"} found — downloading in the background`,
+        );
       } else if (update.status === "error") {
         flash(update.error ?? "Update check failed", "err");
       } else if (!checked) {
@@ -132,7 +135,8 @@ export function App() {
           setAppInfo((prev) => (appInfoChanged(prev, info) ? info : prev));
           // Announce a version change exactly once — a new build has been installed since this
           // browser last looked. Never on a fresh install (shouldAnnounce).
-          if (shouldAnnounce(info.version, readLastSeen())) setWhatsNew("running");
+          if (shouldAnnounce(info.version, readLastSeen()))
+            setWhatsNew("running");
           markSeen(info.version);
         })
         .catch(() => {});
@@ -152,13 +156,20 @@ export function App() {
 
     const startPolling = () => {
       if (pollId !== null) return;
-      const tick = () => api.state().then(apply).catch(() => {});
+      const tick = () =>
+        api
+          .state()
+          .then(apply)
+          .catch(() => {});
       void tick();
       pollId = window.setInterval(tick, 5000);
     };
 
     // Seed immediately so the rail isn't blank while the stream connects.
-    void api.state().then(apply).catch(() => {});
+    void api
+      .state()
+      .then(apply)
+      .catch(() => {});
     const close = api.streamState(apply, startPolling);
 
     return () => {
@@ -183,14 +194,18 @@ export function App() {
   const exportPresets = async () => {
     try {
       const data = await api.presets.export();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = `presets-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      flash(`Exported ${data.presets.length} preset${data.presets.length === 1 ? "" : "s"}`);
+      flash(
+        `Exported ${data.presets.length} preset${data.presets.length === 1 ? "" : "s"}`,
+      );
     } catch (e) {
       flash((e as Error).message, "err");
     }
@@ -278,7 +293,11 @@ export function App() {
     latestFill.current = request?.id ?? null;
     // The slot expired (or was replaced): a request-opened popup must not outlive its moment —
     // the server signals expiry precisely so this push arrives.
-    if (fillOpenedBy.current && fillOpenedBy.current !== request?.id && !fillAnswered.current) {
+    if (
+      fillOpenedBy.current &&
+      fillOpenedBy.current !== request?.id &&
+      !fillAnswered.current
+    ) {
       fillOpenedBy.current = null;
       setFilling(null);
     }
@@ -298,11 +317,18 @@ export function App() {
         fillOpenedBy.current = request.id;
         fillAnswered.current = false;
         setFilling(preset);
-      } else flash(`Companion asked to fill unknown preset “${request.presetId}”`, "err");
+      } else
+        flash(
+          `Companion asked to fill unknown preset “${request.presetId}”`,
+          "err",
+        );
     })();
   }, [state?.fillRequest, presets, flash]);
 
-  const fireFilledPreset = async (presetId: string, vars: Record<string, string>) => {
+  const fireFilledPreset = async (
+    presetId: string,
+    vars: Record<string, string>,
+  ) => {
     const r = await api.action.preset(presetId, vars);
     if (r.success) flash("Preset applied to YouTube");
     return r;
@@ -385,7 +411,11 @@ export function App() {
     try {
       const { apiEnabled } = await api.service.save(next);
       setState((s) => (s ? { ...s, apiEnabled } : s));
-      flash(apiEnabled ? "YouTube API enabled" : "YouTube API paused — no quota in use");
+      flash(
+        apiEnabled
+          ? "YouTube API enabled"
+          : "YouTube API paused — no quota in use",
+      );
     } catch (e) {
       setState((s) => (s ? { ...s, apiEnabled: !next } : s));
       flash((e as Error).message, "err");
@@ -473,6 +503,14 @@ export function App() {
           />
         ) : null}
 
+        {/* Which broadcast every action below writes to. Placed above the presets because it
+            governs where all of them land (PRD-12 / the pinned-target work). */}
+        <TargetPicker
+          pin={state?.targetPin ?? null}
+          apiEnabled={apiEnabled}
+          onChanged={refreshSession}
+        />
+
         {/* Presets */}
         <section className="panel">
           <div className="panel__head">
@@ -521,9 +559,13 @@ export function App() {
               <div className="preset-grid">
                 {presets.map((p) => (
                   <article className="card" key={p.id}>
-                    <div className="card__title" dir="auto">{p.title}</div>
+                    <div className="card__title" dir="auto">
+                      {p.title}
+                    </div>
                     {p.description ? (
-                      <div className="card__desc" dir="auto">{p.description}</div>
+                      <div className="card__desc" dir="auto">
+                        {p.description}
+                      </div>
                     ) : null}
                     <div className="card__meta">
                       <span className={`pill ${PRIVACY_PILL[p.privacyStatus]}`}>
@@ -639,9 +681,15 @@ export function App() {
                 className="btn btn--sm"
                 onClick={togglePrivacy}
                 disabled={
-                  (state?.busy ?? false) || (state?.status.noTarget ?? false) || !apiEnabled
+                  (state?.busy ?? false) ||
+                  (state?.status.noTarget ?? false) ||
+                  !apiEnabled
                 }
-                title={apiEnabled ? "Flip the live target between private and public" : "YouTube API is paused"}
+                title={
+                  apiEnabled
+                    ? "Flip the live target between private and public"
+                    : "YouTube API is paused"
+                }
               >
                 Toggle privacy
               </button>
@@ -704,8 +752,8 @@ export function App() {
                 streams.length > 0 &&
                 !streams.some((s) => s.id === settings.defaultStreamBoundId) ? (
                   <p className="field-warn">
-                    ⚠ No live stream on this channel has that ID — updates that rely on the
-                    default binding will fail.
+                    ⚠ No live stream on this channel has that ID — updates that
+                    rely on the default binding will fail.
                   </p>
                 ) : null}
               </div>
@@ -721,10 +769,10 @@ export function App() {
           </div>
           <div className="panel__body">
             <p className="empty" style={{ marginTop: 0 }}>
-              Optional. When set, every meaningful state change (live/idle, privacy,
-              health, busy) is POSTed here as{" "}
-              <span className="mono">{`{ "event": "state", "state": {…} }`}</span> — so
-              Companion reacts instantly instead of polling.
+              Optional. When set, every meaningful state change (live/idle,
+              privacy, health, busy) is POSTed here as{" "}
+              <span className="mono">{`{ "event": "state", "state": {…} }`}</span>{" "}
+              — so Companion reacts instantly instead of polling.
             </p>
             <div className="field">
               <label htmlFor="webhook-url">Webhook URL</label>
@@ -750,13 +798,14 @@ export function App() {
           </div>
           <div className="panel__body">
             <p className="empty" style={{ marginTop: 0 }}>
-              Optional. A Companion “Request fill” key pops the fill dialog in any open
-              dashboard. With a topic set here it also sends an{" "}
+              Optional. A Companion “Request fill” key pops the fill dialog in
+              any open dashboard. With a topic set here it also sends an{" "}
               <a href="https://ntfy.sh" target="_blank" rel="noreferrer">
                 ntfy
               </a>{" "}
-              notification — tap it on your phone to open the fill page, even with no dashboard
-              open. Subscribe to the same topic in the ntfy app; treat the topic name as a secret.
+              notification — tap it on your phone to open the fill page, even
+              with no dashboard open. Subscribe to the same topic in the ntfy
+              app; treat the topic name as a secret.
             </p>
             <div className="field">
               <label htmlFor="ntfy-topic">Topic</label>
@@ -764,7 +813,9 @@ export function App() {
                 id="ntfy-topic"
                 value={notify.ntfyTopic}
                 placeholder="e.g. masjid-fill-8k2j — empty disables the push"
-                onChange={(e) => setNotify({ ...notify, ntfyTopic: e.target.value })}
+                onChange={(e) =>
+                  setNotify({ ...notify, ntfyTopic: e.target.value })
+                }
                 onBlur={() => saveNotify(notify)}
               />
             </div>
@@ -775,25 +826,32 @@ export function App() {
                 type="url"
                 value={notify.ntfyServer}
                 placeholder="https://ntfy.sh"
-                onChange={(e) => setNotify({ ...notify, ntfyServer: e.target.value })}
+                onChange={(e) =>
+                  setNotify({ ...notify, ntfyServer: e.target.value })
+                }
                 onBlur={() => saveNotify(notify)}
               />
             </div>
             <div className="field">
-              <label htmlFor="ntfy-base">Public base URL (what the phone opens)</label>
+              <label htmlFor="ntfy-base">
+                Public base URL (what the phone opens)
+              </label>
               <input
                 id="ntfy-base"
                 type="url"
                 value={notify.publicBaseUrl}
                 placeholder="usually leave blank — this machine's LAN address is used"
-                onChange={(e) => setNotify({ ...notify, publicBaseUrl: e.target.value })}
+                onChange={(e) =>
+                  setNotify({ ...notify, publicBaseUrl: e.target.value })
+                }
                 onBlur={() => saveNotify(notify)}
               />
             </div>
             <p className="empty">
-              Leave the base URL blank when the phone is on the same network — the link points at
-              this machine's LAN address automatically. Set it only when that address won't reach
-              the phone (Tailscale, another subnet, a reverse proxy). Saves when you leave a field.
+              Leave the base URL blank when the phone is on the same network —
+              the link points at this machine's LAN address automatically. Set
+              it only when that address won't reach the phone (Tailscale,
+              another subnet, a reverse proxy). Saves when you leave a field.
             </p>
           </div>
         </section>
@@ -858,12 +916,18 @@ export function App() {
 
       {whatsNew ? (
         <WhatsNewModal
-          notes={whatsNew === "offered" ? (appInfo?.updateNotes ?? null) : (appInfo?.notes ?? null)}
+          notes={
+            whatsNew === "offered"
+              ? (appInfo?.updateNotes ?? null)
+              : (appInfo?.notes ?? null)
+          }
           kind={whatsNew}
           onClose={() => setWhatsNew(null)}
           // Only the running-version panel offers a re-check, and only on hosts with an updater.
           onCheckUpdates={
-            whatsNew === "running" && appInfo && appInfo.update.status !== "unsupported"
+            whatsNew === "running" &&
+            appInfo &&
+            appInfo.update.status !== "unsupported"
               ? checkForUpdates
               : undefined
           }

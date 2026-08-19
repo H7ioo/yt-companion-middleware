@@ -36,6 +36,7 @@ export function buildDashboardState(
     apiEnabled: store.get().service.apiEnabled,
     fillRequest: fills.pending(),
     targetConflict: c.targetConflict,
+    targetPin: store.get().targetPin,
   };
 }
 
@@ -79,5 +80,8 @@ export function changeSignature(s: DashboardState): string {
     s.targetConflict
       ? [s.targetConflict.code, s.targetConflict.message, s.targetConflict.ids]
       : null,
+    // Pinning or clearing changes where the next action lands, so it has to reach the dashboard
+    // immediately rather than waiting for the next refresh to move something else.
+    s.targetPin?.id ?? null,
   ]);
 }

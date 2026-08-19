@@ -61,7 +61,12 @@ export type UndoSnapshot = z.infer<typeof undoSnapshotSchema>;
  * which is exactly the state that makes a pre-live title change silently do nothing.
  */
 export const targetConflictSchema = z.object({
-  code: z.enum(["SHARED_STREAM_KEY", "MULTIPLE_UPCOMING", "TARGET_DRIFT"]),
+  code: z.enum([
+    "SHARED_STREAM_KEY",
+    "MULTIPLE_UPCOMING",
+    "TARGET_DRIFT",
+    "PINNED_TARGET_GONE",
+  ]),
   message: z.string(),
   ids: z.array(z.string()).default([]),
 });
@@ -160,6 +165,26 @@ export const webhookSchema = z.object({
 export type WebhookState = z.infer<typeof webhookSchema>;
 
 /**
+ * The broadcast the operator explicitly chose to edit.
+ *
+ * Everything else in target resolution is inference: list the channel's broadcasts and rank them
+ * by how much they look like the one going to air. The ranking is good, but it is still a guess,
+ * and on a channel carrying strays it is a guess made among candidates the operator can see and
+ * we cannot distinguish. A pin replaces the guess with their answer for as long as it holds.
+ *
+ * It is deliberately not a "default": defaults describe what to write, this describes where. It
+ * also never outranks a live broadcast — once the encoder is feeding one, that is what is on air
+ * regardless of what was pinned, and PRD-12's latch is what carries the metadata across.
+ */
+export const targetPinSchema = z.object({
+  id: z.string().min(1),
+  /** Title as it read when pinned, so the dashboard can name the target without a fetch. */
+  label: z.string().nullable().default(null),
+  pinnedAt: z.string(),
+});
+export type TargetPin = z.infer<typeof targetPinSchema>;
+
+/**
  * Master API switch (dashboard kill-switch). When `apiEnabled` is false the middleware
  * makes no YouTube calls at all — the background poll idles and every action is rejected —
  * so an idle service (with Companion still polling) stops burning YouTube quota.
@@ -193,6 +218,7 @@ export const storeSchema = z.object({
   webhook: webhookSchema.default({ url: null }),
   notify: notifySchema.default({ ntfyServer: "https://ntfy.sh", ntfyTopic: "", publicBaseUrl: "" }),
   service: serviceSchema.default({ apiEnabled: true }),
+  targetPin: targetPinSchema.nullable().default(null),
   cache: cacheSchema.default({
     status: { title: null, privacyStatus: null, isLive: false, noTarget: false },
     activePresetId: null,

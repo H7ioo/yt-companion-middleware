@@ -27,6 +27,8 @@ export type {
   UpdateStatus,
   FillRequest,
   NotifyState,
+  TargetPin,
+  BroadcastCandidate,
 } from "@app/shared";
 
 import type {
@@ -42,6 +44,8 @@ import type {
   LogEntry,
   AppInfo,
   NotifyState,
+  TargetPin,
+  BroadcastCandidate,
 } from "@app/shared";
 
 /** Preset payload for create/update — the full preset minus its server-assigned id. */
@@ -118,6 +122,15 @@ export const api = {
   },
   streams: {
     list: () => req<StreamInfo[]>("/api/dashboard/streams"),
+  },
+  /** Which broadcast actions edit — the operator's choice, or null to choose automatically. */
+  target: {
+    candidates: () => req<BroadcastCandidate[]>("/api/dashboard/target/candidates"),
+    pin: (id: string | null, label: string | null) =>
+      req<TargetPin | null>("/api/dashboard/target", {
+        method: "PUT",
+        body: JSON.stringify({ id, label }),
+      }),
   },
   state: () => req<DashboardState>("/api/dashboard/state"),
   /** The activity ring buffer (newest-first) for the dashboard Activity panel (PRD-06 §3). */
