@@ -1,4 +1,4 @@
-import type { HealthStatus, TargetConflict } from "./schema.js";
+import type { HealthStatus, TargetConflict, TargetPin } from "./schema.js";
 
 /**
  * HTTP/DTO contract types — the response shapes the server produces and the web app consumes.
@@ -110,6 +110,30 @@ export interface DashboardState {
    * this is "pointed at the wrong thing", not "cannot reach YouTube".
    */
   targetConflict: TargetConflict | null;
+  /**
+   * The broadcast the operator pinned as the edit target, or null when resolution is inferring
+   * it. Surfaced so the dashboard can say which broadcast actions will land on rather than
+   * leaving it implicit.
+   */
+  targetPin: TargetPin | null;
+}
+
+/**
+ * One broadcast the operator can pin, as offered by GET /api/dashboard/target/candidates. Carries
+ * just enough to tell two similarly-named events apart in a dropdown: when it is due, how close
+ * to air YouTube considers it, and whether it is the one currently being edited.
+ */
+export interface BroadcastCandidate {
+  id: string;
+  title: string;
+  /** ISO-8601, or null when the broadcast carries no scheduled start. */
+  scheduledStartTime: string | null;
+  /** YouTube's lifecycle: `created` (stub), `ready`/`testing` (encoder-bound), `live`. */
+  lifeCycleStatus: string | null;
+  /** True for the broadcast currently on air — it cannot be pinned away from. */
+  isLive: boolean;
+  /** True when this is the broadcast target resolution would pick on its own right now. */
+  wouldPick: boolean;
 }
 
 /** Severity of a dashboard activity-log entry (PRD-06 §3). Drives the panel's colour coding. */

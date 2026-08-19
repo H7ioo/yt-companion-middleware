@@ -7,6 +7,7 @@ import { settingsRouter } from "./routes/settings.js";
 import { stateRouter } from "./routes/state.js";
 import { categoriesRouter } from "./routes/categories.js";
 import { streamsRouter } from "./routes/streams.js";
+import { targetRouter } from "./routes/target.js";
 import { webhookRouter } from "./routes/webhook.js";
 import { serviceRouter } from "./routes/service.js";
 import { logsRouter } from "./routes/logs.js";
@@ -50,6 +51,7 @@ export function mountApiRoutes(app: Express, ctx: AppContext): void {
   app.use("/api/dashboard/state", stateRouter(ctx));
   app.use("/api/dashboard/categories", categoriesRouter(ctx));
   app.use("/api/dashboard/streams", streamsRouter(ctx));
+  app.use("/api/dashboard/target", targetRouter(ctx));
   app.use("/api/dashboard/webhook", webhookRouter(ctx));
   app.use("/api/dashboard/service", serviceRouter(ctx));
   app.use("/api/dashboard/logs", logsRouter(ctx));

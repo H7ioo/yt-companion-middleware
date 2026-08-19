@@ -279,7 +279,11 @@ export class ActionRunner {
     try {
       // autoStartMint is a refresh-time signal (see stateCache.driftConflict); dropped here so
       // the action result stays the {id, isLive} pair the API contract promises.
-      const { conflict, autoStartMint: _mint, ...target } = await resolveTarget(this.yt);
+      const { conflict, autoStartMint: _mint, ...target } = await resolveTarget(
+        this.yt,
+        Date.now(),
+        this.store.get().targetPin?.id ?? null,
+      );
       const current = await getBroadcast(this.yt, target.id);
       const payload = typeof input === "function" ? input(current as BroadcastResource) : input;
       // Capture the current owned fields so the last change can be undone (PRD feature: undo).

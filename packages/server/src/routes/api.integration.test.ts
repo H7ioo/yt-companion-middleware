@@ -32,6 +32,8 @@ interface FakeState {
   /** Awaited inside liveBroadcasts.list, so a test can hold an action in flight (busy/queue). */
   gate?: Promise<void>;
   streams?: youtube_v3.Schema$LiveStream[];
+  /** Broadcasts the channel has scheduled but not started — the pool the pin picks from. */
+  upcoming?: youtube_v3.Schema$LiveBroadcast[];
 }
 
 /** The slice of the YouTube API this app actually calls. Everything else is left undefined. */
@@ -45,15 +47,31 @@ function fakeYouTube(state: FakeState): youtube_v3.Youtube {
     liveBroadcasts: {
       list: async (params: youtube_v3.Params$Resource$Livebroadcasts$List) => {
         await guard();
-        // Only `active` and an id-lookup resolve; `upcoming`/`persistent` come back empty, so an
-        // absent broadcast walks the full resolveTarget fallback chain and ends in NO_TARGET_FOUND.
-        const matches = params.id != null || params.broadcastStatus === "active";
+        if (params.broadcastStatus === "upcoming")
+          return { data: { items: state.upcoming ?? [] } };
+        if (params.id != null) {
+          const byId = [...items(), ...(state.upcoming ?? [])].filter(
+            (b) => b.id === params.id![0],
+          );
+          return { data: { items: byId } };
+        }
+        // `active` resolves; `persistent` comes back empty, so an absent broadcast walks the full
+        // resolveTarget fallback chain and ends in NO_TARGET_FOUND.
+        const matches = params.broadcastStatus === "active";
         return { data: { items: matches ? items() : [] } };
       },
-      update: async (params: youtube_v3.Params$Resource$Livebroadcasts$Update) => {
+      update: async (
+        params: youtube_v3.Params$Resource$Livebroadcasts$Update,
+      ) => {
         await guard();
-        state.broadcast = params.requestBody as youtube_v3.Schema$LiveBroadcast;
-        return { data: state.broadcast };
+        const body = params.requestBody as youtube_v3.Schema$LiveBroadcast;
+        // Write back to whichever broadcast the request names, not unconditionally to the active
+        // one: with several upcoming events on the channel, "which one did the write land on" is
+        // the entire question these tests exist to answer.
+        const index = (state.upcoming ?? []).findIndex((b) => b.id === body.id);
+        if (index >= 0) state.upcoming![index] = body;
+        else state.broadcast = body;
+        return { data: body };
       },
       bind: async () => ({ data: {} }),
     },
@@ -129,7 +147,10 @@ async function boot(): Promise<Harness> {
 
   const app = express();
   app.use(express.json());
-  app.use("/api/setup", setupRouter({ store, configured: true, requestRestart: () => {} }));
+  app.use(
+    "/api/setup",
+    setupRouter({ store, configured: true, requestRestart: () => {} }),
+  );
   mountApiRoutes(app, ctx);
 
   const server = http.createServer(app);
@@ -163,7 +184,8 @@ async function call(
 ): Promise<{ status: number; body: any }> {
   const res = await fetch(`${h.url}${route}`, {
     method,
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    headers:
+      body === undefined ? undefined : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
@@ -171,7 +193,9 @@ async function call(
 }
 
 /** Creates a preset through the API, so the tests exercise the same validation the UI does. */
-async function createPreset(fields: Record<string, unknown> = {}): Promise<string> {
+async function createPreset(
+  fields: Record<string, unknown> = {},
+): Promise<string> {
   const res = await call("POST", "/api/dashboard/presets", {
     title: "Friday Khutbah",
     privacyStatus: "public",
@@ -183,7 +207,10 @@ async function createPreset(fields: Record<string, unknown> = {}): Promise<strin
 
 describe("action routes: always 200, success/error in the body (PRD-01 §7)", () => {
   it("applies a preset and reports the new status", async () => {
-    const id = await createPreset({ title: "Jumu'ah", privacyStatus: "public" });
+    const id = await createPreset({
+      title: "Jumu'ah",
+      privacyStatus: "public",
+    });
     const res = await call("POST", "/api/action/preset", { presetId: id });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
@@ -204,14 +231,20 @@ describe("action routes: always 200, success/error in the body (PRD-01 §7)", ()
   it("toggles privacy without touching the title", async () => {
     const res = await call("POST", "/api/action/privacy", {});
     expect(res.status).toBe(200);
-    expect(res.body.status).toMatchObject({ title: "Original title", privacyStatus: "public" });
+    expect(res.body.status).toMatchObject({
+      title: "Original title",
+      privacyStatus: "public",
+    });
   });
 
   it("undoes the previous change", async () => {
     await call("POST", "/api/action/update", { title: "Mistake" });
     const res = await call("POST", "/api/action/undo");
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ success: true, status: { title: "Original title" } });
+    expect(res.body).toMatchObject({
+      success: true,
+      status: { title: "Original title" },
+    });
   });
 
   it("refreshes the cache from YouTube", async () => {
@@ -280,7 +313,9 @@ describe("action routes: always 200, success/error in the body (PRD-01 §7)", ()
   });
 
   it("returns 200 + SERVICE_DISABLED when the API master switch is off", async () => {
-    const off = await call("PUT", "/api/dashboard/service", { apiEnabled: false });
+    const off = await call("PUT", "/api/dashboard/service", {
+      apiEnabled: false,
+    });
     expect(off.body).toEqual({ apiEnabled: false });
     const res = await call("POST", "/api/action/update", { title: "x" });
     expect(res.status).toBe(200);
@@ -306,7 +341,9 @@ describe("action routes: YouTube error mapping survives the round trip", () => {
   });
 
   it("maps a transport failure to NETWORK_ERROR, not an auth problem (PRD-06 §0)", async () => {
-    h.state.error = Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+    h.state.error = Object.assign(new Error("connect ECONNREFUSED"), {
+      code: "ECONNREFUSED",
+    });
     const res = await call("POST", "/api/action/update", { title: "x" });
     expect(res.status).toBe(200);
     expect(res.body.error.code).toBe("NETWORK_ERROR");
@@ -331,7 +368,10 @@ describe("action routes: YouTube error mapping survives the round trip", () => {
 
 describe("dual-alias guarantee: /api/action/* and /api/dashboard/action/* are the same handler", () => {
   it("serves every action verb identically under both bases", async () => {
-    const id = await createPreset({ title: "Aliased", privacyStatus: "unlisted" });
+    const id = await createPreset({
+      title: "Aliased",
+      privacyStatus: "unlisted",
+    });
     for (const base of ["/api/action", "/api/dashboard/action"]) {
       const res = await call("POST", `${base}/preset`, { presetId: id });
       expect(res.status, base).toBe(200);
@@ -374,11 +414,18 @@ describe("feedback routes (cache-served, zero quota)", () => {
     // The threshold is 3 — escalate past it so health lands on auth_error rather than degraded.
     for (let i = 0; i < 3; i++) await call("POST", "/api/action/refresh");
     const res = await call("GET", "/api/feedback/health");
-    expect(res.body).toMatchObject({ status: "auth_error", authenticated: false });
+    expect(res.body).toMatchObject({
+      status: "auth_error",
+      authenticated: false,
+    });
   });
 
   it("serves the active-preset superset after a preset is applied", async () => {
-    const id = await createPreset({ title: "Fajr", slug: "FAJR", privacyStatus: "public" });
+    const id = await createPreset({
+      title: "Fajr",
+      slug: "FAJR",
+      privacyStatus: "public",
+    });
     await call("POST", "/api/action/preset", { presetId: id });
     const res = await call("GET", "/api/feedback/active-preset");
     expect(res.status).toBe(200);
@@ -397,7 +444,11 @@ describe("feedback routes (cache-served, zero quota)", () => {
   it("serves status and busy", async () => {
     const status = await call("GET", "/api/feedback/status");
     expect(status.status).toBe(200);
-    expect(status.body).toEqual({ title: null, privacyStatus: null, isLive: false });
+    expect(status.body).toEqual({
+      title: null,
+      privacyStatus: null,
+      isLive: false,
+    });
     const busy = await call("GET", "/api/feedback/busy");
     expect(busy.body).toEqual({ busy: false });
   });
@@ -436,7 +487,9 @@ describe("dashboard routes", () => {
     expect(typeof state.body.displayLabel).toBe("string");
     expect(state.body).toHaveProperty("targetConflict");
     const { success, error, ...refreshState } = refresh.body;
-    expect(Object.keys(state.body).sort()).toEqual(Object.keys(refreshState).sort());
+    expect(Object.keys(state.body).sort()).toEqual(
+      Object.keys(refreshState).sort(),
+    );
   });
 
   it("round-trips preset CRUD, and 404s an unknown id", async () => {
@@ -458,12 +511,18 @@ describe("dashboard routes", () => {
     expect(missing.status).toBe(404);
     expect(missing.body.error.code).toBe("INVALID_PRESET");
 
-    const bad = await call("POST", "/api/dashboard/presets", { privacyStatus: "public" });
+    const bad = await call("POST", "/api/dashboard/presets", {
+      privacyStatus: "public",
+    });
     expect(bad.status).toBe(400);
     expect(bad.body.error.code).toBe("INVALID_REQUEST");
 
-    expect((await call("DELETE", `/api/dashboard/presets/${id}`)).status).toBe(200);
-    expect((await call("DELETE", `/api/dashboard/presets/${id}`)).status).toBe(404);
+    expect((await call("DELETE", `/api/dashboard/presets/${id}`)).status).toBe(
+      200,
+    );
+    expect((await call("DELETE", `/api/dashboard/presets/${id}`)).status).toBe(
+      404,
+    );
   });
 
   it("exports and re-imports presets", async () => {
@@ -486,9 +545,13 @@ describe("dashboard routes", () => {
       defaultStreamBoundId: null,
     });
     expect(put.status).toBe(200);
-    expect((await call("GET", "/api/dashboard/settings")).body.defaultCategory).toBe("22");
+    expect(
+      (await call("GET", "/api/dashboard/settings")).body.defaultCategory,
+    ).toBe("22");
 
-    const bad = await call("PUT", "/api/dashboard/settings", { defaultCategory: "" });
+    const bad = await call("PUT", "/api/dashboard/settings", {
+      defaultCategory: "",
+    });
     expect(bad.status).toBe(400);
     expect(bad.body.error.code).toBe("INVALID_REQUEST");
   });
@@ -503,7 +566,11 @@ describe("dashboard routes", () => {
 
     h.state.error = undefined;
     h.state.streams = [
-      { id: "s1", snippet: { title: "Main" }, cdn: { ingestionInfo: { streamName: "key-1" } } },
+      {
+        id: "s1",
+        snippet: { title: "Main" },
+        cdn: { ingestionInfo: { streamName: "key-1" } },
+      },
     ];
     const ok = await call("GET", "/api/dashboard/streams");
     expect(ok.status).toBe(200);
@@ -515,26 +582,38 @@ describe("dashboard routes", () => {
     const res = await call("GET", "/api/dashboard/logs");
     expect(res.status).toBe(200);
     const entries = Array.isArray(res.body) ? res.body : res.body.entries;
-    expect(entries.some((e: { message: string }) => e.message.includes("Logged"))).toBe(true);
+    expect(
+      entries.some((e: { message: string }) => e.message.includes("Logged")),
+    ).toBe(true);
   });
 
   it("raises a fill request and broadcasts it — reads don't consume it", async () => {
     const id = await createPreset({ title: "Lesson {topic}" });
 
-    const raised = await call("POST", "/api/dashboard/fill-request", { presetId: id });
+    const raised = await call("POST", "/api/dashboard/fill-request", {
+      presetId: id,
+    });
     expect(raised.status).toBe(200);
     expect(raised.body.success).toBe(true);
 
     // Every dashboard reads the same pending request off state; a read never clears it, so a
     // second surface (e.g. a phone over Tailscale) still sees it and pops its own popup.
     const first = await call("GET", "/api/dashboard/state");
-    expect(first.body.fillRequest).toMatchObject({ id: raised.body.id, presetId: id });
+    expect(first.body.fillRequest).toMatchObject({
+      id: raised.body.id,
+      presetId: id,
+    });
     const second = await call("GET", "/api/dashboard/state");
-    expect(second.body.fillRequest).toMatchObject({ id: raised.body.id, presetId: id });
+    expect(second.body.fillRequest).toMatchObject({
+      id: raised.body.id,
+      presetId: id,
+    });
   });
 
   it("rejects a fill request for an unknown preset in the 200 envelope", async () => {
-    const res = await call("POST", "/api/dashboard/fill-request", { presetId: "ghost" });
+    const res = await call("POST", "/api/dashboard/fill-request", {
+      presetId: "ghost",
+    });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(false);
     expect(res.body.error.code).toBe("INVALID_PRESET");
@@ -553,7 +632,9 @@ describe("dashboard routes", () => {
       ntfyTopic: "masjid-fill",
       publicBaseUrl: "http://studio.tail1234.ts.net:8080",
     });
-    expect((await call("GET", "/api/dashboard/notify")).body.ntfyTopic).toBe("masjid-fill");
+    expect((await call("GET", "/api/dashboard/notify")).body.ntfyTopic).toBe(
+      "masjid-fill",
+    );
 
     const bad = await call("PUT", "/api/dashboard/notify", {
       ntfyServer: "not a url",
@@ -565,10 +646,173 @@ describe("dashboard routes", () => {
   });
 });
 
+/**
+ * The pinned edit target, over real HTTP: choosing a broadcast has to actually change where the
+ * next write lands, which is the only claim that matters and the one a unit test on resolveTarget
+ * cannot make on its own.
+ */
+describe("edit target pin", () => {
+  const idle = (id: string, title: string, hoursAhead: number) => ({
+    id,
+    snippet: {
+      title,
+      scheduledStartTime: new Date(
+        Date.now() + hoursAhead * 3600_000,
+      ).toISOString(),
+      publishedAt: new Date().toISOString(),
+    },
+    status: { privacyStatus: "private", lifeCycleStatus: "created" },
+    contentDetails: { boundStreamId: "s1" },
+  });
+
+  beforeEach(() => {
+    // Idle channel with two indistinguishable-by-title events — the state that makes the app guess.
+    h.state.broadcast = null;
+    h.state.upcoming = [
+      idle("soon", "Soonest", 1),
+      idle("mine", "The one I want", 5),
+    ];
+  });
+
+  it("offers every candidate and marks the one it would choose unaided", async () => {
+    const res = await call("GET", "/api/dashboard/target/candidates");
+    expect(res.status).toBe(200);
+    expect(res.body.map((c: any) => c.id).sort()).toEqual(["mine", "soon"]);
+    expect(res.body.find((c: any) => c.wouldPick).id).toBe("soon");
+  });
+
+  it("sends the write to the pinned broadcast instead of the automatic pick", async () => {
+    // Unpinned, an update lands on the soonest event.
+    await call("POST", "/api/action/update", { title: "before" });
+    expect(h.state.upcoming!.find((b) => b.id === "soon")!.snippet!.title).toBe(
+      "before",
+    );
+
+    await call("PUT", "/api/dashboard/target", {
+      id: "mine",
+      label: "The one I want",
+    });
+    const res = await call("POST", "/api/action/update", { title: "after" });
+    expect(res.body.target.id).toBe("mine");
+    expect(h.state.upcoming!.find((b) => b.id === "mine")!.snippet!.title).toBe(
+      "after",
+    );
+    // The automatic pick keeps the earlier value — the pin moved the write, it did not fan out.
+    expect(h.state.upcoming!.find((b) => b.id === "soon")!.snippet!.title).toBe(
+      "before",
+    );
+  });
+
+  it("surfaces the pin on dashboard state and clears it back to automatic", async () => {
+    await call("PUT", "/api/dashboard/target", {
+      id: "mine",
+      label: "The one I want",
+    });
+    expect(
+      (await call("GET", "/api/dashboard/state")).body.targetPin,
+    ).toMatchObject({
+      id: "mine",
+      label: "The one I want",
+    });
+
+    await call("PUT", "/api/dashboard/target", { id: null });
+    expect(
+      (await call("GET", "/api/dashboard/state")).body.targetPin,
+    ).toBeNull();
+    expect(
+      (await call("POST", "/api/action/update", { title: "auto" })).body.target
+        .id,
+    ).toBe("soon");
+  });
+
+  it("falls back to the automatic pick and reports the pin as gone when it is deleted", async () => {
+    await call("PUT", "/api/dashboard/target", {
+      id: "mine",
+      label: "The one I want",
+    });
+    h.state.upcoming = h.state.upcoming!.filter((b) => b.id !== "mine");
+
+    const res = await call("POST", "/api/action/update", {
+      title: "recovered",
+    });
+    expect(res.body.target.id).toBe("soon");
+    const state = await call("GET", "/api/dashboard/state");
+    expect(state.body.targetConflict.code).toBe("PINNED_TARGET_GONE");
+    // Left standing deliberately: only the operator clears it, so the banner cannot disappear
+    // before they have seen it.
+    expect(state.body.targetPin.id).toBe("mine");
+  });
+
+  it("does not report the operator's own pin as drift", async () => {
+    // Distinct stream keys, so no other conflict can mask the drift check.
+    h.state.upcoming = [
+      {
+        ...idle("soon", "Soonest", 1),
+        contentDetails: { boundStreamId: "s-a" },
+      },
+      {
+        ...idle("mine", "The one I want", 5),
+        contentDetails: { boundStreamId: "s-b" },
+      },
+    ];
+    // A refresh first, so the app has a target on record to compare against.
+    await call("POST", "/api/action/refresh");
+    await call("PUT", "/api/dashboard/target", {
+      id: "mine",
+      label: "The one I want",
+    });
+    // No second explicit refresh here: the PUT fires its own, and that first post-pin refresh is
+    // exactly where the false banner appeared.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // The target did change — because the operator said so. Reporting that back as "something
+    // else is creating broadcasts, close Studio's stream page" accuses them of their own choice.
+    const pinned = await call("GET", "/api/dashboard/state");
+    expect(pinned.body.targetConflict).toBeNull();
+
+    // Same on the way back to automatic.
+    await call("PUT", "/api/dashboard/target", { id: null });
+    await new Promise((r) => setTimeout(r, 50));
+    const cleared = await call("GET", "/api/dashboard/state");
+    expect(cleared.body.targetConflict?.code ?? null).not.toBe("TARGET_DRIFT");
+    // Unpinned with two upcoming, the ordinary ambiguity warning is the only one expected.
+    expect(cleared.body.targetConflict?.code ?? null).toBe("MULTIPLE_UPCOMING");
+  });
+
+  it("sorts candidates closest-to-air first, with no scheduled start last", async () => {
+    h.state.upcoming = [
+      {
+        ...idle("undated", "No start time", 0),
+        snippet: { title: "No start time" },
+      },
+      idle("later", "Later", 9),
+      idle("mine", "The one I want", 5),
+    ];
+    const res = await call("GET", "/api/dashboard/target/candidates");
+    // "soon" is gone from this list, so the automatic pick heads it; an event with no scheduled
+    // start is the least identifiable row, not the most imminent one, so it sorts last.
+    expect(res.body.map((c: any) => c.id)).toEqual([
+      "mine",
+      "later",
+      "undated",
+    ]);
+  });
+
+  it("rejects an empty id rather than storing an unusable pin", async () => {
+    const res = await call("PUT", "/api/dashboard/target", { id: "" });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("INVALID_REQUEST");
+  });
+});
+
 describe("setup route under a configured boot", () => {
   it("reports configured without ever echoing a secret", async () => {
     await h.store.update((s) => {
-      s.credentials = { clientId: "id", clientSecret: "sec", refreshToken: "1//tok" };
+      s.credentials = {
+        clientId: "id",
+        clientSecret: "sec",
+        refreshToken: "1//tok",
+      };
     });
     const res = await call("GET", "/api/setup/status");
     expect(res.status).toBe(200);

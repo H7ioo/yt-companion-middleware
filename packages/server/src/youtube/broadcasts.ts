@@ -41,13 +41,13 @@ const STALE_UPCOMING_MS = 12 * 60 * 60 * 1000;
  * that actually goes to air. We cannot detect "YouTube Studio is open" — there is no API for
  * it — but these are the states it leaves behind, and each one is a concrete thing the
  * operator can act on.
+ *
+ * Re-exported from the shared contract rather than declared here: this used to be a local
+ * interface listing the codes a second time, so adding one compiled clean on this side while
+ * the dashboard had no copy for it.
  */
-export interface TargetConflict {
-  code: "SHARED_STREAM_KEY" | "MULTIPLE_UPCOMING" | "TARGET_DRIFT";
-  message: string;
-  /** The broadcast ids involved, so the dashboard can name them. */
-  ids: string[];
-}
+export type { TargetConflict } from "../storage/schema.js";
+import type { TargetConflict } from "../storage/schema.js";
 
 export interface TargetResolution extends TargetInfo {
   /** Non-null when the pick is ambiguous — surfaced to the operator, never thrown. */
@@ -61,9 +61,13 @@ export interface TargetResolution extends TargetInfo {
 }
 
 /** True when `b` looks like the broadcast YouTube mints as an auto-start session begins. */
-export function isAutoStartMint(b: youtube_v3.Schema$LiveBroadcast, now: number): boolean {
+export function isAutoStartMint(
+  b: youtube_v3.Schema$LiveBroadcast,
+  now: number,
+): boolean {
   const scheduled = Date.parse(b.snippet?.scheduledStartTime ?? "");
-  if (Number.isNaN(scheduled) || Math.abs(scheduled - now) > AUTO_START_MINT_MS) return false;
+  if (Number.isNaN(scheduled) || Math.abs(scheduled - now) > AUTO_START_MINT_MS)
+    return false;
   const created = Date.parse(b.snippet?.publishedAt ?? "");
   // No creation time: the "starting about now" half is the signal we have, and it is the half
   // that matters — a leftover from last week never matches it.
@@ -79,7 +83,10 @@ export function isAutoStartMint(b: youtube_v3.Schema$LiveBroadcast, now: number)
 export function pickUpcoming(
   upcoming: youtube_v3.Schema$LiveBroadcast[],
   now: number,
-): { chosen: youtube_v3.Schema$LiveBroadcast; conflict: TargetConflict | null } | null {
+): {
+  chosen: youtube_v3.Schema$LiveBroadcast;
+  conflict: TargetConflict | null;
+} | null {
   if (upcoming.length === 0) return null;
 
   // Drop the leftovers first. If *every* candidate is stale they are all we have, so fall back
@@ -112,7 +119,9 @@ export function pickUpcoming(
   // it *is* the broadcast going to air. Telling the operator to "delete the ones you are not
   // using" seconds before air — when the other id is their own scheduled event — invites them to
   // delete the real show. Same suppression as driftConflict in stateCache.
-  const conflict = isAutoStartMint(chosen, now) ? null : conflictAmong(candidates, chosen);
+  const conflict = isAutoStartMint(chosen, now)
+    ? null
+    : conflictAmong(candidates, chosen);
   return { chosen, conflict };
 }
 
@@ -129,7 +138,9 @@ function conflictAmong(
 
   const boundId = chosen.contentDetails?.boundStreamId;
   if (boundId) {
-    const sharing = candidates.filter((b) => b.contentDetails?.boundStreamId === boundId);
+    const sharing = candidates.filter(
+      (b) => b.contentDetails?.boundStreamId === boundId,
+    );
     if (sharing.length > 1) {
       return {
         code: "SHARED_STREAM_KEY",
@@ -161,6 +172,7 @@ function conflictAmong(
 export async function resolveTarget(
   yt: youtube_v3.Youtube,
   now: number = Date.now(),
+  pinnedId: string | null = null,
 ): Promise<TargetResolution> {
   // Note: broadcastStatus and mine are mutually exclusive (API returns 400). Status
   // queries are already scoped to the authenticated channel, so mine is not needed.
@@ -176,13 +188,81 @@ export async function resolveTarget(
     }
     // Live is unambiguous by comparison — the encoder feeds exactly one broadcast, so there is
     // nothing for the operator to disambiguate even when a stale upcoming still exists.
-    return { id: active[0].id!, isLive: true, conflict: null, autoStartMint: false };
+    return {
+      id: active[0].id!,
+      isLive: true,
+      conflict: null,
+      autoStartMint: false,
+    };
   }
 
   // Scheduled but not yet live. Prefer the broadcast closest to going live — one that is
   // "ready"/"testing" (bound to an encoder) over a freshly "created" stub — then the one
   // starting soonest, ignoring leftovers scheduled long in the past.
   const upcoming = await listBroadcasts(yt, { broadcastStatus: "upcoming" });
+
+  // An explicit pin ends the discussion: the operator looked at the same list and told us which
+  // one is theirs. Ranking heuristics only exist because that answer is usually unavailable.
+  if (pinnedId) {
+    const pinned = upcoming.find((b) => b.id === pinnedId);
+    if (pinned) {
+      // A pin answers "which of these is mine", so plain MULTIPLE_UPCOMING is noise against a
+      // deliberate choice. SHARED_STREAM_KEY is not: it says the encoder can only feed one of
+      // the broadcasts sharing that key, and the operator can pin the other one by mistake —
+      // every edit then lands on a broadcast that never airs, silently. That is exactly the
+      // failure the pin was meant to end, so it still has to be said out loud.
+      const shared = conflictAmong(upcoming, pinned);
+      return {
+        id: pinnedId,
+        isLive: false,
+        conflict: shared?.code === "SHARED_STREAM_KEY" ? shared : null,
+        autoStartMint: isAutoStartMint(pinned, now),
+      };
+    }
+    // The pin names a broadcast that is no longer upcoming — deleted, or already completed. Fall
+    // back to the guess so actions still land somewhere sensible, but say so loudly: silently
+    // reverting to inference is exactly the invisible failure the pin was added to remove. The
+    // pin is left standing on purpose; only the operator clears it, so the banner cannot vanish
+    // on the next refresh before they have seen it.
+    const fallback = pickUpcoming(upcoming, now);
+    const gone: TargetConflict = {
+      code: "PINNED_TARGET_GONE",
+      message: fallback
+        ? `The broadcast you pinned no longer exists — edits are back to targeting “${fallback.chosen.snippet?.title ?? fallback.chosen.id}”, chosen automatically. Pin the right one again.`
+        : "The broadcast you pinned no longer exists, and there is no other upcoming broadcast to fall back to.",
+      ids: [pinnedId, ...(fallback?.chosen.id ? [fallback.chosen.id] : [])],
+    };
+    if (fallback) {
+      warnOnce(
+        `PINNED_TARGET_GONE:${pinnedId}`,
+        `[broadcasts] ${gone.message} (selected ${fallback.chosen.id})`,
+      );
+      return {
+        id: fallback.chosen.id!,
+        isLive: false,
+        conflict: gone,
+        autoStartMint: isAutoStartMint(fallback.chosen, now),
+      };
+    }
+    // Nothing upcoming at all. Fall through to the persistent branch below, carrying the
+    // conflict so the operator still learns their pin is dead rather than only seeing
+    // NO_TARGET_FOUND.
+    const persistentOnly = await listBroadcasts(yt, {
+      broadcastType: "persistent",
+      mine: true,
+    });
+    if (persistentOnly.length > 0) {
+      persistentOnly.sort((a, b) => createTimeMs(b) - createTimeMs(a));
+      return {
+        id: persistentOnly[0].id!,
+        isLive: false,
+        conflict: gone,
+        autoStartMint: false,
+      };
+    }
+    throw new AppError("NO_TARGET_FOUND");
+  }
+
   const picked = pickUpcoming(upcoming, now);
   if (picked) {
     if (picked.conflict) {
@@ -202,26 +282,67 @@ export async function resolveTarget(
   // Legacy only: YouTube stopped auto-creating persistent "default" broadcasts on 2020-09-01,
   // so this branch is empty on any channel enabled for live since then. Kept for the older
   // channels that still have one.
-  const persistent = await listBroadcasts(yt, { broadcastType: "persistent", mine: true });
+  const persistent = await listBroadcasts(yt, {
+    broadcastType: "persistent",
+    mine: true,
+  });
   if (persistent.length > 0) {
     // Prefer the most recently created persistent container if several exist.
     persistent.sort((a, b) => createTimeMs(b) - createTimeMs(a));
-    return { id: persistent[0].id!, isLive: false, conflict: null, autoStartMint: false };
+    return {
+      id: persistent[0].id!,
+      isLive: false,
+      conflict: null,
+      autoStartMint: false,
+    };
   }
 
   throw new AppError("NO_TARGET_FOUND");
 }
 
-async function listBroadcasts(
+/**
+ * YouTube's default page size for liveBroadcasts.list is 5, and the list is not ordered with
+ * the broadcast we want first. Asking for one page of 5 was the reason a title still landed on
+ * the wrong container with Studio open: a channel accumulates upcoming broadcasts quickly, and
+ * the one actually going to air routinely sat off page 1 — so every ranking rule in pickUpcoming
+ * was choosing among the wrong five. 50 is the API maximum.
+ */
+const PAGE_SIZE = 50;
+
+/**
+ * Ceiling on the page walk. A channel with hundreds of abandoned broadcasts must not spend
+ * unbounded quota on every 60s refresh; 200 candidates is far past the point where the operator
+ * has a stray problem worth reporting rather than a target we can pick out of the pile.
+ */
+const MAX_PAGES = 4;
+
+/**
+ * Exported so the target picker walks the same pages resolution does. Reading one page there
+ * while resolveTarget read four meant the broadcast actually being edited could be missing from
+ * the list the operator picks from — on exactly the stray-heavy channel the pin exists for.
+ */
+export async function listBroadcasts(
   yt: youtube_v3.Youtube,
   params: youtube_v3.Params$Resource$Livebroadcasts$List,
 ): Promise<youtube_v3.Schema$LiveBroadcast[]> {
+  const items: youtube_v3.Schema$LiveBroadcast[] = [];
+  let pageToken: string | undefined;
   try {
-    const res = await yt.liveBroadcasts.list({ part: BROADCAST_PARTS, ...params });
-    return res.data.items ?? [];
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const res = await yt.liveBroadcasts.list({
+        part: BROADCAST_PARTS,
+        maxResults: PAGE_SIZE,
+        ...params,
+        ...(pageToken ? { pageToken } : {}),
+      });
+      items.push(...(res.data.items ?? []));
+      pageToken = res.data.nextPageToken ?? undefined;
+      if (!pageToken) break;
+    }
   } catch (err) {
     throw mapYouTubeError(err);
   }
+  return items;
 }
 
 /** Raw GET of a single broadcast by id. */
@@ -230,9 +351,13 @@ export async function getBroadcast(
   id: string,
 ): Promise<youtube_v3.Schema$LiveBroadcast> {
   try {
-    const res = await yt.liveBroadcasts.list({ part: BROADCAST_PARTS, id: [id] });
+    const res = await yt.liveBroadcasts.list({
+      part: BROADCAST_PARTS,
+      id: [id],
+    });
     const item = res.data.items?.[0];
-    if (!item) throw new AppError("NO_TARGET_FOUND", `Broadcast ${id} not found`);
+    if (!item)
+      throw new AppError("NO_TARGET_FOUND", `Broadcast ${id} not found`);
     return item;
   } catch (err) {
     throw mapYouTubeError(err);
@@ -245,9 +370,13 @@ export async function getBroadcast(
  *   2. videos.update — snippet.categoryId, if a category was resolved.
  *   3. liveBroadcasts.bind — bind the stream, if a streamBoundId was resolved.
  */
-export async function applyPlan(yt: youtube_v3.Youtube, plan: ResolvedPlan): Promise<void> {
+export async function applyPlan(
+  yt: youtube_v3.Youtube,
+  plan: ResolvedPlan,
+): Promise<void> {
   const broadcastId = plan.broadcast.id;
-  if (!broadcastId) throw new AppError("NO_TARGET_FOUND", "Resolved broadcast has no id");
+  if (!broadcastId)
+    throw new AppError("NO_TARGET_FOUND", "Resolved broadcast has no id");
 
   try {
     await yt.liveBroadcasts.update({
@@ -279,9 +408,13 @@ async function updateVideoCategory(
   try {
     const res = await yt.videos.list({ part: ["snippet"], id: [videoId] });
     const snippet = res.data.items?.[0]?.snippet;
-    if (!snippet) throw new AppError("NO_TARGET_FOUND", `Video ${videoId} not found`);
+    if (!snippet)
+      throw new AppError("NO_TARGET_FOUND", `Video ${videoId} not found`);
     snippet.categoryId = categoryId;
-    await yt.videos.update({ part: ["snippet"], requestBody: { id: videoId, snippet } });
+    await yt.videos.update({
+      part: ["snippet"],
+      requestBody: { id: videoId, snippet },
+    });
   } catch (err) {
     throw mapYouTubeError(err);
   }
@@ -307,7 +440,9 @@ function startTimeMs(b: youtube_v3.Schema$LiveBroadcast): number {
   return Date.parse(b.snippet?.actualStartTime ?? "") || 0;
 }
 function scheduledStartMs(b: youtube_v3.Schema$LiveBroadcast): number {
-  return Date.parse(b.snippet?.scheduledStartTime ?? "") || Number.MAX_SAFE_INTEGER;
+  return (
+    Date.parse(b.snippet?.scheduledStartTime ?? "") || Number.MAX_SAFE_INTEGER
+  );
 }
 /** 1 = the broadcast YouTube minted for the session starting now, 0 = anything else. */
 function mintRank(b: youtube_v3.Schema$LiveBroadcast, now: number): number {
@@ -352,8 +487,12 @@ function createTimeMs(b: youtube_v3.Schema$LiveBroadcast): number {
 }
 
 /** Reads the fields the status cache cares about from a broadcast resource. */
-export function toStatus(b: BroadcastResource | youtube_v3.Schema$LiveBroadcast) {
-  const lifeCycle = (b.status as { lifeCycleStatus?: string } | null | undefined)?.lifeCycleStatus;
+export function toStatus(
+  b: BroadcastResource | youtube_v3.Schema$LiveBroadcast,
+) {
+  const lifeCycle = (
+    b.status as { lifeCycleStatus?: string } | null | undefined
+  )?.lifeCycleStatus;
   return {
     title: (b.snippet?.title as string | undefined) ?? null,
     privacyStatus: (b.status?.privacyStatus as string | undefined) ?? null,

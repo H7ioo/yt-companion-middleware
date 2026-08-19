@@ -159,7 +159,11 @@ export class StateCache {
     // clear it the instant it was pressed. See reconcileActivePreset.
     const presetEpoch = this.presetEpoch;
     try {
-      const { conflict, ...target } = await resolveTarget(this.yt);
+      const { conflict, ...target } = await resolveTarget(
+        this.yt,
+        Date.now(),
+        this.store.get().targetPin?.id ?? null,
+      );
       const broadcast = await getBroadcast(this.yt, target.id);
       const status = toStatus(broadcast);
       this.health = onSuccess(this.health);
