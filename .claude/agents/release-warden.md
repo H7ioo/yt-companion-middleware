@@ -89,7 +89,7 @@ each non-PASS item with one indented line of evidence: what you found, and where
 - [P] Upgrade script appended for any Companion rename/removal.
 - [P] Docs (`README.md`, `companion-module/companion/HELP.md`, `packages/server/public/guide/`) reflect behaviour changes.
 - [P] Commit subjects since the last tag are Conventional and readable — they *are* the release notes.
-- [P] `main` is green and pulled locally.
+- [P] `main` is green and pulled locally (the `CI` check on the last merge, not just a hunch).
 - [P] `npm run preflight` is green.
 - [H] `workflow_dispatch` run of `Release` is green (the real Windows build, no publish).
 - [P] Desktop bump chosen per the semver rule above (a Companion-facing break = major, and a companion major + upgrade script in the same release).

@@ -57,6 +57,16 @@ lockstep and are not expected to match — a desktop `v2.4.0` may happily ship a
 Pre-release tags work as expected: anything with a hyphen (`v2.2.0-rc.1`) publishes as a GitHub
 pre-release rather than claiming "Latest".
 
+## Every PR: the CI gate
+
+`.github/workflows/ci.yml` runs on every pull request and on every push to `main`. It runs the same
+orchestrator you run locally — `npm run preflight -- --no-pack` — so the gate and your terminal
+cannot disagree about what "green" means. `--no-pack` drops only the `electron-builder --dir` stage,
+which `nightly.yml` and `release.yml` already prove.
+
+That check is what keeps `main` tagable at any moment. It does **not** replace the pre-tag ritual
+below: the pack and the real Windows build are still yours to run before a tag.
+
 ## Before you tag: preflight
 
 ```bash
@@ -74,8 +84,8 @@ The smoke test (`npm run smoke`, also runnable on its own after `build:all`) boo
 server — once with no credentials (setup mode) and once with dummy ones (the full route table) — and
 asserts `GET /api/feedback/health` answers 200 with the right shape. It is the only step that runs
 the shipped `dist/`, so it is what catches a build that compiles but won't boot. The same three
-checks — typecheck, tests, smoke — run as the `checks` job in CI, and the desktop/companion builds
-are gated on them.
+checks — typecheck, tests, smoke — run as the `checks` job in `release.yml`, and the
+desktop/companion builds are gated on them; `ci.yml` runs the whole preflight list on every PR.
 
 What preflight **cannot** catch is the Windows build itself. Prove that remotely without publishing:
 run the `Release` workflow via **workflow_dispatch** and confirm it's green (see the note below) —
@@ -187,7 +197,7 @@ never edits and never tags. Run it per shippable slice, not just before a releas
 - [ ] Upgrade script appended for any Companion rename/removal.
 - [ ] Docs (`README.md`, `companion-module/companion/HELP.md`, `packages/server/public/guide/`) reflect behaviour changes.
 - [ ] Commit subjects since the last tag are Conventional and readable — they *are* the release notes.
-- [ ] `main` is green and pulled locally.
+- [ ] `main` is green and pulled locally (the `CI` check on the last merge, not just a hunch).
 - [ ] `npm run preflight` is green.
 - [ ] `workflow_dispatch` run of `Release` is green (the real Windows build, no publish).
 - [ ] Desktop bump chosen per the semver rule above (a Companion-facing break = major, and a
