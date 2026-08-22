@@ -28,7 +28,7 @@ with `cache: npm`, `npm ci`. Add a `concurrency` group keyed on the ref with
 - [x] The job runs `npm ci` then `npm run preflight -- --no-pack` and fails the check on any red step.
 - [x] Node version matches the one `release.yml` uses; npm cache enabled.
 - [x] `concurrency` cancels superseded runs on the same ref.
-- [ ] The workflow is green on its own PR, and its failure mode is verified once (a deliberately
+- [x] The workflow is green on its own PR, and its failure mode is verified once (a deliberately
       broken branch shows a red check).
 - [x] `RELEASING.md` / contributing docs state that PRs are gated by this check, and that local
       `npm run preflight` (with the pack) is still the pre-tag ritual.
@@ -104,8 +104,10 @@ checklist in `.claude/agents/release-warden.md` — its test enforces the two st
 `js-yaml` was added as a root devDep so the workflow test parses YAML instead of grepping it. It
 was already in the tree via electron-builder; this only declares it.
 
-The last Part 1 criterion — the workflow green on its own PR, plus one deliberate red — can only be
-observed after the PR exists.
+Both halves of the last Part 1 criterion are observed. Green on its own PR (#18, run 32586371687,
+1m14s). Red proven on a throwaway branch carrying one deliberate type error: the check failed with
+`src/__ci-canary.ts(2,14): error TS2322` and `✗ preflight failed at "typecheck"` — so a broken
+branch is caught *and* the log names the step. That PR (#19) and its branch are closed and deleted.
 
 **Part 2 is untouched and remains the open work here.** Per the sequencing note, gaps 1 (web
 component tests — note root `jsdom` is already installed, `@testing-library/react` is not) and 2
