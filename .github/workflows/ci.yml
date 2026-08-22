@@ -1,0 +1,47 @@
+name: CI
+
+# The pull-request gate. release.yml and nightly.yml only run on a tag/schedule, so before this
+# workflow nothing checked a PR: a branch could merge into main with red types or failing tests
+# and the break was first seen at release time (PRD-05 §1.1, §3, issue 041).
+#
+# push to main as well as pull_request: a PR is tested against its own head, so a merge that is
+# green on both sides but broken in combination is only caught on the merge commit itself.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# One in-flight run per ref. Pushing twice to a PR supersedes the first run, and there is nothing
+# to learn from finishing it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Preflight (no pack)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node version is kept in step with release.yml's `checks` job — a gate that passes on a
+      # different runtime than the release builds on is not gating the release.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      # companion-module is not an npm workspace. Its deps are needed twice over: root typecheck
+      # covers its checkJs (issue 028) and needs @companion-module/base resolvable, and preflight's
+      # test + companion:package steps run inside it.
+      - run: npm ci
+        working-directory: companion-module
+
+      # One step, on purpose. Everything this gate runs — typecheck, typecheck:electron, the full
+      # vitest suite (workspaces + companion-module), build:all, smoke, companion:package — is the
+      # step list in scripts/preflight.mjs, so local preflight and CI cannot drift. --no-pack drops
+      # the electron-builder --dir stage: it is the slow, Electron-download-heavy step and is
+      # already proven by nightly.yml and release.yml.
+      - run: npm run preflight -- --no-pack
