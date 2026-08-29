@@ -73,7 +73,7 @@ testable pure bits rather than trying to drive Electron in CI.
 
 - [ ] Web workspace has a jsdom test environment and `@testing-library/react`; the six listed
       components have render + key-branch tests.
-- [ ] `companion-module/src/upgrades.js` has a suite covering every upgrade step from its prior
+- [x] `companion-module/src/upgrades.js` has a suite covering every upgrade step from its prior
       config shape.
 - [ ] `categories`, `webhook`, and `socket` routes are covered in `api.integration.test.ts`.
 - [ ] Testable logic is extracted out of `packages/desktop/main.mjs` and covered (or the file is
@@ -112,3 +112,32 @@ branch is caught *and* the log names the step. That PR (#19) and its branch are 
 **Part 2 is untouched and remains the open work here.** Per the sequencing note, gaps 1 (web
 component tests — note root `jsdom` is already installed, `@testing-library/react` is not) and 2
 (`companion-module/src/upgrades.js`) are the ones worth doing before the next release.
+
+## Progress — 2026-08-29
+
+**Part 2, gap 2 is done.** `companion-module/src/upgrades.js` now has `src/upgrades.test.js` — 11
+cases, no production code changed.
+
+Two layers, because the file has two ways to hurt an operator. The per-step layer runs
+`dropBearerToken` against the v1.x shape it migrates *from* (`{ url, token }`): token stripped,
+sibling fields preserved, empty-string token stripped too, `updatedConfig: null` on a config already
+on the v2 shape, and a `null` config surviving without a throw — Companion can invoke an upgrade on
+a connection with nothing saved yet. The array layer pins the invariant VERSIONING.md states but
+nothing enforced: the migration history is append-only. Length and `UpgradeScripts[0].name` are
+asserted, so splicing a step into the middle — which silently re-points a migration an operator has
+already applied — fails the gate. Appending fails it too, deliberately: that failure is the prompt
+to extend the suite with the new step's own cases.
+
+The suite was mutation-proven rather than assumed. Replacing the `{ ...config }` copy with an
+in-place `delete` failed the no-mutation test; dropping the `config &&` null guard failed two
+(null-config and the result-array shape check). Both mutations reverted; `upgrades.js` is
+byte-identical to before.
+
+No `companion:bump`. VERSIONING.md ties a bump to a *behaviour* change Companion must pick up, and
+this ships none — precedent is `transform.test.js`, which already lives in the packaged tree.
+
+Full suite 531 tests / 53 files green, `npm run typecheck` clean.
+
+**Remaining in Part 2:** gap 1 (web component tests — `@testing-library/react` still not installed;
+root `jsdom` is), gap 3 (`categories`/`webhook`/`socket` integration coverage), gap 4
+(`packages/desktop/main.mjs`, lowest priority).
