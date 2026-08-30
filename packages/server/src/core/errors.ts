@@ -12,7 +12,11 @@ export type ErrorCode =
   | "NETWORK_ERROR"
   | "INVALID_REQUEST"
   | "OAUTH_FAILED"
-  | "OAUTH_NO_REFRESH_TOKEN";
+  | "OAUTH_NO_REFRESH_TOKEN"
+  | "UNAUTHENTICATED"
+  | "INVALID_CREDENTIALS"
+  | "TOO_MANY_ATTEMPTS"
+  | "SERVER_ERROR";
 
 const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   NO_TARGET_FOUND: "No active broadcast and no persistent container found",
@@ -30,6 +34,11 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   OAUTH_FAILED: "The YouTube sign-in flow did not complete",
   OAUTH_NO_REFRESH_TOKEN:
     "Google returned no refresh token — revoke the app at myaccount.google.com/permissions and reconnect",
+  UNAUTHENTICATED: "Sign in to continue",
+  // Deliberately says nothing about which half was wrong — see routes/auth.ts.
+  INVALID_CREDENTIALS: "Incorrect username or password",
+  TOO_MANY_ATTEMPTS: "Too many sign-in attempts — try again later",
+  SERVER_ERROR: "The server could not complete the request",
 };
 
 export class AppError extends Error {

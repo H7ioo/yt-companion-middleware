@@ -29,6 +29,7 @@ export type {
   NotifyState,
   TargetPin,
   BroadcastCandidate,
+  SessionInfo,
 } from "@app/shared";
 
 import type {
@@ -46,6 +47,7 @@ import type {
   NotifyState,
   TargetPin,
   BroadcastCandidate,
+  SessionInfo,
 } from "@app/shared";
 
 /** Preset payload for create/update — the full preset minus its server-assigned id. */
@@ -69,6 +71,18 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 export type CredentialsInput = CredentialsState;
 
 export const api = {
+  /** Sign-in, sign-out and "who am I" (issue 043). Dormant on a deployment with no accounts. */
+  auth: {
+    me: () => req<SessionInfo>("/api/auth/me"),
+    login: (name: string, password: string) =>
+      req<{ account: NonNullable<SessionInfo["account"]> }>("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ name, password }),
+      }),
+    logout: () => req<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+    /** Trades a session nearing its 90-day cap for a fresh one, without retyping a password. */
+    reauth: () => req<{ ok: boolean }>("/api/auth/reauth", { method: "POST" }),
+  },
   setup: {
     status: () => req<SetupStatus>("/api/setup/status"),
     save: (creds: CredentialsInput) =>

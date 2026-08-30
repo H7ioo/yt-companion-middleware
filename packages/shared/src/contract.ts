@@ -243,3 +243,20 @@ export interface AppInfo {
    */
   updateNotes: string | null;
 }
+
+/**
+ * What the dashboard knows about its own sign-in state, from `GET /api/auth/me` (issue 043).
+ *
+ * `authRequired` is the switch: a deployment with no accounts — the desktop and LAN installs the
+ * app ships as today — reports false, and the dashboard shows no login screen at all. The hosted
+ * deployment seeds an admin at boot and reports true.
+ */
+export interface SessionInfo {
+  authRequired: boolean;
+  authenticated: boolean;
+  account: { id: string; name: string; role: "admin" | "user" } | null;
+  /** Within a week of the 90-day cap: the dashboard offers to re-authenticate before it lapses. */
+  expiringSoon: boolean;
+  /** When the session's absolute cap falls, so the notice can name the day. Null when signed out. */
+  absoluteExpiresAt: string | null;
+}

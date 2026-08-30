@@ -47,7 +47,10 @@ export function mountApiRoutes(app: Express, ctx: AppContext): void {
 
   // Dashboard management endpoints.
   app.use("/api/dashboard/presets", presetsRouter(ctx));
-  app.use("/api/dashboard/settings", settingsRouter(ctx));
+  // The one guarded route of issue 043's thin slice. Everything else stays open until issue 044
+  // widens the guard — and the guard itself is a pass-through on a deployment with no accounts,
+  // so a desktop/LAN install cannot be locked out by it.
+  app.use("/api/dashboard/settings", ctx.auth.requireSession(), settingsRouter(ctx));
   app.use("/api/dashboard/state", stateRouter(ctx));
   app.use("/api/dashboard/categories", categoriesRouter(ctx));
   app.use("/api/dashboard/streams", streamsRouter(ctx));

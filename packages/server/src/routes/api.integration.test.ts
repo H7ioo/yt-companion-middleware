@@ -17,6 +17,8 @@ import { setupRouter } from "./setup.js";
 import { attachStateSocket } from "./socket.js";
 import WebSocket from "ws";
 import type { AppContext } from "./context.js";
+import { Auth, SESSION_COOKIE } from "../auth/actor.js";
+import { authRouter } from "./auth.js";
 
 /**
  * Route integration tests (PRD-05 §2.1): the real route table from app.ts, over real HTTP, with a
@@ -121,6 +123,7 @@ const httpError = (status: number, reason?: string) => ({
 interface Harness {
   url: string;
   store: JsonStore;
+  auth: Auth;
   state: FakeState;
   /** Exposed so the socket tests can drive a push without going through an action. */
   events: StateEvents;
@@ -157,6 +160,10 @@ async function boot(): Promise<Harness> {
   );
   const runner = new ActionRunner(yt, store, cache, events, logger);
   const fills = new FillRequests(events);
+  // No admin seeded: authentication is dormant, exactly as it is on a desktop/LAN install, so
+  // every existing test below exercises the route table unchanged. The guarded-route tests seed
+  // an admin through this handle to turn it on.
+  const auth = new Auth(store);
   const ctx: AppContext = {
     store,
     runner,
@@ -166,11 +173,15 @@ async function boot(): Promise<Harness> {
     events,
     logger,
     fills,
+    auth,
     regionCode,
   };
 
   const app = express();
   app.use(express.json());
+  // Mounted ahead of the route table, exactly as server.ts does — sign-in has to answer in setup
+  // mode too, so it cannot live inside mountApiRoutes.
+  app.use("/api/auth", authRouter(auth));
   app.use(
     "/api/setup",
     setupRouter({ store, configured: true, requestRestart: () => {} }),
@@ -185,6 +196,7 @@ async function boot(): Promise<Harness> {
   return {
     url: `http://127.0.0.1:${port}`,
     store,
+    auth,
     state,
     events,
     regionCode,
@@ -1039,5 +1051,70 @@ describe("state push socket", () => {
     // Without the close teardown the subscription (and its heartbeat) leaks for the process life.
     await new Promise((r) => setTimeout(r, 100));
     expect(h.events.listenerCount("change")).toBe(before);
+  });
+});
+
+/**
+ * Issue 043's thin slice through the real route table: with an admin seeded, exactly one route
+ * enforces a session and every other route behaves as it did before.
+ */
+describe("the guarded route", () => {
+  /** Signs in through the real login route and returns the browser's Cookie header. */
+  async function signIn(): Promise<string> {
+    const res = await fetch(`${h.url}/api/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "operator", password: "a-long-enough-secret" }),
+    });
+    expect(res.status).toBe(200);
+    const cookie = res.headers.getSetCookie().find((c) => c.startsWith(`${SESSION_COOKIE}=`));
+    return cookie!.split(";")[0];
+  }
+
+  /** Every dashboard route a signed-out browser must still reach, unchanged by this slice. */
+  const stillOpen = [
+    "/api/dashboard/presets",
+    "/api/dashboard/state",
+    "/api/dashboard/logs",
+    "/api/dashboard/target",
+    "/api/dashboard/webhook",
+    "/api/dashboard/service",
+    "/api/feedback/health",
+    "/api/feedback/status",
+  ];
+
+  it("is open while no admin is seeded", async () => {
+    expect((await call("GET", "/api/dashboard/settings")).status).toBe(200);
+  });
+
+  it("refuses a signed-out caller once an admin is seeded", async () => {
+    await h.auth.seed({ name: "operator", password: "a-long-enough-secret" });
+    const res = await call("GET", "/api/dashboard/settings");
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("UNAUTHENTICATED");
+  });
+
+  it("admits a signed-in caller, on reads and writes alike", async () => {
+    await h.auth.seed({ name: "operator", password: "a-long-enough-secret" });
+    const cookie = await signIn();
+    const read = await fetch(`${h.url}/api/dashboard/settings`, { headers: { cookie } });
+    expect(read.status).toBe(200);
+    const write = await fetch(`${h.url}/api/dashboard/settings`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ defaultCategory: "20", defaultStreamBoundId: null }),
+    });
+    expect(write.status).toBe(200);
+    expect(h.store.get().defaults.defaultCategory).toBe("20");
+  });
+
+  it("locks nothing else out — every other route answers as it did before", async () => {
+    await h.auth.seed({ name: "operator", password: "a-long-enough-secret" });
+    for (const route of stillOpen) {
+      expect(`${route} → ${(await call("GET", route)).status}`).toBe(`${route} → 200`);
+    }
+    // Companion's action endpoints keep working too: the module holds no session and issue 049 is
+    // what eventually gives it a token.
+    expect((await call("POST", "/api/action/refresh")).status).toBe(200);
   });
 });

@@ -9,8 +9,10 @@ import {
   type PresetInput,
   type StreamInfo,
   type AppInfo,
+  type SessionInfo,
 } from "./api.js";
 import { StatusRail } from "./components/StatusRail.js";
+import { SessionNotice } from "./components/SessionNotice.js";
 import { ReauthBanner } from "./components/ReauthBanner.js";
 import { FirewallGuidance } from "./components/FirewallGuidance.js";
 import { TargetConflictBanner } from "./components/TargetConflictBanner.js";
@@ -56,6 +58,8 @@ export function App() {
   const [adHoc, setAdHoc] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
+  /** Sign-in state (issue 043). Null on a deployment that does not authenticate. */
+  const [session, setSession] = useState<SessionInfo | null>(null);
   /** Which release notes the panel is showing, if any: the running build's, or the offered one's. */
   const [whatsNew, setWhatsNew] = useState<"running" | "offered" | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -102,7 +106,32 @@ export function App() {
     [],
   );
 
+  /**
+   * Who is signed in (issue 043). Also the source of the expiry notice, so it is re-read after a
+   * renewal rather than being patched in place. A failure leaves the state null, which reads as
+   * "this deployment does not authenticate" — the safe answer, since the alternative is a login
+   * screen on an install that has no accounts to sign into.
+   */
+  const loadSignIn = useCallback(
+    () =>
+      api.auth
+        .me()
+        .then(setSession)
+        .catch(() => {}),
+    [],
+  );
+
+  /** Ends the session server-side, then reloads so the gate in main.tsx shows the login screen. */
+  const signOut = useCallback(async () => {
+    try {
+      await api.auth.logout();
+    } finally {
+      window.location.reload();
+    }
+  }, []);
+
   useEffect(() => {
+    void loadSignIn();
     void loadPresets();
     void api.settings.get().then(setSettings);
     void api.webhook.get().then((w) => setWebhookUrl(w.url ?? ""));
@@ -118,7 +147,7 @@ export function App() {
       .list()
       .then(setStreams)
       .catch(() => {});
-  }, [loadPresets]);
+  }, [loadPresets, loadSignIn]);
 
   // Version + bundled release notes + updater state (PRD-09 §B.2). Polled slowly rather than
   // pushed: the updater downloads in the background over minutes, and this is the least urgent
@@ -465,9 +494,15 @@ export function App() {
         onOpenSettings={() => setSettingsOpen(true)}
         version={appInfo?.version ?? null}
         onShowWhatsNew={() => setWhatsNew("running")}
+        account={session?.account ?? null}
+        onSignOut={signOut}
       />
 
       <main className="main">
+        {/* Session cap notice — a signed-in browser gets one week's warning before the 90-day
+            absolute cap logs it out (issue 043). Silent on every other deployment. */}
+        <SessionNotice info={session} onRenewed={loadSignIn} />
+
         {/* Update banner — the ONLY way an update installs: an explicit click, never mid-stream. */}
         {appInfo ? (
           <UpdateBanner

@@ -207,6 +207,49 @@ export const credentialsSchema = z.object({
 });
 export type CredentialsState = z.infer<typeof credentialsSchema>;
 
+/**
+ * A person with access to this deployment (PRD-15 §2, issue 043).
+ *
+ * `role` is present but unenforced until issue 045 — every account can do everything an account
+ * can do today. It is here now so the seeded admin is already stamped with the role the later
+ * slice will read, rather than needing a migration to acquire one.
+ *
+ * `passwordHash` holds the self-describing scrypt form; the plaintext never touches the store.
+ */
+export const accountSchema = z.object({
+  id: z.string().min(1),
+  /** Sign-in name, compared case-insensitively. */
+  name: z.string().min(1),
+  passwordHash: z.string().min(1),
+  role: z.enum(["admin", "user"]).default("user"),
+  createdAt: z.string(),
+  /** True for the account seeded from configuration, so it can never be removed (issue 046). */
+  seeded: z.boolean().default(false),
+});
+export type Account = z.infer<typeof accountSchema>;
+
+/**
+ * A server-side session backing one signed-in browser (issue 042's settled policy).
+ *
+ * Two clocks, both stored, deliberately: `lastSeenAt` moves forward on every authenticated
+ * request and expires the session after 30 idle days, while `absoluteExpiresAt` is fixed at
+ * creation and caps the session at 90 days no matter how active it has been. Keeping the cap on
+ * the record — rather than recomputing it from the last activity — is what makes it a cap:
+ * activity cannot extend it, only re-authentication issues a new one.
+ *
+ * Only a SHA-256 hash of the cookie token is stored. A leaked `store.json` therefore hands over
+ * no usable session, the same reasoning PRD-15 applies to the refresh token in issue 067.
+ */
+export const sessionSchema = z.object({
+  id: z.string().min(1),
+  accountId: z.string().min(1),
+  tokenHash: z.string().min(1),
+  createdAt: z.string(),
+  lastSeenAt: z.string(),
+  absoluteExpiresAt: z.string(),
+});
+export type Session = z.infer<typeof sessionSchema>;
+
 export const storeSchema = z.object({
   credentials: credentialsSchema.default({ clientId: "", clientSecret: "", refreshToken: "" }),
   presets: z.array(presetSchema).default([]),
@@ -214,6 +257,8 @@ export const storeSchema = z.object({
     defaultCategory: null,
     defaultStreamBoundId: null,
   }),
+  accounts: z.array(accountSchema).default([]),
+  sessions: z.array(sessionSchema).default([]),
   quota: quotaSchema.default({ date: null, used: 0 }),
   webhook: webhookSchema.default({ url: null }),
   notify: notifySchema.default({ ntfyServer: "https://ntfy.sh", ntfyTopic: "", publicBaseUrl: "" }),

@@ -37,6 +37,9 @@ const props = {
   onOpenSettings: () => {},
   version: null,
   onShowWhatsNew: () => {},
+  // No signed-in account: the desktop/LAN default, where authentication is dormant (issue 043).
+  account: null,
+  onSignOut: () => {},
 };
 
 describe("StatusRail", () => {
@@ -270,3 +273,25 @@ function targetReadout(): string {
 function fillWidth(container: HTMLElement): string {
   return (container.querySelector(".quota-bar__fill") as HTMLElement).style.width;
 }
+
+describe("the signed-in account", () => {
+  it("names who is signed in and offers a way out", () => {
+    const onSignOut = vi.fn();
+    render(
+      <StatusRail
+        {...props}
+        state={state()}
+        account={{ id: "a1", name: "operator", role: "admin" }}
+        onSignOut={onSignOut}
+      />,
+    );
+    expect(screen.getByText("operator")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+    expect(onSignOut).toHaveBeenCalled();
+  });
+
+  it("shows no account row on a deployment that does not authenticate", () => {
+    render(<StatusRail {...props} state={state()} />);
+    expect(screen.queryByRole("button", { name: /sign out/i })).toBeNull();
+  });
+});
