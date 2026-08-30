@@ -20,7 +20,14 @@ mode is on — but never silently:
 
 - Every tokenless connection is recorded: when, from where, which client.
 - The dashboard carries a standing warning naming what is still connecting the old way.
-- The exit condition is readable: "no tokenless client has connected in N days" (N from issue 042).
+- The exit condition is readable, and it is **two counters, not one** (settled in issue 042):
+  **"no tokenless client has connected in 14 consecutive days, spanning at least one go-live"**. The
+  days half alone is not evidence — a 14-day off-season satisfies it while the still-tokenless
+  Companion machine sits powered down, and grace mode comes off just in time for the next show to go
+  dark. So the readout carries both: *days since the last tokenless connection* **and** *go-lives
+  since the last tokenless connection*, and it says "met" only when days ≥ 14 and go-lives ≥ 1.
+  Go-lives are counted from the same broadcast transitions the server already sees, so a show that
+  ran tokenless resets both counters.
 
 Without that, grace mode is authentication switched off with no signal for when it is safe to turn
 on, and "temporary" becomes permanent.
@@ -34,7 +41,10 @@ on, and "temporary" becomes permanent.
 - [ ] Revoking a token drops its next request and its live socket.
 - [ ] While grace mode is on, a tokenless Companion connection is accepted **and recorded**.
 - [ ] The dashboard shows the standing warning and names the offending client.
-- [ ] The exit condition ("nothing tokenless in N days") is visible without reading logs.
+- [ ] The exit condition is visible without reading logs, as both counters: days since the last
+      tokenless connection (against the 14-day threshold) **and** go-lives since it.
+- [ ] The readout reports "met" only when both halves hold; 14 quiet days with no go-live in them
+      still reads as not met, and a tokenless connection resets both counters.
 
 ## Blocked by
 
