@@ -1,3 +1,6 @@
+// @vitest-environment jsdom
+// Only the web components render React into a DOM; the rest of the repo stays on plain `node`,
+// so the environment is declared per-file rather than globally.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { BroadcastCandidate } from "../api.js";

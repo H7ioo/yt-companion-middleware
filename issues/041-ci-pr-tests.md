@@ -148,12 +148,15 @@ root `jsdom` is), gap 3 (`categories`/`webhook`/`socket` integration coverage), 
 `TargetConflictBanner` (6), `HealthExplainer` (7), `StatusRail` (23), `TargetPicker` (23),
 `PresetFillModal` (19) and `SetupScreen` (15). No production code changed.
 
-The environment override is a root `vitest.config.ts` carrying one line —
-`environmentMatchGlobs: [["packages/web/src/components/**", "jsdom"]]`. A vitest *workspace* file
-was the alternative and was rejected: it would have meant re-declaring include/exclude for every
-other package to stop the web tests running twice, for the same result. Per-glob keeps the server,
-shared, companion-module and scripts suites on plain `node` — they neither need jsdom nor should
-pay to boot one. No React plugin is needed: vitest's esbuild reads `packages/web/tsconfig.json`
+The environment override is a `// @vitest-environment jsdom` docblock at the top of each of the
+six component files, and no root config at all. A root `vitest.config.ts` with
+`environmentMatchGlobs` was written first and dropped: that option is deprecated in vitest 3 and
+removed in vitest 4, and its glob covered only `src/components/**`, so a DOM test placed in
+`src/lib` would have silently run on `node`. A vitest *workspace* file was the other alternative
+and was rejected too: it would have meant re-declaring include/exclude for every other package to
+stop the web tests running twice, for the same result. Per-file keeps the server, shared,
+companion-module and scripts suites on plain `node` — they neither need jsdom nor should pay to
+boot one — and survives a major bump. No React plugin is needed: vitest's esbuild reads `packages/web/tsconfig.json`
 (`"jsx": "react-jsx"`) and transforms the TSX on its own. `@testing-library/react` and its
 `@testing-library/dom` peer are new root devDeps; `jsdom` was already one. Auto-cleanup is not
 wired globally (vitest `globals` is off repo-wide), so each file does its own `afterEach(cleanup)`.

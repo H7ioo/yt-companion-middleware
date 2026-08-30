@@ -1,3 +1,6 @@
+// @vitest-environment jsdom
+// Only the web components render React into a DOM; the rest of the repo stays on plain `node`,
+// so the environment is declared per-file rather than globally.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Preset, PresetActionResult } from "../api.js";
@@ -212,13 +215,15 @@ describe("PresetFillModal", () => {
     });
   });
 
-  it("reports the first edit once — 'someone is answering this popup'", () => {
+  it("reports every edit — 'someone is answering this popup'", () => {
     const onDirty = vi.fn();
     render(<PresetFillModal preset={preset()} fire={fireOk()} onClose={() => {}} onDirty={onDirty} />);
 
+    expect(onDirty).not.toHaveBeenCalled();
     fireEvent.change(input("topic"), { target: { value: "P" } });
+    expect(onDirty).toHaveBeenCalledTimes(1);
     fireEvent.change(input("topic"), { target: { value: "Pa" } });
-    expect(onDirty).toHaveBeenCalled();
+    expect(onDirty).toHaveBeenCalledTimes(2);
   });
 
   it("renders a preset with no variables at all", () => {

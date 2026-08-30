@@ -1,3 +1,6 @@
+// @vitest-environment jsdom
+// Only the web components render React into a DOM; the rest of the repo stays on plain `node`,
+// so the environment is declared per-file rather than globally.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { BROADCAST_STATE, HEALTH_GLOSSARY } from "@app/shared";
@@ -184,7 +187,11 @@ describe("StatusRail", () => {
       );
 
       expect(container.querySelector(".quota-bar--ok")).not.toBeNull();
-      expect(screen.getByText("5,000 / 10,000")).toBeDefined();
+      // Built the same way the component does, so the assertion follows the runner's locale
+      // instead of hard-coding en-US grouping.
+      expect(
+        screen.getByText(`${(5000).toLocaleString()} / ${(10000).toLocaleString()}`),
+      ).toBeDefined();
     });
 
     it("warns from 75%", () => {

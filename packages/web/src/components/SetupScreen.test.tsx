@@ -1,5 +1,8 @@
+// @vitest-environment jsdom
+// Only the web components render React into a DOM; the rest of the repo stays on plain `node`,
+// so the environment is declared per-file rather than globally.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { SetupStatus } from "../api.js";
 import { SetupScreen } from "./SetupScreen.js";
 
@@ -140,19 +143,28 @@ describe("SetupScreen", () => {
     });
 
     it("runs the in-app flow against the entered client, trimmed", async () => {
-      render(<SetupScreen onReady={() => {}} />);
+      // Fake timers so `waitForReady`'s poll is run out here rather than left ticking on the
+      // shared `status` mock for whichever test comes next.
+      vi.useFakeTimers();
+      status
+        .mockResolvedValueOnce(setupStatus({ hasBundledClient: false }))
+        .mockResolvedValue(setupStatus({ hasBundledClient: false, configured: true }));
+      const onReady = vi.fn();
+      render(<SetupScreen onReady={onReady} />);
 
-      await screen.findByLabelText("Client ID");
+      await vi.waitFor(() => screen.getByLabelText("Client ID"));
       fireEvent.change(field("Client ID"), { target: { value: "  abc.apps.googleusercontent.com  " } });
       fireEvent.change(field("Client secret"), { target: { value: " GOCSPX-x " } });
       fireEvent.click(screen.getByRole("button", { name: "Connect with my client" }));
 
-      await waitFor(() =>
+      await vi.waitFor(() =>
         expect(connect).toHaveBeenCalledWith({
           clientId: "abc.apps.googleusercontent.com",
           clientSecret: "GOCSPX-x",
         }),
       );
+      await settleRestart();
+      expect(onReady).toHaveBeenCalledTimes(1);
       // Only the client is entered — the flow fetches the token itself.
       expect(save).not.toHaveBeenCalled();
     });
