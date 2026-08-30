@@ -75,10 +75,10 @@ testable pure bits rather than trying to drive Electron in CI.
       components have render + key-branch tests.
 - [x] `companion-module/src/upgrades.js` has a suite covering every upgrade step from its prior
       config shape.
-- [ ] `categories`, `webhook`, and `socket` routes are covered in `api.integration.test.ts`.
-- [ ] Testable logic is extracted out of `packages/desktop/main.mjs` and covered (or the file is
+- [x] `categories`, `webhook`, and `socket` routes are covered in `api.integration.test.ts`.
+- [x] Testable logic is extracted out of `packages/desktop/main.mjs` and covered (or the file is
       explicitly deferred with a note saying why).
-- [ ] All new tests run under the existing `npm run test`, so the Part 1 gate picks them up with no
+- [x] All new tests run under the existing `npm run test`, so the Part 1 gate picks them up with no
       workflow change.
 
 ## Sequencing
@@ -182,3 +182,84 @@ root config.
 
 **Remaining in Part 2:** gap 3 (`categories`/`webhook`/`socket` integration coverage) and gap 4
 (`packages/desktop/main.mjs`, lowest priority).
+
+## Progress — 2026-08-30 (second slice)
+
+**Part 2, gap 3 is done.** `categories`, `webhook` and `socket` are covered in
+`api.integration.test.ts` — 15 new cases, 58 in the file (was 43), suite 641/59 (was 624/59). No
+production code changed; the three route files are byte-identical.
+
+Extending the existing harness rather than adding files, as the issue asked. Three additions to
+`boot()`:
+
+- `videoCategories.list` on the fake client, recording every `regionCode` it is called with. The
+  record is written *before* the error guard, which is what lets a test prove a 502 was not cached
+  — a call that threw still counts as a call.
+- Each boot gets its own synthetic region (`R0`, `R1`, …). `categories.ts` caches per region in a
+  module-level `Map` for the process lifetime, so a shared `"US"` would have leaked one test's
+  result into the next and turned the cache assertion into a coin flip. `ctx.regionCode` was the
+  only consumer of the old hard-coded `"US"`.
+- `attachStateSocket(server, ctx)` wired exactly as `server.ts` does, so the upgrade handling under
+  test is the real one. Teardown terminates clients before `server.close()` — an open socket keeps
+  the close callback from ever firing and the suite would hang instead of fail.
+
+The socket tests prime the cache with an explicit `/api/action/refresh` first. The harness never
+starts the poll loop, so a cold boot pushes a frame whose `status.title` is `null`; asserting only
+the envelope shape would have passed against an empty state and proven nothing.
+
+What is pinned is the behaviour, not the markup: categories dropping non-assignable rows and
+sorting by title, its per-region cache spending one quota unit instead of one per dashboard load,
+and a failure *not* being cached; the webhook's empty-string-and-whitespace-clears-to-`null`
+contract (an empty string would store a configured-but-unusable endpoint the dispatcher then treats
+as truthy) and a rejected value leaving the stored url alone; the socket's two mounted bases, its
+`state`-on-connect frame, silence on a no-op tick, a forced re-send on any inbound frame, and the
+`close` teardown actually unsubscribing.
+
+Mutation-proven, not assumed — 14 mutations, each caught, each reverted: categories keeping
+non-assignable rows, losing its sort, blanking the id fallback, ignoring the cache, and caching a
+failure; the webhook keeping the empty string, dropping url validation, dropping the trim, and
+skipping the persist; the socket dropping the dashboard base, accepting an unknown upgrade path,
+sending no frame on connect, not forcing on an inbound message, losing the dedupe, and leaking the
+subscription on close.
+
+**Remaining in Part 2:** gap 4 only (`packages/desktop/main.mjs`, explicitly the lowest priority —
+the criterion allows either extracting its testable logic or deferring it with a written reason).
+
+## Progress — 2026-08-30 (third slice) — issue complete
+
+**Part 2, gap 4 is done, and with it the issue.** Extraction, not a headless Electron driver:
+`main.mjs` cannot be imported under test at all — at module scope it takes the single-instance
+lock, reads `app.getPath()` and registers `app` lifecycle handlers. So the decisions moved to a new
+`packages/desktop/host.mjs` and `main.mjs` is left as the wiring that hands the results to Electron.
+Same shape as `updater.mjs`, which already injects its `autoUpdater` for the same reason.
+
+Extracted and covered by `host.test.mjs` (27 cases, suite 668/61, was 641/59):
+
+- `resolvePort` / `resolveDataDir` — the fallbacks. `PORT=0` falls back because the window and tray
+  build their URL from that number *before* the server listens, so an OS-assigned port could never
+  be named; the store defaults under the per-user app data dir because Program Files is read-only.
+- `shouldOpenExternally` — which links leave the window.
+- `trayTemplate` — every update state the tray renders (downloading with and without a percent,
+  downloaded, checking, idle/error, unsupported, and no controller yet), the separator, and the
+  wiring of each entry to its action.
+- `pickBundledClient` — the placeholder and half-filled generated-file cases that decide whether the
+  build offers the one-click flow.
+- `installPromptOptions` — `defaultId` and `cancelId` both on "Not now", so no reflex Enter or
+  Escape can restart the app mid-stream.
+
+**One behaviour change, deliberate.** `shouldOpenExternally` compares origins where the old inline
+check was `url.startsWith(APP_URL)`. A prefix test keeps `http://localhost:8080.example.test` —
+a different host entirely — inside the chromeless app window, presenting it as the app. Every real
+link resolves identically; only the spoofed-prefix case moves.
+
+**One packaging bug found and fixed.** `electron-builder.yml`'s `files:` is an allowlist, not a
+filter, so a new `host.mjs` that nothing listed would simply be absent from the installed app and
+`main.mjs` would crash with "Cannot find module" at launch — after the release was cut. Added to
+the list, and `scripts/packaged-files.test.mjs` now asserts every non-test `.mjs` in
+`packages/desktop` appears there (and that no test file does), so the next extracted module cannot
+repeat it.
+
+Mutation-proven — 18 mutations on `host.mjs`, each caught, each reverted, plus the packaging guard
+proven by deleting its own entry.
+
+**Part 2 is complete; nothing remains in this issue.**

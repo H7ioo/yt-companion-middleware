@@ -14,6 +14,8 @@ import { Logger } from "../core/logger.js";
 import { FillRequests } from "../core/fillRequests.js";
 import { mountApiRoutes } from "../app.js";
 import { setupRouter } from "./setup.js";
+import { attachStateSocket } from "./socket.js";
+import WebSocket from "ws";
 import type { AppContext } from "./context.js";
 
 /**
@@ -34,6 +36,9 @@ interface FakeState {
   streams?: youtube_v3.Schema$LiveStream[];
   /** Broadcasts the channel has scheduled but not started — the pool the pin picks from. */
   upcoming?: youtube_v3.Schema$LiveBroadcast[];
+  categories?: youtube_v3.Schema$VideoCategory[];
+  /** Every regionCode videoCategories.list was called with — the cache tests read this. */
+  categoryRegions: string[];
 }
 
 /** The slice of the YouTube API this app actually calls. Everything else is left undefined. */
@@ -85,6 +90,15 @@ function fakeYouTube(state: FakeState): youtube_v3.Youtube {
         return { data: { items: state.streams ?? [] } };
       },
     },
+    videoCategories: {
+      list: async (params: youtube_v3.Params$Resource$Videocategories$List) => {
+        // Recorded before the guard so a failing call still counts as a call — that is what
+        // proves a 502 was not cached.
+        state.categoryRegions.push(params.regionCode!);
+        await guard();
+        return { data: { items: state.categories ?? [] } };
+      },
+    },
   } as unknown as youtube_v3.Youtube;
 }
 
@@ -108,16 +122,26 @@ interface Harness {
   url: string;
   store: JsonStore;
   state: FakeState;
+  /** Exposed so the socket tests can drive a push without going through an action. */
+  events: StateEvents;
+  regionCode: string;
   close: () => Promise<void>;
 }
 
+/**
+ * `categories.ts` caches per region for the process lifetime, so every boot gets its own region
+ * and the module cache cannot leak a result from one test into the next.
+ */
+let regionSeq = 0;
+
 /** Boots the credentialed route table on an ephemeral port, exactly as server.ts wires it. */
 async function boot(): Promise<Harness> {
+  const regionCode = `R${regionSeq++}`;
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "api-integration-"));
   const store = new JsonStore(path.join(dir, "store.json"));
   await store.init();
 
-  const state: FakeState = { broadcast: liveBroadcast() };
+  const state: FakeState = { broadcast: liveBroadcast(), categoryRegions: [] };
   const yt = fakeYouTube(state);
   const events = new StateEvents();
   const logger = new Logger();
@@ -142,7 +166,7 @@ async function boot(): Promise<Harness> {
     events,
     logger,
     fills,
-    regionCode: "US",
+    regionCode,
   };
 
   const app = express();
@@ -154,13 +178,20 @@ async function boot(): Promise<Harness> {
   mountApiRoutes(app, ctx);
 
   const server = http.createServer(app);
+  // Attached exactly as server.ts does, so the upgrade handling under test is the real one.
+  const wss = attachStateSocket(server, ctx);
   await new Promise<void>((r) => server.listen(0, r));
   const { port } = server.address() as { port: number };
   return {
     url: `http://127.0.0.1:${port}`,
     store,
     state,
+    events,
+    regionCode,
     close: async () => {
+      // Sockets are dropped first: an open connection keeps server.close from ever calling back.
+      for (const client of wss.clients) client.terminate();
+      await new Promise<void>((r) => wss.close(() => r()));
       await new Promise<void>((r) => server.close(() => r()));
       await fs.rm(dir, { recursive: true, force: true });
     },
@@ -824,5 +855,189 @@ describe("setup route under a configured boot", () => {
       canConnect: false,
     });
     expect(JSON.stringify(res.body)).not.toContain("1//tok");
+  });
+});
+
+describe("categories route", () => {
+  it("serves only assignable categories, sorted by title", async () => {
+    h.state.categories = [
+      { id: "24", snippet: { title: "Entertainment", assignable: true } },
+      { id: "29", snippet: { title: "Nonprofits", assignable: false } },
+      { id: "22", snippet: { title: "Blogs", assignable: true } },
+    ];
+    const res = await call("GET", "/api/dashboard/categories");
+    expect(res.status).toBe(200);
+    // Non-assignable is dropped: writing one back to a video is rejected by YouTube (PRD §6).
+    expect(res.body).toEqual([
+      { id: "22", title: "Blogs" },
+      { id: "24", title: "Entertainment" },
+    ]);
+  });
+
+  it("falls back to the id when a category carries no title", async () => {
+    h.state.categories = [{ id: "17", snippet: { assignable: true } }];
+    const res = await call("GET", "/api/dashboard/categories");
+    // A blank row in the picker is worse than a numeric one — the operator can still pick it.
+    expect(res.body).toEqual([{ id: "17", title: "17" }]);
+  });
+
+  it("asks YouTube once per region, then serves the cache", async () => {
+    h.state.categories = [{ id: "22", snippet: { title: "Blogs", assignable: true } }];
+    await call("GET", "/api/dashboard/categories");
+    await call("GET", "/api/dashboard/categories");
+    // The list is effectively static and costs a quota unit per call, so the second dashboard
+    // load must not spend one.
+    expect(h.state.categoryRegions).toEqual([h.regionCode]);
+  });
+
+  it("maps a YouTube failure to 502 with the error body", async () => {
+    h.state.error = httpError(403, "quotaExceeded");
+    const res = await call("GET", "/api/dashboard/categories");
+    expect(res.status).toBe(502);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe("YOUTUBE_QUOTA_EXCEEDED");
+  });
+
+  it("does not cache a failure — the next load retries", async () => {
+    h.state.error = httpError(403, "quotaExceeded");
+    expect((await call("GET", "/api/dashboard/categories")).status).toBe(502);
+    h.state.error = undefined;
+    h.state.categories = [{ id: "22", snippet: { title: "Blogs", assignable: true } }];
+    const res = await call("GET", "/api/dashboard/categories");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([{ id: "22", title: "Blogs" }]);
+    expect(h.state.categoryRegions).toHaveLength(2);
+  });
+});
+
+describe("webhook route", () => {
+  it("reports no webhook on a fresh store", async () => {
+    const res = await call("GET", "/api/dashboard/webhook");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ url: null });
+  });
+
+  it("stores a url and reads it back", async () => {
+    const put = await call("PUT", "/api/dashboard/webhook", {
+      url: "https://hooks.example.test/state",
+    });
+    expect(put.status).toBe(200);
+    expect(put.body).toEqual({ url: "https://hooks.example.test/state" });
+    // Persisted, not just echoed.
+    expect((await call("GET", "/api/dashboard/webhook")).body.url).toBe(
+      "https://hooks.example.test/state",
+    );
+    expect(h.store.get().webhook.url).toBe("https://hooks.example.test/state");
+  });
+
+  it("treats an empty string as clearing the webhook", async () => {
+    await call("PUT", "/api/dashboard/webhook", { url: "https://hooks.example.test/state" });
+    const res = await call("PUT", "/api/dashboard/webhook", { url: "" });
+    expect(res.status).toBe(200);
+    // Null, not "": the dispatcher tests `url` for truthiness, and an empty string would be
+    // stored as a configured-but-unusable endpoint.
+    expect(res.body).toEqual({ url: null });
+  });
+
+  it("clears through surrounding whitespace too", async () => {
+    const res = await call("PUT", "/api/dashboard/webhook", { url: "   " });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ url: null });
+  });
+
+  it("rejects a value that is not a url and leaves the stored one alone", async () => {
+    await call("PUT", "/api/dashboard/webhook", { url: "https://hooks.example.test/state" });
+    const res = await call("PUT", "/api/dashboard/webhook", { url: "not a url" });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("INVALID_REQUEST");
+    expect(h.store.get().webhook.url).toBe("https://hooks.example.test/state");
+  });
+
+  it("rejects a body with no url field", async () => {
+    const res = await call("PUT", "/api/dashboard/webhook", {});
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("INVALID_REQUEST");
+  });
+});
+
+/** Opens a push socket and buffers every frame, so a test can assert silence as well as arrival. */
+async function openSocket(path: string): Promise<{
+  ws: WebSocket;
+  frames: any[];
+  settle: () => Promise<void>;
+}> {
+  const ws = new WebSocket(`${h.url.replace("http://", "ws://")}${path}`);
+  const frames: any[] = [];
+  ws.on("message", (data) => frames.push(JSON.parse(String(data))));
+  await new Promise<void>((resolve, reject) => {
+    ws.once("open", () => resolve());
+    ws.once("error", reject);
+  });
+  const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 50));
+  await settle();
+  return { ws, frames, settle };
+}
+
+describe("state push socket", () => {
+  it("sends the current state on connect", async () => {
+    // The poll loop is off in the harness, so prime the cache: an empty envelope would pass an
+    // assertion on shape alone and prove nothing.
+    await call("POST", "/api/action/refresh");
+    const { ws, frames } = await openSocket("/api/feedback/ws");
+    expect(frames).toHaveLength(1);
+    expect(frames[0].event).toBe("state");
+    expect(frames[0].state.status.title).toBe("Original title");
+    ws.close();
+  });
+
+  it("serves the dashboard base as the same stream", async () => {
+    // Both bases are mounted deliberately, mirroring the two /action bases — a dashboard
+    // pointed at the Companion path (or the reverse) must not get a dead socket.
+    await call("POST", "/api/action/refresh");
+    const { ws, frames } = await openSocket("/api/dashboard/ws");
+    expect(frames).toHaveLength(1);
+    expect(frames[0].state.status.title).toBe("Original title");
+    ws.close();
+  });
+
+  it("refuses an unknown upgrade path", async () => {
+    await expect(openSocket("/api/nope")).rejects.toBeTruthy();
+  });
+
+  it("pushes on a real change and stays quiet on a no-op tick", async () => {
+    await call("POST", "/api/action/refresh");
+    const { ws, frames, settle } = await openSocket("/api/feedback/ws");
+    // Producers emit liberally; the socket dedupes by signature, so this must not reach anyone.
+    h.events.emitChange();
+    await settle();
+    expect(frames).toHaveLength(1);
+
+    await call("POST", "/api/action/update", { title: "Pushed" });
+    await settle();
+    expect(frames.length).toBeGreaterThan(1);
+    expect(frames.at(-1).state.status.title).toBe("Pushed");
+    ws.close();
+  });
+
+  it("re-sends unchanged state when the client asks", async () => {
+    await call("POST", "/api/action/refresh");
+    const { ws, frames, settle } = await openSocket("/api/feedback/ws");
+    // A button configured after connect pulls state on demand instead of waiting for a change;
+    // the content of the frame is ignored.
+    ws.send("resync");
+    await settle();
+    expect(frames).toHaveLength(2);
+    expect(frames[1].state.status.title).toBe("Original title");
+    ws.close();
+  });
+
+  it("stops rebuilding state once a client disconnects", async () => {
+    const before = h.events.listenerCount("change");
+    const { ws } = await openSocket("/api/feedback/ws");
+    expect(h.events.listenerCount("change")).toBe(before + 1);
+    ws.close();
+    // Without the close teardown the subscription (and its heartbeat) leaks for the process life.
+    await new Promise((r) => setTimeout(r, 100));
+    expect(h.events.listenerCount("change")).toBe(before);
   });
 });
