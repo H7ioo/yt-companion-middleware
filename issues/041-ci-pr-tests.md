@@ -75,7 +75,7 @@ testable pure bits rather than trying to drive Electron in CI.
       components have render + key-branch tests.
 - [x] `companion-module/src/upgrades.js` has a suite covering every upgrade step from its prior
       config shape.
-- [ ] `categories`, `webhook`, and `socket` routes are covered in `api.integration.test.ts`.
+- [x] `categories`, `webhook`, and `socket` routes are covered in `api.integration.test.ts`.
 - [ ] Testable logic is extracted out of `packages/desktop/main.mjs` and covered (or the file is
       explicitly deferred with a note saying why).
 - [ ] All new tests run under the existing `npm run test`, so the Part 1 gate picks them up with no
@@ -182,3 +182,45 @@ root config.
 
 **Remaining in Part 2:** gap 3 (`categories`/`webhook`/`socket` integration coverage) and gap 4
 (`packages/desktop/main.mjs`, lowest priority).
+
+## Progress — 2026-08-30 (second slice)
+
+**Part 2, gap 3 is done.** `categories`, `webhook` and `socket` are covered in
+`api.integration.test.ts` — 15 new cases, 58 in the file (was 43), suite 641/59 (was 624/59). No
+production code changed; the three route files are byte-identical.
+
+Extending the existing harness rather than adding files, as the issue asked. Three additions to
+`boot()`:
+
+- `videoCategories.list` on the fake client, recording every `regionCode` it is called with. The
+  record is written *before* the error guard, which is what lets a test prove a 502 was not cached
+  — a call that threw still counts as a call.
+- Each boot gets its own synthetic region (`R0`, `R1`, …). `categories.ts` caches per region in a
+  module-level `Map` for the process lifetime, so a shared `"US"` would have leaked one test's
+  result into the next and turned the cache assertion into a coin flip. `ctx.regionCode` was the
+  only consumer of the old hard-coded `"US"`.
+- `attachStateSocket(server, ctx)` wired exactly as `server.ts` does, so the upgrade handling under
+  test is the real one. Teardown terminates clients before `server.close()` — an open socket keeps
+  the close callback from ever firing and the suite would hang instead of fail.
+
+The socket tests prime the cache with an explicit `/api/action/refresh` first. The harness never
+starts the poll loop, so a cold boot pushes a frame whose `status.title` is `null`; asserting only
+the envelope shape would have passed against an empty state and proven nothing.
+
+What is pinned is the behaviour, not the markup: categories dropping non-assignable rows and
+sorting by title, its per-region cache spending one quota unit instead of one per dashboard load,
+and a failure *not* being cached; the webhook's empty-string-and-whitespace-clears-to-`null`
+contract (an empty string would store a configured-but-unusable endpoint the dispatcher then treats
+as truthy) and a rejected value leaving the stored url alone; the socket's two mounted bases, its
+`state`-on-connect frame, silence on a no-op tick, a forced re-send on any inbound frame, and the
+`close` teardown actually unsubscribing.
+
+Mutation-proven, not assumed — 14 mutations, each caught, each reverted: categories keeping
+non-assignable rows, losing its sort, blanking the id fallback, ignoring the cache, and caching a
+failure; the webhook keeping the empty string, dropping url validation, dropping the trim, and
+skipping the persist; the socket dropping the dashboard base, accepting an unknown upgrade path,
+sending no frame on connect, not forcing on an inbound message, losing the dedupe, and leaking the
+subscription on close.
+
+**Remaining in Part 2:** gap 4 only (`packages/desktop/main.mjs`, explicitly the lowest priority —
+the criterion allows either extracting its testable logic or deferring it with a written reason).
