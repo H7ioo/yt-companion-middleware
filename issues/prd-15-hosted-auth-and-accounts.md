@@ -74,6 +74,11 @@ whose link has already been shared** (it breaks the link for everyone who has it
   days, refreshed on every authenticated request; absolute lifetime 90 days, after which the
   password is typed again** (issue 042). Long-lived by design so nobody types a password mid-show;
   a device that goes quiet for a month falls off by itself. Revocable per device.
+  The cap is the one thing that can interrupt an active user, so it never arrives unannounced: from
+  **7 days out** the dashboard carries a standing notice naming the date, with a re-authenticate
+  action that resets the cap **without signing out** — so the renewal happens at a desk on a
+  Tuesday, not at a Stream Deck ten minutes before a show. Expiry itself is a sign-out like any
+  other, never a mid-request interruption of an action already in flight.
 - **The Android app** gets a long-lived token tied to a user, held in the OS secure store and sent
   as a header. Issued by us, not by Cloudflare — this is the reason the app owns auth.
 - **Companion** gets a **device token**: created in the dashboard, given a name, copied once,
@@ -256,9 +261,10 @@ _Proposed — starting position for review, not settled fact._
   the host is the only version that works, and typing one at boot breaks unattended restarts, which
   is unacceptable for a tool that must come back up on show night. So the hosted threat model is
   stated instead: **`store.json` is a secret, and anyone who can read the data volume or a backup of
-  it owns the channel.** The compensating controls are cheaper and actually hold — `0600` on the
-  data volume under the service user, snapshots and backups handled as secret material, `store.json`
-  never in a log or a support bundle, and a written response for suspected host compromise (revoke
+  it owns the channel.** The compensating controls are cheaper and actually hold — `0700` on the
+  data directory and `0600` on `store.json`, both under the service user, snapshots and backups
+  handled as secret material, `store.json` never in a log or a support bundle, and a written
+  response for suspected host compromise (revoke
   in the Google account, reconnect through issue 052, which makes rotation two clicks rather than a
   scripted chore). Raised as `issues/067-refresh-token-at-rest-hardening.md`.
 - **Open consequence — API compatibility.** Once the server updates on every push and the module
