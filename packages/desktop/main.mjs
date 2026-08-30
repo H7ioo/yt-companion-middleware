@@ -18,7 +18,7 @@ import {
   pickBundledClient,
   resolveDataDir,
   resolvePort,
-  shouldOpenExternally,
+  windowOpenAction,
   trayTemplate,
 } from "./host.mjs";
 
@@ -26,6 +26,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = resolvePort(process.env);
 const APP_URL = `http://localhost:${PORT}`;
 
+// startServer() parses PORT itself, so write the resolved value back: an unparseable or 0 PORT
+// would otherwise leave the server on an ephemeral port while the window loads APP_URL.
+process.env.PORT = String(PORT);
 // loadConfig() reads DATA_DIR.
 process.env.DATA_DIR = resolveDataDir(process.env, app.getPath("userData"));
 
@@ -72,13 +75,15 @@ function createWindow() {
   void win.loadURL(APP_URL);
 
   // Open external links (e.g. the "where do I get these" guide, if pointed offsite) in the
-  // system browser rather than a stray Electron window.
+  // system browser rather than a stray Electron window; anything that is not a web link at all
+  // goes nowhere.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (shouldOpenExternally(url, APP_URL)) {
+    const action = windowOpenAction(url, APP_URL);
+    if (action === "external") {
       void shell.openExternal(url);
       return { action: "deny" };
     }
-    return { action: "allow" };
+    return { action: action === "allow" ? "allow" : "deny" };
   });
 
   // Closing the window hides to tray so the server keeps running (Companion stays connected).

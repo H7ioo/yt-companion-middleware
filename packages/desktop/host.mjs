@@ -48,23 +48,30 @@ export function resolveDataDir(env, userDataPath) {
 }
 
 /**
- * Whether a link the page tried to open belongs in the system browser instead of an Electron
- * window. Anything that is not the dashboard's own origin does: Google blocks embedded webviews
- * for consent, and a stray chromeless window has no address bar to check.
+ * What to do with a link the page tried to open in a new window. Anything that is not the
+ * dashboard's own origin goes to the system browser: Google blocks embedded webviews for consent,
+ * and a stray chromeless window has no address bar to check.
  *
  * Origin, not prefix — `http://localhost:8080.example.test` starts with the app URL but is a
  * different host entirely, and keeping it inside the window would present it as the app.
+ *
+ * Three outcomes rather than a boolean, because "not ours" and "not a web link at all" want
+ * different handling: `javascript:` parses fine (its origin is the string "null"), so an
+ * origin-only test would hand it to shell.openExternal, which is the OS asking the desktop to
+ * run it.
  * @param {string} url
  * @param {string} appUrl
- * @returns {boolean}
+ * @returns {"allow" | "external" | "deny"}
  */
-export function shouldOpenExternally(url, appUrl) {
+export function windowOpenAction(url, appUrl) {
+  let parsed;
   try {
-    return new URL(url).origin !== new URL(appUrl).origin;
+    parsed = new URL(url);
   } catch {
-    // Unparseable (or a javascript: url, whose origin is "null"): never load it in the window.
-    return true;
+    return "deny";
   }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "deny";
+  return parsed.origin === new URL(appUrl).origin ? "allow" : "external";
 }
 
 /**

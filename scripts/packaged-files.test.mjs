@@ -14,16 +14,47 @@ const config = /** @type {{ files: string[] }} */ (
   yaml.load(fs.readFileSync(path.join(root, "packages/desktop/electron-builder.yml"), "utf8"))
 );
 
-/** Every runtime module the main process can reach — tests and generated output excluded. */
-const runtimeModules = fs
-  .readdirSync(path.join(root, "packages/desktop"))
-  .filter((name) => name.endsWith(".mjs") && !name.endsWith(".test.mjs"));
+/** Build-time only — these never run inside the packaged app, so they must not be shipped. */
+const NON_RUNTIME_DIRS = new Set(["node_modules", "scripts"]);
+
+/**
+ * Every runtime module the main process can reach, as workspace-relative paths. Recursive: a
+ * module moved into a subdirectory is exactly the case that escapes a flat readdir and still
+ * crashes the packaged app at launch.
+ * @param {string} dir directory to walk, relative to the repo root
+ * @returns {string[]}
+ */
+function runtimeModulesIn(dir) {
+  return fs.readdirSync(path.join(root, dir), { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory()) {
+      return NON_RUNTIME_DIRS.has(entry.name) ? [] : runtimeModulesIn(`${dir}/${entry.name}`);
+    }
+    if (!entry.name.endsWith(".mjs") || entry.name.endsWith(".test.mjs")) return [];
+    return [`${dir}/${entry.name}`];
+  });
+}
+
+/**
+ * Whether the allowlist ships this file — either named outright or swept up by a `**` glob, which
+ * is how whole directories like packages/desktop/generated are covered.
+ * @param {string} file
+ * @returns {boolean}
+ */
+function isShipped(file) {
+  return config.files.some((entry) => {
+    if (entry === file) return true;
+    const glob = entry.indexOf("**");
+    return glob !== -1 && file.startsWith(entry.slice(0, glob));
+  });
+}
+
+const runtimeModules = runtimeModulesIn("packages/desktop");
 
 describe("electron-builder file list", () => {
   it("ships every desktop runtime module", () => {
     expect(runtimeModules.length).toBeGreaterThan(0);
-    for (const name of runtimeModules) {
-      expect(config.files).toContain(`packages/desktop/${name}`);
+    for (const file of runtimeModules) {
+      expect(isShipped(file) ? file : `${file} (missing from electron-builder files)`).toBe(file);
     }
   });
 

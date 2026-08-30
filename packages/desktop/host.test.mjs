@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   resolvePort,
   resolveDataDir,
-  shouldOpenExternally,
+  windowOpenAction,
   trayTemplate,
   pickBundledClient,
   installPromptOptions,
@@ -43,31 +43,40 @@ describe("resolveDataDir", () => {
   });
 });
 
-describe("shouldOpenExternally", () => {
+describe("windowOpenAction", () => {
   const appUrl = "http://localhost:8080";
 
   it("keeps the dashboard's own pages in the window", () => {
-    expect(shouldOpenExternally(appUrl, appUrl)).toBe(false);
-    expect(shouldOpenExternally(`${appUrl}/settings`, appUrl)).toBe(false);
+    expect(windowOpenAction(appUrl, appUrl)).toBe("allow");
+    expect(windowOpenAction(`${appUrl}/settings`, appUrl)).toBe("allow");
   });
 
   it("sends offsite links to the system browser", () => {
     // Google blocks embedded webviews, and a stray Electron window has no address bar.
-    expect(shouldOpenExternally("https://youtube.com/watch?v=x", appUrl)).toBe(true);
+    expect(windowOpenAction("https://youtube.com/watch?v=x", appUrl)).toBe("external");
   });
 
   it("is not fooled by a host that merely starts with the app's URL", () => {
-    // A prefix test would keep this inside the app window, chromeless and trusted.
-    expect(shouldOpenExternally("http://localhost:8080.example.test/x", appUrl)).toBe(true);
+    // A prefix test would keep these inside the app window, chromeless and trusted.
+    expect(windowOpenAction("http://localhost.example.test/x", appUrl)).toBe("external");
+    // This one does not even parse — the colon makes "8080.example.test" an invalid port — so it
+    // is refused outright rather than opened anywhere.
+    expect(windowOpenAction("http://localhost:8080.example.test/x", appUrl)).toBe("deny");
   });
 
   it("treats a different local port as offsite", () => {
-    expect(shouldOpenExternally("http://localhost:9999/", appUrl)).toBe(true);
+    expect(windowOpenAction("http://localhost:9999/", appUrl)).toBe("external");
   });
 
-  it("treats an unparseable url as offsite rather than loading it", () => {
-    expect(shouldOpenExternally("javascript:alert(1)", appUrl)).toBe(true);
-    expect(shouldOpenExternally("", appUrl)).toBe(true);
+  it("refuses a non-web scheme instead of handing it to the OS", () => {
+    // javascript: and file: both parse, with origin "null" — an origin-only test would call them
+    // offsite and pass them to shell.openExternal.
+    expect(windowOpenAction("javascript:alert(1)", appUrl)).toBe("deny");
+    expect(windowOpenAction("file:///etc/passwd", appUrl)).toBe("deny");
+  });
+
+  it("refuses an unparseable url rather than loading it", () => {
+    expect(windowOpenAction("", appUrl)).toBe("deny");
   });
 });
 
