@@ -21,8 +21,10 @@ const fill = parseFillRoute(window.location);
  * entirely when the server reports no accounts — the desktop and LAN installs — where a login
  * screen would be a locked door with no key.
  *
- * Then first-run setup: until the server has YouTube credentials it can't serve any dashboard
- * data. The fill deep link bypasses both — it renders its own minimal page.
+ * The Companion deep link sits behind sign-in too, and only behind sign-in. Issue 044 guarded
+ * every dashboard route, and the fill page reads two of them — an unauthenticated phone opening
+ * the ntfy link would otherwise land on a bare "Request failed (401)" with nowhere to go. It
+ * still skips the setup gate: it renders its own minimal page and has nothing to configure.
  */
 function Root() {
   const [session, setSession] = useState<SessionInfo | null>(null);
@@ -52,10 +54,13 @@ function Root() {
     // carries a cookie it did not have a moment ago.
     return <LoginScreen onSignedIn={() => window.location.reload()} />;
   }
+  if (fill) return <FillPage route={fill} />;
   if (!configured) return <SetupScreen onReady={() => setConfigured(true)} />;
   return <App />;
 }
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode>{fill ? <FillPage route={fill} /> : <Root />}</StrictMode>,
+  <StrictMode>
+    <Root />
+  </StrictMode>,
 );

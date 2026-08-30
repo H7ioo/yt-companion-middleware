@@ -25,7 +25,7 @@ const oauthStartBody = z
     message: "Both client ID and secret are required to use your own credentials",
   });
 
-interface SetupDeps {
+export interface SetupDeps {
   store: JsonStore;
   /** Whether the server booted with working credentials (drives the setup screen). */
   configured: boolean;

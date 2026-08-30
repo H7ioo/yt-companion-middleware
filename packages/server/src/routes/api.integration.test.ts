@@ -12,13 +12,11 @@ import { QuotaTracker } from "../core/quota.js";
 import { StateEvents } from "../core/events.js";
 import { Logger } from "../core/logger.js";
 import { FillRequests } from "../core/fillRequests.js";
-import { mountApiRoutes } from "../app.js";
-import { setupRouter } from "./setup.js";
+import { mountApiRoutes, mountBootRoutes } from "../app.js";
 import { attachStateSocket } from "./socket.js";
 import WebSocket from "ws";
 import type { AppContext } from "./context.js";
 import { Auth, SESSION_COOKIE } from "../auth/actor.js";
-import { authRouter } from "./auth.js";
 
 /**
  * Route integration tests (PRD-05 §2.1): the real route table from app.ts, over real HTTP, with a
@@ -179,13 +177,13 @@ async function boot(): Promise<Harness> {
 
   const app = express();
   app.use(express.json());
-  // Mounted ahead of the route table, exactly as server.ts does — sign-in has to answer in setup
-  // mode too, so it cannot live inside mountApiRoutes.
-  app.use("/api/auth", authRouter(auth));
-  app.use(
-    "/api/setup",
-    setupRouter({ store, configured: true, requestRestart: () => {} }),
-  );
+  // Mounted ahead of the route table, exactly as server.ts does — sign-in and setup have to
+  // answer in setup mode too, so they cannot live inside mountApiRoutes.
+  mountBootRoutes(app, {
+    auth,
+    setup: { store, configured: true, requestRestart: () => {} },
+    appInfo: { version: "0.0.0-test", changelog: [] },
+  });
   mountApiRoutes(app, ctx);
 
   const server = http.createServer(app);
@@ -1071,17 +1069,12 @@ describe("the guarded route", () => {
     return cookie!.split(";")[0];
   }
 
-  /** Every dashboard route a signed-out browser must still reach, unchanged by this slice. */
-  const stillOpen = [
-    "/api/dashboard/presets",
-    "/api/dashboard/state",
-    "/api/dashboard/logs",
-    "/api/dashboard/target",
-    "/api/dashboard/webhook",
-    "/api/dashboard/service",
-    "/api/feedback/health",
-    "/api/feedback/status",
-  ];
+  /**
+   * Every route a signed-out browser must still reach after issue 044 widened the guard across
+   * `/api/dashboard/*`. What is left is Companion's, and stays open until issues 047 → 049 give
+   * the module a token to carry.
+   */
+  const stillOpen = ["/api/feedback/health", "/api/feedback/status"];
 
   it("is open while no admin is seeded", async () => {
     expect((await call("GET", "/api/dashboard/settings")).status).toBe(200);
@@ -1108,7 +1101,7 @@ describe("the guarded route", () => {
     expect(h.store.get().defaults.defaultCategory).toBe("20");
   });
 
-  it("locks nothing else out — every other route answers as it did before", async () => {
+  it("leaves the Companion-facing routes open — the guard stops at /api/dashboard", async () => {
     await h.auth.seed({ name: "operator", password: "a-long-enough-secret" });
     for (const route of stillOpen) {
       expect(`${route} → ${(await call("GET", route)).status}`).toBe(`${route} → 200`);
@@ -1116,5 +1109,13 @@ describe("the guarded route", () => {
     // Companion's action endpoints keep working too: the module holds no session and issue 049 is
     // what eventually gives it a token.
     expect((await call("POST", "/api/action/refresh")).status).toBe(200);
+  });
+
+  it("now refuses the rest of the dashboard too (issue 044)", async () => {
+    await h.auth.seed({ name: "operator", password: "a-long-enough-secret" });
+    // A sample here; guard.integration.test.ts is what walks the whole table.
+    for (const route of ["/api/dashboard/presets", "/api/dashboard/state", "/api/dashboard/logs"]) {
+      expect(`${route} → ${(await call("GET", route)).status}`).toBe(`${route} → 401`);
+    }
   });
 });
