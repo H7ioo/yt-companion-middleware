@@ -31,16 +31,16 @@ and is verified before anything depends on it.
 
 ## Acceptance criteria
 
-- [ ] A seeded admin exists on first boot without any interactive claim step.
-- [ ] Signing in with the seeded credential returns a session; signing out invalidates it.
-- [ ] The guarded route succeeds with a session and is refused without one.
-- [ ] A session idle past 30 days is refused; activity inside 30 days keeps refreshing it.
-- [ ] A session 90 days past creation is refused however active it has been, and inside the last
+- [x] A seeded admin exists on first boot without any interactive claim step.
+- [x] Signing in with the seeded credential returns a session; signing out invalidates it.
+- [x] The guarded route succeeds with a session and is refused without one.
+- [x] A session idle past 30 days is refused; activity inside 30 days keeps refreshing it.
+- [x] A session 90 days past creation is refused however active it has been, and inside the last
       7 days it reports itself as expiring, with re-authentication issuing a fresh absolute clock.
-- [ ] The cookie is `httpOnly` and `SameSite`; a cross-site request cannot use it.
-- [ ] Every other route behaves exactly as it does today (no accidental lockout).
-- [ ] The "current actor" seam is exported and unit-tested, ready for 044/047/050.
-- [ ] Failed sign-in attempts are rate-limited and never reveal whether an account exists.
+- [x] The cookie is `httpOnly` and `SameSite`; a cross-site request cannot use it.
+- [x] Every other route behaves exactly as it does today (no accidental lockout).
+- [x] The "current actor" seam is exported and unit-tested, ready for 044/047/050.
+- [x] Failed sign-in attempts are rate-limited and never reveal whether an account exists.
 
 ## Blocked by
 
@@ -51,3 +51,25 @@ None - can start immediately.
 - User story 1
 - User story 10
 - User story 11
+
+## Done — 2026-08-30
+
+Shipped in `feat(auth): seed an admin, issue sessions, guard one route`.
+
+Two decisions worth carrying forward:
+
+- **Authentication is dormant until an admin is seeded.** `ADMIN_USERNAME` + `ADMIN_PASSWORD`
+  turn it on; with no accounts `Auth.required` is false, the guard passes everyone through and the
+  dashboard shows no login screen. Without this, shipping the guard would have locked every
+  existing desktop install out of Settings with no credential to type. Issue 044 widens the guard
+  and must preserve this switch.
+- **Passwords use scrypt from `node:crypto`**, not bcrypt/argon2 — a native addon would need an ABI
+  rebuild per Electron release on every platform the desktop app publishes to.
+
+Left for the slices that own them:
+
+- `role` is stored on every account but unenforced — issue 045.
+- Only `/api/dashboard/settings` is guarded — issue 044.
+- The Companion module carries no token, so its endpoints stay open — issues 048/049.
+- The seeded admin cannot change its own password in the UI yet; it is set at boot and the seed
+  never overwrites a changed one. Worth an issue alongside 045/046.
