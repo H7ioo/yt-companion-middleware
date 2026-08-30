@@ -71,7 +71,7 @@ testable pure bits rather than trying to drive Electron in CI.
 
 ## Acceptance criteria — Part 2
 
-- [ ] Web workspace has a jsdom test environment and `@testing-library/react`; the six listed
+- [x] Web workspace has a jsdom test environment and `@testing-library/react`; the six listed
       components have render + key-branch tests.
 - [x] `companion-module/src/upgrades.js` has a suite covering every upgrade step from its prior
       config shape.
@@ -140,4 +140,45 @@ Full suite 531 tests / 53 files green, `npm run typecheck` clean.
 
 **Remaining in Part 2:** gap 1 (web component tests — `@testing-library/react` still not installed;
 root `jsdom` is), gap 3 (`categories`/`webhook`/`socket` integration coverage), gap 4
+(`packages/desktop/main.mjs`, lowest priority).
+
+## Progress — 2026-08-30
+
+**Part 2, gap 1 is done.** The six named components have suites — 93 cases across
+`TargetConflictBanner` (6), `HealthExplainer` (7), `StatusRail` (23), `TargetPicker` (23),
+`PresetFillModal` (19) and `SetupScreen` (15). No production code changed.
+
+The environment override is a `// @vitest-environment jsdom` docblock at the top of each of the
+six component files, and no root config at all. A root `vitest.config.ts` with
+`environmentMatchGlobs` was written first and dropped: that option is deprecated in vitest 3 and
+removed in vitest 4, and its glob covered only `src/components/**`, so a DOM test placed in
+`src/lib` would have silently run on `node`. A vitest *workspace* file was the other alternative
+and was rejected too: it would have meant re-declaring include/exclude for every other package to
+stop the web tests running twice, for the same result. Per-file keeps the server, shared,
+companion-module and scripts suites on plain `node` — they neither need jsdom nor should pay to
+boot one — and survives a major bump. No React plugin is needed: vitest's esbuild reads `packages/web/tsconfig.json`
+(`"jsx": "react-jsx"`) and transforms the TSX on its own. `@testing-library/react` and its
+`@testing-library/dom` peer are new root devDeps; `jsdom` was already one. Auto-cleanup is not
+wired globally (vitest `globals` is off repo-wide), so each file does its own `afterEach(cleanup)`.
+
+What the tests are pointed at is the branching, not the markup — the criteria the components were
+written to meet, so a rewrite that keeps the behaviour keeps the suite: the rail defaulting the
+breaker to *armed* before the first state lands (so it never flashes "Paused" on load), its Target
+readout naming *how* the target was chosen, the quota bar's 75/90% steps and its zero-limit
+division, the picker reading nothing at all while the API is paused and treating a failed read as
+no evidence rather than as an empty channel, the fill popup sending only typed values and closing
+on success while a failure keeps the values, and the setup screen's three host shapes
+(bundled one-click, override, headless paste) with credentials trimmed and secrets masked.
+
+Mutation-proven rather than assumed — ten mutations, each caught, each reverted, every component
+source left byte-identical: quota red moved 90→95%; the breaker default flipped to false; the
+picker's `!apiEnabled` guard removed; its failed read emptying the list; the fill popup sending
+blanks and staying open on success; setup saving untrimmed credentials and assuming a browser when
+the probe fails; the explainer starting expanded; the banner hiding the conflict ids.
+
+Full suite 624 tests / 59 files green (was 531/53), `npm run typecheck`, `typecheck:electron` and
+`npm run build:web` clean, and `npm run companion:test`'s path filter still resolves under the new
+root config.
+
+**Remaining in Part 2:** gap 3 (`categories`/`webhook`/`socket` integration coverage) and gap 4
 (`packages/desktop/main.mjs`, lowest priority).
