@@ -12,14 +12,22 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createUpdateController, isUpdateSupported } from "./updater.mjs";
+import {
+  INSTALL_CONFIRMED,
+  installPromptOptions,
+  pickBundledClient,
+  resolveDataDir,
+  resolvePort,
+  shouldOpenExternally,
+  trayTemplate,
+} from "./host.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const PORT = Number.parseInt(process.env.PORT ?? "", 10) || 8080;
+const PORT = resolvePort(process.env);
 const APP_URL = `http://localhost:${PORT}`;
 
-// Persist the JSON store and any data under the OS per-user app data dir, not next to the
-// executable (Program Files is read-only for standard users). loadConfig() reads DATA_DIR.
-process.env.DATA_DIR ??= path.join(app.getPath("userData"), "data");
+// loadConfig() reads DATA_DIR.
+process.env.DATA_DIR = resolveDataDir(process.env, app.getPath("userData"));
 
 // Only one instance may own the server port — focus the existing window on a second launch.
 if (!app.requestSingleInstanceLock()) {
@@ -66,7 +74,7 @@ function createWindow() {
   // Open external links (e.g. the "where do I get these" guide, if pointed offsite) in the
   // system browser rather than a stray Electron window.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (!url.startsWith(APP_URL)) {
+    if (shouldOpenExternally(url, APP_URL)) {
       void shell.openExternal(url);
       return { action: "deny" };
     }
@@ -109,56 +117,29 @@ function createTray() {
 // (The in-app banner with release notes lands with issue 040.)
 function refreshTrayMenu() {
   if (!tray) return;
-  const state = updates?.getState();
-
-  /** @type {import("electron").MenuItemConstructorOptions[]} */
-  const updateItems = [];
-  if (state?.status === "downloading") {
-    const pct = typeof state.percent === "number" ? ` ${state.percent}%` : "";
-    updateItems.push({ label: `Downloading update (v${state.version})…${pct}`, enabled: false });
-  } else if (state?.status === "downloaded") {
-    updateItems.push({ label: `Install update (v${state.version}) & restart`, click: installUpdate });
-  } else if (state?.status === "checking") {
-    updateItems.push({ label: "Checking for updates…", enabled: false });
-  } else if (state && state.status !== "unsupported") {
-    // idle or error: the launch check found nothing (or failed) — let the operator re-check.
-    updateItems.push({ label: "Check for updates", click: () => void updates?.check() });
-  }
-  if (updateItems.length > 0) updateItems.push({ type: "separator" });
-
   tray.setContextMenu(
-    Menu.buildFromTemplate([
-      ...updateItems,
-      { label: "Open dashboard", click: showWindow },
-      { label: "Open in browser", click: () => void shell.openExternal(APP_URL) },
-      { type: "separator" },
-      {
-        label: "Quit",
-        click: () => {
+    Menu.buildFromTemplate(
+      trayTemplate(updates?.getState(), {
+        onInstall: () => void installUpdate(),
+        onCheck: () => void updates?.check(),
+        onShow: showWindow,
+        onOpenInBrowser: () => void shell.openExternal(APP_URL),
+        onQuit: () => {
           quitting = true;
           app.quit();
         },
-      },
-    ]),
+      }),
+    ),
   );
 }
 
 // Explicit operator action only — confirm, because installing restarts the app and a restart
 // during a live stream is the one thing this updater exists to avoid.
 async function installUpdate() {
-  const version = updates?.getState().version;
-  const { response } = await dialog.showMessageBox({
-    type: "question",
-    buttons: ["Install & restart", "Not now"],
-    defaultId: 1,
-    cancelId: 1,
-    title: "Install update",
-    message: `Install YT Companion v${version} now?`,
-    detail:
-      "The app will close and restart. Companion will lose its connection for a few seconds — " +
-      "do not do this mid-stream.",
-  });
-  if (response === 0) updates?.installAndRestart();
+  const { response } = await dialog.showMessageBox(
+    installPromptOptions(updates?.getState().version),
+  );
+  if (response === INSTALL_CONFIRMED) updates?.installAndRestart();
 }
 
 function startUpdates() {
@@ -241,14 +222,11 @@ async function startEmbeddedServer() {
  */
 async function loadBundledClient() {
   try {
-    const mod = await import(new URL("./generated/oauth.mjs", import.meta.url).href);
-    if (mod.HAS_BUNDLED_CLIENT && mod.BUNDLED_CLIENT_ID && mod.BUNDLED_CLIENT_SECRET) {
-      return { clientId: mod.BUNDLED_CLIENT_ID, clientSecret: mod.BUNDLED_CLIENT_SECRET };
-    }
+    return pickBundledClient(await import(new URL("./generated/oauth.mjs", import.meta.url).href));
   } catch {
     /* no generated file — override-only build */
+    return undefined;
   }
-  return undefined;
 }
 
 app.on("second-instance", showWindow);

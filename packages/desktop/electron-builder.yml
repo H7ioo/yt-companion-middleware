@@ -32,6 +32,7 @@ files:
   - packages/web/dist/**/*
   - packages/desktop/main.mjs
   - packages/desktop/updater.mjs
+  - packages/desktop/host.mjs
   - packages/desktop/generated/**/*
   - packages/desktop/assets/**/*
   - package.json

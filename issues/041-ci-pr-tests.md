@@ -76,9 +76,9 @@ testable pure bits rather than trying to drive Electron in CI.
 - [x] `companion-module/src/upgrades.js` has a suite covering every upgrade step from its prior
       config shape.
 - [x] `categories`, `webhook`, and `socket` routes are covered in `api.integration.test.ts`.
-- [ ] Testable logic is extracted out of `packages/desktop/main.mjs` and covered (or the file is
+- [x] Testable logic is extracted out of `packages/desktop/main.mjs` and covered (or the file is
       explicitly deferred with a note saying why).
-- [ ] All new tests run under the existing `npm run test`, so the Part 1 gate picks them up with no
+- [x] All new tests run under the existing `npm run test`, so the Part 1 gate picks them up with no
       workflow change.
 
 ## Sequencing
@@ -224,3 +224,42 @@ subscription on close.
 
 **Remaining in Part 2:** gap 4 only (`packages/desktop/main.mjs`, explicitly the lowest priority —
 the criterion allows either extracting its testable logic or deferring it with a written reason).
+
+## Progress — 2026-08-30 (third slice) — issue complete
+
+**Part 2, gap 4 is done, and with it the issue.** Extraction, not a headless Electron driver:
+`main.mjs` cannot be imported under test at all — at module scope it takes the single-instance
+lock, reads `app.getPath()` and registers `app` lifecycle handlers. So the decisions moved to a new
+`packages/desktop/host.mjs` and `main.mjs` is left as the wiring that hands the results to Electron.
+Same shape as `updater.mjs`, which already injects its `autoUpdater` for the same reason.
+
+Extracted and covered by `host.test.mjs` (27 cases, suite 668/61, was 641/59):
+
+- `resolvePort` / `resolveDataDir` — the fallbacks. `PORT=0` falls back because the window and tray
+  build their URL from that number *before* the server listens, so an OS-assigned port could never
+  be named; the store defaults under the per-user app data dir because Program Files is read-only.
+- `shouldOpenExternally` — which links leave the window.
+- `trayTemplate` — every update state the tray renders (downloading with and without a percent,
+  downloaded, checking, idle/error, unsupported, and no controller yet), the separator, and the
+  wiring of each entry to its action.
+- `pickBundledClient` — the placeholder and half-filled generated-file cases that decide whether the
+  build offers the one-click flow.
+- `installPromptOptions` — `defaultId` and `cancelId` both on "Not now", so no reflex Enter or
+  Escape can restart the app mid-stream.
+
+**One behaviour change, deliberate.** `shouldOpenExternally` compares origins where the old inline
+check was `url.startsWith(APP_URL)`. A prefix test keeps `http://localhost:8080.example.test` —
+a different host entirely — inside the chromeless app window, presenting it as the app. Every real
+link resolves identically; only the spoofed-prefix case moves.
+
+**One packaging bug found and fixed.** `electron-builder.yml`'s `files:` is an allowlist, not a
+filter, so a new `host.mjs` that nothing listed would simply be absent from the installed app and
+`main.mjs` would crash with "Cannot find module" at launch — after the release was cut. Added to
+the list, and `scripts/packaged-files.test.mjs` now asserts every non-test `.mjs` in
+`packages/desktop` appears there (and that no test file does), so the next extracted module cannot
+repeat it.
+
+Mutation-proven — 18 mutations on `host.mjs`, each caught, each reverted, plus the packaging guard
+proven by deleting its own entry.
+
+**Part 2 is complete; nothing remains in this issue.**
