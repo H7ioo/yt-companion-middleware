@@ -39,7 +39,14 @@ export function SessionNotice({ info, onRenewed }: Props) {
     <div className="session-notice" role="status">
       <div className="session-notice__meta">
         <span className="eyebrow">Session</span>
-        <span className="session-notice__text">{error ?? notice}</span>
+        {/* The deadline is the point of this component: a failed renewal is reported alongside
+            it, never in place of it. */}
+        <span className="session-notice__text">{notice}</span>
+        {error ? (
+          <span className="session-notice__error" role="alert">
+            {error}
+          </span>
+        ) : null}
       </div>
       <button className="btn btn--sm" type="button" onClick={renew} disabled={busy}>
         {busy ? "Renewing…" : "Stay signed in"}

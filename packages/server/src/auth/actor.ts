@@ -46,9 +46,11 @@ export class Auth {
   readonly sessions: Sessions;
   private readonly store: JsonStore;
   private readonly throttle: LoginThrottle;
+  private readonly now: () => number;
 
   constructor(store: JsonStore, now: () => number = Date.now) {
     this.store = store;
+    this.now = now;
     this.sessions = new Sessions(store, now);
     this.throttle = new LoginThrottle(now);
   }
@@ -129,26 +131,50 @@ export class Auth {
           res.status(401).json(toErrorBody(new AppError("UNAUTHENTICATED")));
           return;
         }
+        this.slideCookie(req, res, actor);
         next();
       })().catch(next);
     };
+  }
+
+  /**
+   * Re-stamps the cookie's expiry to match the session's refreshed idle clock. The server slides
+   * its own 30-day window on every authenticated request; without this the browser would still
+   * discard the cookie 30 days after sign-in, so an active session would die at day 30 and the
+   * 90-day cap — and the notice that warns about it — would never be reached.
+   */
+  slideCookie(req: Request, res: Response, actor: Actor): void {
+    const token = readCookie(req.headers.cookie, SESSION_COOKIE);
+    if (!token) return;
+    // Never past the absolute cap: the cookie should die with the session, not outlive it.
+    const untilCap = Date.parse(actor.absoluteExpiresAt) - this.now();
+    setSessionCookie(req, res, token, Math.min(IDLE_MS, untilCap));
   }
 }
 
 /**
  * Writes the session cookie. `httpOnly` keeps it away from script, `sameSite=lax` means an
  * arbitrary page cannot make a signed-in browser fire an action at this server, and `secure` is
- * set whenever the request arrived over TLS — including through a proxy, which is how every
- * hosted request arrives (PRD-15: Cloudflare terminates TLS and the origin speaks plain HTTP).
- * It is left off for plain-HTTP LAN and localhost, where a secure cookie would simply be dropped.
+ * set whenever the request arrived over TLS — including through a *trusted* proxy, which is how
+ * every hosted request arrives (PRD-15: Cloudflare terminates TLS and the origin speaks plain
+ * HTTP). It is left off for plain-HTTP LAN and localhost, where a secure cookie would be dropped.
+ *
+ * `maxAge` mirrors the server-side idle window, and is rewritten on every authenticated request
+ * (see {@link Auth.slideCookie}) so an actively used session is not dropped by the browser while
+ * the server still considers it live. It never outlives the absolute cap.
  */
-export function setSessionCookie(req: Request, res: Response, token: string): void {
+export function setSessionCookie(
+  req: Request,
+  res: Response,
+  token: string,
+  maxAge: number = IDLE_MS,
+): void {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: isSecure(req),
     path: "/",
-    maxAge: IDLE_MS,
+    maxAge: Math.max(1000, maxAge),
   });
 }
 
@@ -161,8 +187,11 @@ export function clearSessionCookie(req: Request, res: Response): void {
   });
 }
 
+/**
+ * `req.secure` is express's own answer, and it already reads `X-Forwarded-Proto` — but only when
+ * `trust proxy` says the hop may be believed. Reading the header directly would let any caller
+ * claim TLS on a server that trusts nobody, so this defers to express and nothing else.
+ */
 function isSecure(req: Request): boolean {
-  const forwarded = req.headers["x-forwarded-proto"];
-  const proto = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  return req.secure || proto?.split(",")[0]?.trim() === "https";
+  return req.secure;
 }

@@ -15,7 +15,8 @@ export type ErrorCode =
   | "OAUTH_NO_REFRESH_TOKEN"
   | "UNAUTHENTICATED"
   | "INVALID_CREDENTIALS"
-  | "TOO_MANY_ATTEMPTS";
+  | "TOO_MANY_ATTEMPTS"
+  | "SERVER_ERROR";
 
 const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   NO_TARGET_FOUND: "No active broadcast and no persistent container found",
@@ -37,6 +38,7 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   // Deliberately says nothing about which half was wrong — see routes/auth.ts.
   INVALID_CREDENTIALS: "Incorrect username or password",
   TOO_MANY_ATTEMPTS: "Too many sign-in attempts — try again later",
+  SERVER_ERROR: "The server could not complete the request",
 };
 
 export class AppError extends Error {

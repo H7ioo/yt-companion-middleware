@@ -85,9 +85,11 @@ async function bootOnce(
   const app = express();
   app.use(express.json());
   // Cloudflare (PRD-15) terminates TLS and proxies to this origin, so the client address and
-  // scheme arrive in X-Forwarded-*. Without this, every hosted caller looks like the tunnel — one
-  // address for the sign-in throttle to key on — and the session cookie never gets its Secure flag.
-  app.set("trust proxy", true);
+  // scheme arrive in X-Forwarded-*. Trusting them is opt-in (TRUST_PROXY): when nothing is in
+  // front, X-Forwarded-For is just a header the caller wrote, and honouring it hands every
+  // sign-in attempt a fresh throttle key. Off by default, so only a deployment that really is
+  // behind a proxy reads the forwarded address — or the forwarded scheme the Secure flag follows.
+  app.set("trust proxy", config.trustProxy);
 
   // How newly-connected credentials take effect. Default is a full reboot (first-run: there is no
   // credentialed subsystem yet). Once configured, the block below swaps this for a hot rebuild that

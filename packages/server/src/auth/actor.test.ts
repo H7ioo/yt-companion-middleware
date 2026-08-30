@@ -132,6 +132,48 @@ describe("signing in", () => {
   });
 });
 
+describe("the sliding session cookie", () => {
+  it("re-stamps the cookie's lifetime on every authenticated request", async () => {
+    // Twenty days in, the browser's copy of the cookie would be ten days from expiry if it were
+    // only ever written at sign-in — while the server's idle clock, refreshed all along, is a
+    // full thirty days out. The cookie has to follow the server, or the session dies at day 30
+    // and the 90-day cap is never reached.
+    let now = Date.UTC(2026, 0, 1);
+    const auth = new Auth(store, () => now);
+    await auth.seed({ name: "operator", password: "a-long-enough-secret" });
+    await serve(auth);
+    const signedIn = await auth.signIn("operator", "a-long-enough-secret", "1.2.3.4");
+    const token = signedIn.ok ? signedIn.token : "";
+
+    now += 20 * 24 * 60 * 60 * 1000;
+    const res = await call("/guarded", { headers: { cookie: `${SESSION_COOKIE}=${token}` } });
+    expect(res.status).toBe(200);
+    const maxAge = Number(/Max-Age=(\d+)/.exec(res.cookies[0] ?? "")?.[1]);
+    expect(maxAge).toBe(30 * 24 * 60 * 60);
+  });
+
+  it("never stamps the cookie past the absolute cap", async () => {
+    // Day 75 of 90: fifteen days of session left, so fifteen days of cookie — not thirty.
+    let now = Date.UTC(2026, 0, 1);
+    const auth = new Auth(store, () => now);
+    await auth.seed({ name: "operator", password: "a-long-enough-secret" });
+    await serve(auth);
+    const signedIn = await auth.signIn("operator", "a-long-enough-secret", "1.2.3.4");
+    const token = signedIn.ok ? signedIn.token : "";
+
+    // Stepped, not jumped: a 75-day leap would blow past the 30-day idle window. This is a
+    // browser in ordinary use, which is the only way to reach the cap at all.
+    let res = await call("/guarded", { headers: { cookie: `${SESSION_COOKIE}=${token}` } });
+    for (let day = 20; day <= 75; day += day === 60 ? 15 : 20) {
+      now = Date.UTC(2026, 0, 1) + day * 24 * 60 * 60 * 1000;
+      res = await call("/guarded", { headers: { cookie: `${SESSION_COOKIE}=${token}` } });
+    }
+    expect(res.status).toBe(200);
+    const maxAge = Number(/Max-Age=(\d+)/.exec(res.cookies[0] ?? "")?.[1]);
+    expect(maxAge).toBe(15 * 24 * 60 * 60);
+  });
+});
+
 describe("the session cookie", () => {
   it("is httpOnly, SameSite and scoped to the whole app", async () => {
     const auth = new Auth(store);
@@ -154,7 +196,25 @@ describe("the session cookie", () => {
     expect(cookie).not.toContain("Secure");
   });
 
-  it("is marked Secure when the request reached the origin over TLS through a proxy", async () => {
+  it("is marked Secure when the request reached the origin over TLS through a trusted proxy", async () => {
+    const auth = new Auth(store);
+    await auth.seed(null);
+    const app = express();
+    // What a hosted boot sets from TRUST_PROXY; without it the forwarded scheme is ignored.
+    app.set("trust proxy", true);
+    app.get("/issue", (req, res) => {
+      setSessionCookie(req, res, "a-token");
+      res.json({ ok: true });
+    });
+    server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    base = `http://127.0.0.1:${(server.address() as any).port}`;
+
+    const [cookie] = (await call("/issue", { headers: { "x-forwarded-proto": "https" } })).cookies;
+    expect(cookie).toContain("Secure");
+  });
+
+  it("ignores a forwarded scheme when no proxy is trusted", async () => {
     const auth = new Auth(store);
     await auth.seed(null);
     const app = express();
@@ -166,8 +226,10 @@ describe("the session cookie", () => {
     await new Promise<void>((resolve) => server.listen(0, resolve));
     base = `http://127.0.0.1:${(server.address() as any).port}`;
 
+    // Anyone can write this header. On a directly reachable server it must not flip the flag —
+    // a Secure cookie on a plain-HTTP LAN install is a cookie the browser drops.
     const [cookie] = (await call("/issue", { headers: { "x-forwarded-proto": "https" } })).cookies;
-    expect(cookie).toContain("Secure");
+    expect(cookie).not.toContain("Secure");
   });
 });
 

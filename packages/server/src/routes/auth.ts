@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import type { SessionInfo } from "@app/shared";
 import { clearSessionCookie, readCookie, SESSION_COOKIE, setSessionCookie, type Auth } from "../auth/actor.js";
@@ -26,8 +26,9 @@ export function authRouter(auth: Auth): Router {
   const router = Router();
 
   /** The dashboard's first call: does this deployment authenticate, and am I signed in? */
-  router.get("/me", async (req, res) => {
+  router.get("/me", handler(async (req, res) => {
     const actor = auth.required ? await auth.currentActor(req) : null;
+    if (actor) auth.slideCookie(req, res, actor);
     const info: SessionInfo = {
       authRequired: auth.required,
       authenticated: Boolean(actor),
@@ -36,9 +37,9 @@ export function authRouter(auth: Auth): Router {
       absoluteExpiresAt: actor?.absoluteExpiresAt ?? null,
     };
     res.json(info);
-  });
+  }));
 
-  router.post("/login", async (req, res) => {
+  router.post("/login", handler(async (req, res) => {
     let parsed;
     try {
       parsed = credentials.parse(req.body);
@@ -73,19 +74,19 @@ export function authRouter(auth: Auth): Router {
 
     setSessionCookie(req, res, result.token);
     res.json({ account: publicAccount(result.account) });
-  });
+  }));
 
-  router.post("/logout", async (req, res) => {
+  router.post("/logout", handler(async (req, res) => {
     await auth.sessions.revoke(readCookie(req.headers.cookie, SESSION_COOKIE));
     clearSessionCookie(req, res);
     res.json({ ok: true });
-  });
+  }));
 
   /**
    * Trades an approaching-the-cap session for a fresh one. Requires a still-valid session — this
    * is a convenience for a browser that is already signed in, not a second way to sign in.
    */
-  router.post("/reauth", async (req, res) => {
+  router.post("/reauth", handler(async (req, res) => {
     const renewed = await auth.sessions.reauthenticate(
       readCookie(req.headers.cookie, SESSION_COOKIE),
     );
@@ -97,9 +98,31 @@ export function authRouter(auth: Auth): Router {
     }
     setSessionCookie(req, res, renewed.token);
     res.json({ ok: true, absoluteExpiresAt: renewed.session.absoluteExpiresAt });
+  }));
+
+  // Whatever {@link handler} catches lands here: a JSON body in this app's shape, and a 500
+  // rather than express's default HTML page — the dashboard only ever parses JSON.
+  router.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    console.error("[auth] request failed:", err);
+    res.status(500).json(toErrorBody(new AppError("SERVER_ERROR")));
   });
 
   return router;
+}
+
+/**
+ * Wraps an async handler so a rejected promise becomes a 500 instead of an unhandled rejection.
+ * Every route here writes to the store, and express 4 does not catch a handler's rejection: a
+ * read-only data directory or a full disk would otherwise take the whole process down.
+ */
+function handler(fn: (req: Request, res: Response) => Promise<void>): RequestHandler {
+  return (req, res, next) => {
+    fn(req, res).catch(next);
+  };
 }
 
 /**

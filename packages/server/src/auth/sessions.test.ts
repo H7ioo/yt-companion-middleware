@@ -50,6 +50,30 @@ afterEach(async () => {
 });
 
 describe("Sessions", () => {
+  it("does not rewrite the store on every resolve", async () => {
+    // resolve() runs on every authenticated request, and each write rewrites the whole store.
+    // The clock it moves has a thirty-day window; sub-minute precision buys nothing.
+    const accountId = await seedAccount();
+    const sessions = new Sessions(store, () => now);
+    const { token } = await sessions.create(accountId);
+    const before = await fs.stat(path.join(dir, "store.json"));
+    for (let i = 0; i < 20; i += 1) {
+      now += 1000;
+      await sessions.resolve(token);
+    }
+    const after = await fs.stat(path.join(dir, "store.json"));
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+  });
+
+  it("still records activity once the stored stamp has gone stale", async () => {
+    const accountId = await seedAccount();
+    const sessions = new Sessions(store, () => now);
+    const { token } = await sessions.create(accountId);
+    now += 10 * 60 * 1000;
+    await sessions.resolve(token);
+    expect(store.get().sessions[0]?.lastSeenAt).toBe(new Date(now).toISOString());
+  });
+
   it("resolves a freshly issued token to its account", async () => {
     const accountId = await seedAccount();
     const sessions = new Sessions(store, () => now);

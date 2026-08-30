@@ -51,12 +51,15 @@ describe("SessionNotice", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("keeps the notice up if renewal fails, so the warning is not lost", async () => {
+  it("keeps the deadline visible when renewal fails, and says why", async () => {
+    // The error is reported next to the date, not over it: the day the session dies is the one
+    // fact this notice exists to carry.
     reauth.mockRejectedValue(new Error("Sign in to continue."));
     render(<SessionNotice info={info()} onRenewed={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /stay signed in/i }));
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toMatch(/sign in to continue/i),
     );
+    expect(screen.getByRole("status").textContent).toMatch(/expires in 3 days/i);
   });
 });

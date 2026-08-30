@@ -1777,6 +1777,13 @@ textarea {
   color: var(--ink);
 }
 
+/* A failed renewal, under the deadline rather than over it: the date is what the
+   notice exists to say, so an error joins it instead of replacing it. */
+.session-notice__error {
+  font-size: 12px;
+  color: var(--warn);
+}
+
 /* ---- Signed-in account (issue 043) ----------------------------------------
    Sits in the rail foot with the other standing facts about this install — the
    build stamp and the cache time. Absent entirely when nothing is seeded.

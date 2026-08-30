@@ -19,6 +19,12 @@ export const IDLE_MS = 30 * 24 * 60 * 60 * 1000;
 export const ABSOLUTE_MS = 90 * 24 * 60 * 60 * 1000;
 /** How far ahead of the cap a session starts reporting itself as expiring, so the UI can warn. */
 export const EXPIRING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * Granularity of the idle-clock refresh. Every write rewrites the whole store.json, and the
+ * window it feeds is thirty days — recording activity to the millisecond would rewrite the file
+ * on every authenticated request to move a deadline that only matters at day granularity.
+ */
+export const LAST_SEEN_GRANULARITY_MS = 5 * 60 * 1000;
 
 /** Who is asking — the seam issues 044, 047 and 050 all resolve their caller through. */
 export interface Actor {
@@ -89,11 +95,15 @@ export class Sessions {
     const account = current.accounts.find((a) => a.id === session.accountId);
     if (!account) return null;
 
-    const lastSeenAt = new Date(at).toISOString();
-    await this.store.update((s) => {
-      const record = s.sessions.find((x) => x.id === session.id);
-      if (record) record.lastSeenAt = lastSeenAt;
-    });
+    // Only persist once the stored stamp has actually gone stale; see LAST_SEEN_GRANULARITY_MS.
+    const stale = at - Date.parse(session.lastSeenAt) >= LAST_SEEN_GRANULARITY_MS;
+    const lastSeenAt = stale ? new Date(at).toISOString() : session.lastSeenAt;
+    if (stale) {
+      await this.store.update((s) => {
+        const record = s.sessions.find((x) => x.id === session.id);
+        if (record) record.lastSeenAt = lastSeenAt;
+      });
+    }
 
     const capAt = Date.parse(session.absoluteExpiresAt);
     return {

@@ -37,6 +37,13 @@ export interface AppConfig {
    * never offer an open "claim this deployment" page to whoever reaches it first.
    */
   admin: { name: string; password: string } | null;
+  /**
+   * Express's `trust proxy` setting (PRD-15: Cloudflare terminates TLS in front of this origin).
+   * Off by default — turning it on makes `X-Forwarded-For` authoritative for `req.ip`, and a
+   * directly reachable server that trusts that header lets any caller mint a fresh sign-in
+   * throttle key per attempt. Set TRUST_PROXY only when something you control is in front.
+   */
+  trustProxy: boolean | number | string;
 }
 
 /**
@@ -60,13 +67,37 @@ export function loadConfig(): AppConfig {
     regionCode: (process.env.YT_REGION_CODE?.trim() || "US").toUpperCase(),
     quotaLimit: optionalInt("YT_QUOTA_LIMIT", 10000),
     admin: adminSeed(),
+    trustProxy: trustProxySetting(),
   };
+}
+
+/**
+ * TRUST_PROXY, in express's own vocabulary: unset/`false` trusts nobody (the default — the
+ * desktop, LAN and direct-Docker cases), a number trusts that many hops, and anything else is
+ * passed through as express understands it (`loopback`, a comma-separated address/subnet list).
+ * `true` trusts every hop and is only safe when the origin is unreachable except through a proxy.
+ */
+function trustProxySetting(): AppConfig["trustProxy"] {
+  const raw = optional("TRUST_PROXY");
+  if (!raw || raw.toLowerCase() === "false") return false;
+  if (raw.toLowerCase() === "true") return true;
+  const hops = Number.parseInt(raw, 10);
+  return String(hops) === raw ? hops : raw;
 }
 
 function adminSeed(): AppConfig["admin"] {
   const name = optional("ADMIN_USERNAME");
   const password = process.env.ADMIN_PASSWORD ?? "";
-  return name && password ? { name, password } : null;
+  if (name && password) return { name, password };
+  // Half a seed is never what anyone meant, and silently ignoring it boots a public host with no
+  // accounts — which is to say wide open. Fail the same way a too-short password does.
+  if (name || password) {
+    const missing = name ? "ADMIN_PASSWORD" : "ADMIN_USERNAME";
+    throw new Error(
+      `${missing} is missing: set both ADMIN_USERNAME and ADMIN_PASSWORD to seed an admin, or neither to leave authentication off`,
+    );
+  }
+  return null;
 }
 
 /**

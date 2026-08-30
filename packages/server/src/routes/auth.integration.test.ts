@@ -199,3 +199,19 @@ describe("re-authentication near the 90-day cap", () => {
     expect((await call("POST", "/api/auth/reauth")).status).toBe(401);
   });
 });
+
+describe("a store that cannot be written", () => {
+  it("answers 500 instead of taking the process down", async () => {
+    // express 4 does not catch a handler's rejected promise: without the wrapper in auth.ts a
+    // failing write (read-only data dir, full disk) escapes as an unhandled rejection and kills
+    // the server rather than the request.
+    await boot({ name: "operator", password: "a-long-enough-secret" });
+    store.update = () => Promise.reject(new Error("EROFS: read-only file system"));
+
+    const res = await call("POST", "/api/auth/login", {
+      body: { name: "operator", password: "a-long-enough-secret" },
+    });
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe("SERVER_ERROR");
+  });
+});

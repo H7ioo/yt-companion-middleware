@@ -19,6 +19,10 @@ The network side: Cloudflare owns the network, the app owns authentication. PRD-
   trusts a Cloudflare header as proof of identity** — the app decides who is who, or the Expo app
   and Companion would both need exceptions, and the exceptions would become the real security
   posture.
+- `TRUST_PROXY` set on the hosted deployment (added in 043). The server trusts `X-Forwarded-For`
+  and `X-Forwarded-Proto` only when it is set, so the sign-in throttle keys on the real caller and
+  the session cookie gets its Secure flag — and it must stay unset anywhere the origin is
+  reachable directly, where those headers are just whatever the caller typed.
 - Written down: how to redeploy this from scratch, since it lives outside the repo.
 
 HITL — it needs the Cloudflare account and DNS.
@@ -27,7 +31,9 @@ HITL — it needs the Cloudflare account and DNS.
 
 - [ ] The dashboard is reachable at the real domain over TLS.
 - [ ] The origin is **not** reachable by IP — verified by trying, from outside.
-- [ ] Repeated failed sign-ins are rate-limited and locked out.
+- [ ] Repeated failed sign-ins are rate-limited and locked out — and the app-side throttle keys on
+      the real client address, i.e. `TRUST_PROXY` is set and the origin is only reachable through
+      the tunnel.
 - [ ] No API route grants access on the basis of a Cloudflare-supplied header.
 - [ ] The tunnel and firewall setup is documented well enough to rebuild without guesswork.
 - [ ] The Companion machine can still reach the API over the public origin with its token.
