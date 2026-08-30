@@ -20,7 +20,10 @@ mode is on — but never silently:
 
 - Every tokenless connection is recorded: when, from where, which client.
 - The dashboard carries a standing warning naming what is still connecting the old way.
-- The exit condition is readable: "no tokenless client has connected in N days" (N from issue 042).
+- The exit condition is readable: **"no tokenless client has connected in 14 consecutive days,
+  spanning at least one go-live"** (settled in issue 042). Show days for a reason — the Companion
+  machine may only be powered up on show night — so the readout shows *days since the last tokenless
+  connection*, not just a list of offenders.
 
 Without that, grace mode is authentication switched off with no signal for when it is safe to turn
 on, and "temporary" becomes permanent.
@@ -34,7 +37,8 @@ on, and "temporary" becomes permanent.
 - [ ] Revoking a token drops its next request and its live socket.
 - [ ] While grace mode is on, a tokenless Companion connection is accepted **and recorded**.
 - [ ] The dashboard shows the standing warning and names the offending client.
-- [ ] The exit condition ("nothing tokenless in N days") is visible without reading logs.
+- [ ] The exit condition (days since the last tokenless connection, against the 14-day threshold)
+      is visible without reading logs.
 
 ## Blocked by
 

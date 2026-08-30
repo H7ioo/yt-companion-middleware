@@ -11,8 +11,9 @@ The network side: Cloudflare owns the network, the app owns authentication. PRD-
   binds `0.0.0.0` (`server.ts:229`), so this is the host firewall's job, not the app's.
 - TLS at the edge, on the real domain.
 - Rate limiting and lockout on authentication attempts.
-- Whether Cloudflare Access also stays in front of the dashboard as a second layer is decided in
-  issue 042. **No API path ever trusts a Cloudflare header as proof of identity** — the app decides
+- Cloudflare Access does **not** stay in front of the dashboard in the steady state (decided in
+  issue 042): it is a construction fence while issues 043-045 are built, and comes off the day app
+  enforcement is on. **No API path ever trusts a Cloudflare header as proof of identity** — the app decides
   who is who, or the Expo app and Companion would both need exceptions, and the exceptions would
   become the real security posture.
 - Written down: how to redeploy this from scratch, since it lives outside the repo.
@@ -30,7 +31,7 @@ HITL — it needs the Cloudflare account and DNS.
 
 ## Blocked by
 
-- Blocked by `issues/042-hosted-threat-model-decisions.md`
+None - issue 042 settled Cloudflare's role.
 
 ## User stories addressed
 

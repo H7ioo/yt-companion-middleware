@@ -36,10 +36,13 @@ Three secondary problems arrive with hosting:
 
 **The app owns authentication. Cloudflare owns the network.**
 
-Cloudflare provides the tunnel (so the origin is not reachable by IP), TLS, and rate limiting. It
-may keep gating the browser dashboard as an outer layer, but it is never the only lock, and no API
-path depends on it. Every request that mutates anything carries an identity the app issued and can
-revoke.
+Cloudflare provides the tunnel (so the origin is not reachable by IP), TLS, and rate limiting —
+**and, in the steady state, nothing else** (issue 042). Cloudflare Access gates the dashboard only
+as a construction fence while issues 043–045 are being built, and comes off the day app-level
+enforcement is on; two doors on the browser path with no second door on the API path buys defence
+in depth in name only, and every future access problem starts with "which lock refused me?". It is
+never the only lock, and no API path depends on it. Every request that mutates anything carries an
+identity the app issued and can revoke.
 
 ### 1. Accounts and roles
 
@@ -67,8 +70,10 @@ whose link has already been shared** (it breaks the link for everyone who has it
 
 ### 2. Getting in
 
-- **Browsers** get a server-side session in an `httpOnly`, `SameSite` cookie. Long-lived by design
-  (a month or more) so nobody types a password mid-show. Revocable per device.
+- **Browsers** get a server-side session in an `httpOnly`, `SameSite` cookie. **Idle lifetime 30
+  days, refreshed on every authenticated request; absolute lifetime 90 days, after which the
+  password is typed again** (issue 042). Long-lived by design so nobody types a password mid-show;
+  a device that goes quiet for a month falls off by itself. Revocable per device.
 - **The Android app** gets a long-lived token tied to a user, held in the OS secure store and sent
   as a header. Issued by us, not by Cloudflare — this is the reason the app owns auth.
 - **Companion** gets a **device token**: created in the dashboard, given a name, copied once,
@@ -129,8 +134,11 @@ This PRD owns that migration.
   whether any client is still connecting without a token, there is no signal for when it is safe to
   enforce, and "temporary" becomes permanent. So: record every unauthenticated connection — when,
   from where, which client — surface it in the dashboard as a standing warning naming the offenders,
-  and make "no tokenless client has connected in N days" the explicit exit condition. Enforcement
-  flips on evidence, not on a guess.
+  and make **"no tokenless client has connected in 14 consecutive days, spanning at least one
+  go-live"** the explicit exit condition (issue 042). Enforcement flips on evidence, not on a
+  guess. Fourteen days because usage is show-shaped, not daily: a 7-day window can be one quiet
+  week, and the Companion machine may only be powered up on show night. The readout must therefore
+  show *days since the last tokenless connection*, not just a list.
 - TLS itself is free: `transform.js` already rewrites `https:` to `wss:`, so a hosted HTTPS origin
   needs no transport work — only the credential is missing.
 - The module must render the disconnected state unmistakably. Losing the server no longer means
@@ -241,10 +249,18 @@ _Proposed — starting position for review, not settled fact._
 
 ## Further Notes
 
-- **Open decision — the refresh token at rest.** PRD-01 §6 accepts plaintext because disk access
-  implies compromise. On a rented host there are snapshots, backups and a hosting provider, and the
-  token is full write access to the channel. Either encrypt it with a key supplied at boot, or
-  restate the threat model deliberately for hosted deployments. Not decided in this session.
+- **Settled (issue 042) — the refresh token stays in plaintext, with the hosted threat model
+  restated.** Encryption with a key supplied at boot defends against an attacker who takes the disk
+  or a snapshot but not the process environment — and on a single VPS the key would have to live in
+  the env file or the systemd unit on that same disk, so a snapshot takes both. A key from outside
+  the host is the only version that works, and typing one at boot breaks unattended restarts, which
+  is unacceptable for a tool that must come back up on show night. So the hosted threat model is
+  stated instead: **`store.json` is a secret, and anyone who can read the data volume or a backup of
+  it owns the channel.** The compensating controls are cheaper and actually hold — `0600` on the
+  data volume under the service user, snapshots and backups handled as secret material, `store.json`
+  never in a log or a support bundle, and a written response for suspected host compromise (revoke
+  in the Google account, reconnect through issue 052, which makes rotation two clicks rather than a
+  scripted chore). Raised as `issues/067-refresh-token-at-rest-hardening.md`.
 - **Open consequence — API compatibility.** Once the server updates on every push and the module
   updates when someone remembers, the server must keep answering older modules, or breakage must be
   announced loudly. This is a new discipline, not an existing one.

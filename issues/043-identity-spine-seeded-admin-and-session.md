@@ -16,7 +16,8 @@ and is verified before anything depends on it.
   page. A fresh public host with an unclaimed setup screen belongs to whoever finds it first
   (PRD-15 §2).
 - A login page in the web app, and sign-out.
-- A server-side session in an `httpOnly`, `SameSite` cookie, with the lifetime chosen in issue 042.
+- A server-side session in an `httpOnly`, `SameSite` cookie: **30 days idle, refreshed on every
+  authenticated request, with a 90-day absolute cap** (settled in issue 042).
   `SameSite` also closes today's cross-site risk: a signed-in browser must not let an arbitrary web
   page fire an action.
 - One route — pick `/api/dashboard/settings` — actually guarded, to prove the chain.
