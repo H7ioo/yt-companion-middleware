@@ -23,6 +23,8 @@ import { appInfoRouter, type UpdateHost } from "./routes/appInfo.js";
 import { loadChangelog } from "./core/changelog.js";
 import { mountDocsRoutes } from "./routes/docs.js";
 import { attachStateSocket } from "./routes/socket.js";
+import { Auth } from "./auth/actor.js";
+import { authRouter } from "./routes/auth.js";
 
 /** A running HTTP server that can be gracefully torn down (used for restart-on-setup). */
 interface BootHandle {
@@ -73,6 +75,7 @@ function packageVersion(): string {
 async function bootOnce(
   config: AppConfig,
   store: JsonStore,
+  auth: Auth,
   requestRestart: () => void,
   options: StartServerOptions = {},
 ): Promise<BootHandle> {
@@ -81,6 +84,10 @@ async function bootOnce(
 
   const app = express();
   app.use(express.json());
+  // Cloudflare (PRD-15) terminates TLS and proxies to this origin, so the client address and
+  // scheme arrive in X-Forwarded-*. Without this, every hosted caller looks like the tunnel — one
+  // address for the sign-in throttle to key on — and the session cookie never gets its Secure flag.
+  app.set("trust proxy", true);
 
   // How newly-connected credentials take effect. Default is a full reboot (first-run: there is no
   // credentialed subsystem yet). Once configured, the block below swaps this for a hot rebuild that
@@ -105,6 +112,10 @@ async function bootOnce(
           }),
       }
     : undefined;
+
+  // Sign-in is available in setup mode too: on a hosted deployment the person who has to finish
+  // setup is the person who has to sign in first (issue 043).
+  app.use("/api/auth", authRouter(auth));
 
   // Setup endpoints are always available so the desktop app can be configured at runtime.
   app.use("/api/setup", setupRouter({ store, configured, requestRestart, oauth }));
@@ -165,7 +176,18 @@ async function bootOnce(
     // what can write to it. See StateCache.replayPendingIfNeeded.
     cache.setReplayHandler((pending) => runner.replayPending(pending));
     const fills = new FillRequests(events);
-    ctx = { store, runner, cache, yt, quota, events, logger, fills, regionCode: config.regionCode };
+    ctx = {
+      store,
+      runner,
+      cache,
+      yt,
+      quota,
+      events,
+      logger,
+      fills,
+      auth,
+      regionCode: config.regionCode,
+    };
 
     webhooks = new WebhookDispatcher(store, cache, runner, quota, events, fills);
 
@@ -265,6 +287,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Boo
   const store = new JsonStore(config.storePath);
   await store.init();
 
+  // The identity spine, built once and shared across restarts: a reboot on credential change must
+  // not sign everyone out. Seeding is idempotent and a no-op when no admin is configured, which is
+  // how the desktop and LAN installs keep behaving exactly as they do today (issue 043).
+  const auth = new Auth(store);
+  const seeded = await auth.seed(config.admin);
+  if (seeded) console.log(`[server] authentication enabled — admin "${seeded.name}"`);
+
   let current: BootHandle | null = null;
   let restarting = false;
 
@@ -276,7 +305,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Boo
       void (async () => {
         try {
           await current?.close();
-          current = await bootOnce(config, store, requestRestart, options);
+          current = await bootOnce(config, store, auth, requestRestart, options);
           console.log("[server] restarted after credential change");
         } catch (err) {
           console.error("[server] restart failed:", err);
@@ -287,7 +316,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Boo
     }, 250);
   };
 
-  current = await bootOnce(config, store, requestRestart, options);
+  current = await bootOnce(config, store, auth, requestRestart, options);
 
   return {
     async close() {

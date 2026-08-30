@@ -30,6 +30,13 @@ export interface AppConfig {
   regionCode: string;
   /** Daily YouTube Data API quota budget in cost-weighted units (default 10,000). */
   quotaLimit: number;
+  /**
+   * The admin seeded at boot (PRD-15 §2). Null when unset, which leaves the deployment with no
+   * accounts and authentication dormant — the desktop and LAN case. Setting both variables is
+   * what turns authentication on, and it is deliberately the only way in: a hosted server must
+   * never offer an open "claim this deployment" page to whoever reaches it first.
+   */
+  admin: { name: string; password: string } | null;
 }
 
 /**
@@ -52,7 +59,14 @@ export function loadConfig(): AppConfig {
     healthFailureThreshold: optionalInt("HEALTH_FAILURE_THRESHOLD", 3),
     regionCode: (process.env.YT_REGION_CODE?.trim() || "US").toUpperCase(),
     quotaLimit: optionalInt("YT_QUOTA_LIMIT", 10000),
+    admin: adminSeed(),
   };
+}
+
+function adminSeed(): AppConfig["admin"] {
+  const name = optional("ADMIN_USERNAME");
+  const password = process.env.ADMIN_PASSWORD ?? "";
+  return name && password ? { name, password } : null;
 }
 
 /**

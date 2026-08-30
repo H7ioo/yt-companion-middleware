@@ -1004,6 +1004,17 @@ textarea {
   border-top: 2px solid var(--live);
 }
 
+/* Sign-in (issue 043). The same rack panel as first-run setup — one surface, one app — with the
+   seam in interactive blue instead of tally red: this screen asks the operator to act, it does not
+   report that a channel is live. */
+.setup__card--auth {
+  border-top-color: var(--accent);
+}
+
+.setup__foot--auth {
+  justify-content: flex-end;
+}
+
 .setup__head {
   margin-bottom: 24px;
 }
@@ -1733,4 +1744,80 @@ textarea {
   .patch__row {
     transition: none;
   }
+}
+
+/* ---- Session cap notice (issue 043) ---------------------------------------
+   A session cannot be extended by use — only re-authentication issues a new
+   absolute clock — so the last week before the cap gets a quiet standing
+   notice. Amber, not red: nothing is broken yet, and it must not read like the
+   reauth banner above it, which means the YouTube connection is already down.
+   ------------------------------------------------------------------------- */
+
+.session-notice {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 11px 14px;
+  border: 1px solid rgba(255, 176, 32, 0.35);
+  border-radius: var(--radius);
+  background: rgba(255, 176, 32, 0.07);
+}
+
+.session-notice__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.session-notice__text {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+/* ---- Signed-in account (issue 043) ----------------------------------------
+   Sits in the rail foot with the other standing facts about this install — the
+   build stamp and the cache time. Absent entirely when nothing is seeded.
+   ------------------------------------------------------------------------- */
+
+.rail__account {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: var(--seam-line);
+}
+
+.rail__account-name {
+  font-size: 12px;
+  color: var(--ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail__signout {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rail__signout:hover {
+  color: var(--accent);
+}
+
+.rail__signout:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
 }

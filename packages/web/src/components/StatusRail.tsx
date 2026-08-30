@@ -48,6 +48,8 @@ export function StatusRail({
   onOpenSettings,
   version,
   onShowWhatsNew,
+  account,
+  onSignOut,
 }: {
   state: DashboardState | null;
   onRefresh: () => void;
@@ -58,6 +60,12 @@ export function StatusRail({
   version: string | null;
   /** Reopens What's New for the running build — the on-demand path (PRD-09 §B.2). */
   onShowWhatsNew: () => void;
+  /**
+   * Who is signed in, or null when this deployment does not authenticate (issue 043). On the
+   * desktop and LAN installs that is always null and the rail looks exactly as it always has.
+   */
+  account: { id: string; name: string; role: "admin" | "user" } | null;
+  onSignOut: () => void;
 }) {
   const isLive = state?.status.isLive ?? false;
   const noTarget = state?.status.noTarget ?? false;
@@ -186,6 +194,17 @@ export function StatusRail({
         <a className="rail__docs" href="/docs" target="_blank" rel="noreferrer">
           API console <span aria-hidden="true">&rarr;</span>
         </a>
+        {/* Who is at the controls. On a shared deployment this is the answer to "who changed the
+            title" before the audit log (issue 050) can answer it properly. */}
+        {account ? (
+          <div className="rail__account">
+            <span className="rail__account-name mono">{account.name}</span>
+            <button type="button" className="rail__signout" onClick={onSignOut}>
+              Sign out
+            </button>
+          </div>
+        ) : null}
+
         {/* The build stamp doubles as the way back into What's New — like the firmware label on a
             rack unit, it says what you are running and is where you go to ask what changed. */}
         {version ? (
