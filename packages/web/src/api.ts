@@ -35,6 +35,9 @@ export type {
   DeviceSession,
   DeviceTokenSummary,
   GraceReadout,
+  AuditEntry,
+  AuditActor,
+  AuditOutcome,
 } from "@app/shared";
 
 import type {
@@ -58,6 +61,7 @@ import type {
   DeviceSession,
   DeviceTokenSummary,
   GraceReadout,
+  AuditEntry,
 } from "@app/shared";
 
 /** Preset payload for create/update — the full preset minus its server-assigned id. */
@@ -190,6 +194,24 @@ export const api = {
       req<{ device: DeviceTokenSummary }>(`/api/dashboard/devices/${id}`, { method: "DELETE" }),
     /** Both halves of the exit condition, and the verdict that needs both of them. */
     grace: () => req<GraceReadout>("/api/dashboard/devices/grace"),
+  },
+  /**
+   * Who did what, and when (issue 050). Admin-only on the server: the log names every account and
+   * every machine on the deployment, and it is the record of the admin actions themselves.
+   *
+   * Read-only by design. There is no clear call to add later — a log with a clear button is a log
+   * an admin can edit after the fact, and retention already keeps it from growing without bound.
+   */
+  audit: {
+    list: (opts: { limit?: number; notable?: boolean } = {}) => {
+      const query = new URLSearchParams();
+      if (opts.limit) query.set("limit", String(opts.limit));
+      if (opts.notable) query.set("notable", "1");
+      const suffix = query.toString();
+      return req<{ entries: AuditEntry[] }>(
+        `/api/dashboard/audit${suffix ? `?${suffix}` : ""}`,
+      );
+    },
   },
   /**
    * Redeeming an invite (issue 046). Deliberately outside `people`: these two are the only calls

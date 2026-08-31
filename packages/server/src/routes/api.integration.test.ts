@@ -12,7 +12,8 @@ import { QuotaTracker } from "../core/quota.js";
 import { StateEvents } from "../core/events.js";
 import { Logger } from "../core/logger.js";
 import { FillRequests } from "../core/fillRequests.js";
-import { mountApiRoutes, mountBootRoutes } from "../app.js";
+import { mountApiRoutes, mountAuditTrail, mountBootRoutes } from "../app.js";
+import { AuditLog } from "../audit/log.js";
 import { attachStateSocket } from "./socket.js";
 import WebSocket from "ws";
 import type { AppContext } from "./context.js";
@@ -162,6 +163,7 @@ async function boot(): Promise<Harness> {
   // every existing test below exercises the route table unchanged. The guarded-route tests seed
   // an admin through this handle to turn it on.
   const auth = new Auth(store);
+  const audit = new AuditLog(path.join(dir, "audit.log"));
   const ctx: AppContext = {
     store,
     runner,
@@ -172,11 +174,13 @@ async function boot(): Promise<Harness> {
     logger,
     fills,
     auth,
+    audit,
     regionCode,
   };
 
   const app = express();
   app.use(express.json());
+  mountAuditTrail(app, { audit, auth });
   // Mounted ahead of the route table, exactly as server.ts does — sign-in and setup have to
   // answer in setup mode too, so they cannot live inside mountApiRoutes.
   mountBootRoutes(app, {

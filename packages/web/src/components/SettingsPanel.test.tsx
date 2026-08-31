@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type {
+  AuditEntry,
   DeviceSession,
   DeviceTokenSummary,
   GraceReadout,
@@ -32,6 +33,8 @@ const createMachine =
   vi.fn<(name: string) => Promise<{ token: string; device: DeviceTokenSummary }>>();
 const revokeMachine = vi.fn<(id: string) => Promise<{ device: DeviceTokenSummary }>>();
 const graceOf = vi.fn<() => Promise<GraceReadout>>();
+const listAudit =
+  vi.fn<(opts?: { limit?: number; notable?: boolean }) => Promise<{ entries: AuditEntry[] }>>();
 
 vi.mock("../api.js", () => ({
   api: {
@@ -52,8 +55,24 @@ vi.mock("../api.js", () => ({
       revoke: (id: string) => revokeMachine(id),
       grace: () => graceOf(),
     },
+    audit: { list: (opts?: { limit?: number; notable?: boolean }) => listAudit(opts) },
   },
 }));
+
+const entry = (over: Partial<AuditEntry> = {}): AuditEntry => ({
+  id: "e1",
+  ts: "2026-08-30T19:04:00.000Z",
+  actor: { kind: "person", id: "a1", name: "operator" },
+  action: "changed a role",
+  method: "PUT",
+  path: "/api/dashboard/people/a2/role",
+  target: "a2",
+  outcome: "ok",
+  status: 200,
+  detail: { role: "admin" },
+  notable: true,
+  ...over,
+});
 
 const machine = (over: Partial<DeviceTokenSummary> = {}): DeviceTokenSummary => ({
   id: "m1",
@@ -133,8 +152,10 @@ beforeEach(() => {
   createMachine.mockReset();
   revokeMachine.mockReset();
   graceOf.mockReset();
+  listAudit.mockReset();
   listMachines.mockResolvedValue({ tokens: [] });
   graceOf.mockResolvedValue(grace());
+  listAudit.mockResolvedValue({ entries: [] });
 });
 afterEach(cleanup);
 
@@ -429,5 +450,56 @@ describe("the machines section", () => {
     fireEvent.click(screen.getByRole("button", { name: /^revoke$/i }));
     await waitFor(() => expect(revokeMachine).toHaveBeenCalledWith("m1"));
     confirm.mockRestore();
+  });
+});
+
+/**
+ * The audit log section (issue 050). An admin's answer to "who did that, and when" — so what is
+ * under test is that it is *theirs alone*, that it asks for the entries that matter first, and
+ * that an empty log says so rather than showing an empty box.
+ */
+describe("the audit log", () => {
+  it("shows an admin who did what", async () => {
+    listPeople.mockResolvedValue({ accounts: [person()] });
+    listAudit.mockResolvedValue({
+      entries: [entry(), entry({ id: "e2", action: "ran a preset", notable: false, actor: { kind: "machine", id: "m1", name: "companion machine" } })],
+    });
+    panel(true);
+
+    expect(await screen.findByText("Audit log")).toBeTruthy();
+    expect(await screen.findByText("changed a role")).toBeTruthy();
+    // The machine is named by its key, not reported as an unknown caller.
+    expect(await screen.findByText("companion machine")).toBeTruthy();
+  });
+
+  it("opens on the entries someone came looking for, and can widen to everything", async () => {
+    listPeople.mockResolvedValue({ accounts: [person()] });
+    listAudit.mockResolvedValue({ entries: [entry()] });
+    panel(true);
+
+    await waitFor(() => expect(listAudit).toHaveBeenCalled());
+    expect(listAudit.mock.calls[0][0]).toMatchObject({ notable: true });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Everything" }));
+    await waitFor(() =>
+      expect(listAudit.mock.calls.some((c) => c[0]?.notable === false)).toBe(true),
+    );
+  });
+
+  it("says the log is empty rather than showing an empty box", async () => {
+    listPeople.mockResolvedValue({ accounts: [person()] });
+    listAudit.mockResolvedValue({ entries: [] });
+    panel(true);
+    expect(await screen.findByText(/No account or role changes/i)).toBeTruthy();
+  });
+
+  it("is not offered to a user at all", async () => {
+    listPeople.mockResolvedValue({ accounts: [person()] });
+    listAudit.mockResolvedValue({ entries: [entry()] });
+    panel(false);
+    await waitFor(() => expect(status).toHaveBeenCalled());
+    expect(screen.queryByText("Audit log")).toBeNull();
+    // And it is never even asked for: a request that answers 403 is not a request to make.
+    expect(listAudit).not.toHaveBeenCalled();
   });
 });

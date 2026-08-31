@@ -2068,3 +2068,98 @@ textarea {
   color: var(--ink-faint);
   overflow-wrap: anywhere;
 }
+
+/* ---- The audit log (issue 050) ------------------------------------------------------------ */
+
+/* Read as a tape: a fixed monospace time gutter down the left, and one row per thing a person
+   did. The rows are deliberately quieter than the Activity feed beside them — this is a record
+   consulted after the fact, not a panel watched during a show. */
+.audit__filter {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+.audit {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  border: var(--seam-line);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+}
+.audit__row {
+  display: grid;
+  grid-template-columns: max-content max-content 1fr max-content;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px 8px 10px;
+  /* The outcome lives on a left edge rather than on a coloured word: scanning the column answers
+     "did anything get refused" without reading a single row. */
+  border-left: 2px solid transparent;
+  font-size: 12.5px;
+}
+.audit__row + .audit__row {
+  border-top: var(--seam-line);
+}
+.audit__row--refused {
+  border-left-color: var(--warn);
+}
+.audit__row--failed {
+  border-left-color: var(--live);
+}
+.audit__when {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.audit__who {
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+/* Routine entries stay dim; the account and role changes — what somebody came looking for — are
+   the ones set in the display face at full ink. The distinction is in the record, not invented
+   by this list: the server marks them. */
+.audit__what {
+  color: var(--ink-dim);
+  overflow-wrap: anywhere;
+}
+.audit__row--notable .audit__who,
+.audit__row--notable .audit__what {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--ink);
+}
+/* The thing acted on — an account id, a key id, the name somebody signed in as. Monospace: it is
+   read character by character, not as prose. */
+.audit__target {
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+.audit__outcome {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--warn);
+  white-space: nowrap;
+}
+.audit__row--failed .audit__outcome {
+  color: var(--live);
+}
+
+/* Narrow: the gutter would eat the row, so the action drops to a line of its own. */
+@media (max-width: 560px) {
+  .audit__row {
+    grid-template-columns: max-content 1fr;
+  }
+  .audit__what {
+    grid-column: 1 / -1;
+  }
+}
