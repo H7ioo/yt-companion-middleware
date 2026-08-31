@@ -110,6 +110,27 @@ export function wsHandshakeOptions(token) {
 }
 
 /**
+ * The operator-facing explanation for a refused HTTP status, or `undefined` when the status is not
+ * an authentication failure.
+ *
+ * The `/api/dashboard/*` list routes are *not* covered by the server's grace mode — only the action
+ * bus and the state socket are (PRD-15 §4). So a blank or wrong token on a seeded deployment leaves
+ * a module whose socket is up and whose dropdowns are empty, which reads as "the server has no
+ * presets" unless the refusal is said out loud. Which of the two it is decides the wording: silence
+ * needs a token, a rejected token needs a new one.
+ * @param {number} status
+ * @param {unknown} token
+ * @returns {string | undefined}
+ */
+export function authErrorMessage(status, token) {
+  if (status !== 401 && status !== 403) return undefined;
+  const configured = typeof token === 'string' && token.trim() !== '';
+  return configured
+    ? `Device token rejected (HTTP ${status}) — it may be revoked, expired or mistyped. Paste a fresh one from Settings → Machines.`
+    : `Device token required (HTTP ${status}) — this server has accounts. Paste a device token from Settings → Machines.`;
+}
+
+/**
  * The module's link to the middleware, as the key sees it.
  * @typedef {'connected' | 'connecting' | 'disconnected'} LinkState
  */

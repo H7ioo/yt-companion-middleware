@@ -106,11 +106,12 @@ usual cause.
    is revocable on its own — revoking it drops this connection's socket immediately and touches
    nobody else's access. A device token can run the show and nothing else; it is never an admin.
 
-   Leave it blank on a local install with no accounts. A hosted server may also run a **grace
-   period** in which a blank token still connects — but every tokenless connection is recorded and
-   named in a standing warning on the dashboard, and the window closes on evidence. Fill the field
-   in before that, not after: enforcement arriving mid-show is exactly what the grace period
-   exists to avoid.
+   Leave it blank on a local install with no accounts. On a hosted server with accounts the field
+   is **not optional**: the grace period covers only the action bus and the live socket, so a blank
+   or wrong token still connects and still fires actions, but every list route (`presets`,
+   `categories`, `streams`) is refused — the dropdowns come up empty and the connection sits on
+   **Authentication failure** with the reason in `$(ytmeta:last_error)`. Grace mode is there so an
+   un-updated module keeps running the show, not so a blank field is a working install. Fill it in.
 
 3. Watch the connection's status pill. It goes **Connecting → OK** once the WebSocket is up. If it
    sits on **Connection failure**, the base URL is wrong or unreachable — fix it and the module

@@ -77,11 +77,14 @@
             Leave the token blank on a local install with no accounts — nothing
             checks it there. On a hosted deployment the token is what identifies
             this machine: it rides on both the HTTP actions and the WebSocket
-            handshake, never expires, and is revocable on its own. A hosted
-            server may run a <strong>grace period</strong> in which a blank token
-            still connects, but every tokenless connection is recorded and named
-            in a standing dashboard warning — fill the field in before that
-            window closes, not after.
+            handshake, never expires, and is revocable on its own. There the
+            field is not optional: the <strong>grace period</strong> covers only
+            the actions and the live socket, so a blank or wrong token connects
+            and still fires actions while every list route is refused — the
+            preset, category and stream dropdowns come up empty and the
+            connection reads <strong>Authentication failure</strong>. Every
+            tokenless connection is recorded and named in a standing dashboard
+            warning, and that window closes on evidence.
           </p>
           <div class="callout tip">
             <p>

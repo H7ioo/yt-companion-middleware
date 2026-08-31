@@ -55,10 +55,12 @@ Every dropped button stays fully editable afterwards.
   here. It is sent on both the HTTP actions and the WebSocket handshake, and it is revocable on
   its own without touching anyone else's access.
 
-Leave the token blank for a local install with no accounts — nothing checks it there. A hosted
-server may also run a **grace period** in which a blank token still connects; every such
-connection is recorded and named in a standing dashboard warning, so fill the field in before that
-window closes rather than after it does.
+Leave the token blank for a local install with no accounts — nothing checks it there. On a hosted
+server with accounts, fill it in: the **grace period** covers only the actions and the live socket,
+so a blank or wrong token connects and fires actions but has every list route refused — the preset,
+category and stream dropdowns come up empty and the connection reads **Authentication failure**,
+with the reason in `last_error`. Every tokenless connection is also recorded and named in a
+standing dashboard warning, and that window closes on evidence.
 
 ## Variables
 

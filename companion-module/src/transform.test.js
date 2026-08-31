@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   apiHeaders,
+  authErrorMessage,
   bearerHeaders,
   categoryChoices,
   COMPANION_COLORS,
@@ -256,6 +257,27 @@ describe('apiHeaders', () => {
       'Content-Type': 'application/json',
       Authorization: 'Bearer ytm_abc123',
     });
+  });
+});
+
+describe('authErrorMessage', () => {
+  // Grace mode covers the action bus and the socket, never the `/api/dashboard/*` list routes, so a
+  // blank token on a seeded server is a refusal the operator has to be told about.
+  it('names a missing token when the field is blank', () => {
+    for (const value of ['', '   ', undefined]) {
+      expect(authErrorMessage(401, /** @type {any} */ (value))).toMatch(/Device token required/);
+    }
+  });
+
+  it('names a rejected token when one was configured', () => {
+    expect(authErrorMessage(401, 'ytm_abc123')).toMatch(/Device token rejected/);
+    expect(authErrorMessage(403, 'ytm_abc123')).toMatch(/HTTP 403/);
+  });
+
+  it('stays out of the way of every other failure — those are not credential problems', () => {
+    for (const status of [200, 400, 404, 429, 500, 503]) {
+      expect(authErrorMessage(status, 'ytm_abc123')).toBeUndefined();
+    }
   });
 });
 

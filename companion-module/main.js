@@ -7,6 +7,7 @@ import { InstanceBase, InstanceStatus, Regex, combineRgb, runEntrypoint } from '
 import WebSocket from 'ws'
 import {
 	apiHeaders,
+	authErrorMessage,
 	categoryChoices,
 	COMPANION_COLORS,
 	formatLastError,
@@ -102,6 +103,8 @@ class YtMiddlewareInstance extends InstanceBase {
 	ws = undefined
 	/** @type {import('./src/transform.js').LinkState} state-socket link, as the keys see it */
 	link = 'disconnected'
+	/** @type {string | undefined} set while the server is refusing this module's credential */
+	authError = undefined
 
 	/** @param {ModuleConfig} config */
 	async init(config) {
@@ -113,6 +116,7 @@ class YtMiddlewareInstance extends InstanceBase {
 		this.reconnectDelay = 1000
 		this.destroyed = false
 		this.link = 'disconnected'
+		this.authError = undefined
 		this.defineVariables()
 		this.defineFeedbacks()
 		this.defineActions()
@@ -178,7 +182,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				width: 12,
 				label: '',
 				value:
-					'The token is sent on both the HTTP actions and the WebSocket handshake. A hosted server may run a grace period during which a blank token still connects — it is recorded and warned about on the dashboard, so fill this in before that window closes.',
+					'The token is sent on both the HTTP actions and the WebSocket handshake. On a hosted server with accounts, leaving this blank leaves the preset/category/stream dropdowns empty and the connection in Authentication failure: the grace period covers only the actions and the live socket, never the lists.',
 			},
 		]
 	}
@@ -202,6 +206,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				body: JSON.stringify(body ?? {}),
 			})
 			const json = /** @type {any} */ (await res.json().catch(() => ({})))
+			if (!res.ok) this.noteAuthFailure(res.status)
 			if (json && json.success === false) {
 				this.log('warn', `${path} rejected: ${json.error?.code ?? 'unknown'} ${json.error?.message ?? ''}`)
 				// Surface the rejection on the `last_error` variable so an operator can bind it to a key
@@ -223,11 +228,31 @@ class YtMiddlewareInstance extends InstanceBase {
 	 * refresh_lists action — never on a timer.
 	 */
 	async refreshLists() {
+		// Cleared up front so a fixed token clears the status on the next refresh, and re-set by
+		// `noteAuthFailure` if the server refuses us again.
+		this.authError = undefined
 		this.presets = await this.getJson('/api/dashboard/presets', [])
 		this.categories = await this.getJson('/api/dashboard/categories', [])
 		this.streams = await this.getJson('/api/dashboard/streams', [])
 		this.defineActions()
 		this.definePresets()
+		if (this.authError) this.updateStatus(InstanceStatus.AuthenticationFailure, this.authError)
+	}
+
+	/**
+	 * Records an HTTP refusal that was an authentication failure, so it reaches the operator instead
+	 * of dissolving into three warn logs and empty dropdowns. Grace mode does not cover the
+	 * `/api/dashboard/*` list routes, so this is the ordinary outcome of a blank or wrong token on a
+	 * seeded deployment — the socket comes up, the lists do not.
+	 * @param {number} status
+	 */
+	noteAuthFailure(status) {
+		const message = authErrorMessage(status, this.config.token)
+		if (!message) return
+		this.authError = message
+		this.log('error', message)
+		this.setVariableValues({ last_error: formatLastError({ code: 'UNAUTHENTICATED', message }) })
+		this.updateStatus(InstanceStatus.AuthenticationFailure, message)
 	}
 
 	/**
@@ -239,7 +264,10 @@ class YtMiddlewareInstance extends InstanceBase {
 	async getJson(path, fallback) {
 		try {
 			const res = await fetch(joinUrl(this.config.url, path), { headers: this.headers() })
-			if (!res.ok) throw new Error(`HTTP ${res.status}`)
+			if (!res.ok) {
+				this.noteAuthFailure(res.status)
+				throw new Error(`HTTP ${res.status}`)
+			}
 			return await res.json()
 		} catch (err) {
 			this.log('warn', `GET ${path} failed: ${errText(err)}`)
@@ -261,6 +289,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				body: JSON.stringify({ apiEnabled: enabled }),
 			})
 			if (!res.ok) {
+				this.noteAuthFailure(res.status)
 				const json = /** @type {any} */ (await res.json().catch(() => ({})))
 				this.log('warn', `API switch rejected: ${json.error?.message ?? `HTTP ${res.status}`}`)
 				return
@@ -296,7 +325,10 @@ class YtMiddlewareInstance extends InstanceBase {
 		this.ws = ws
 
 		ws.on('open', () => {
-			this.updateStatus(InstanceStatus.Ok)
+			// A socket that came up does not mean the credential is good: grace mode admits a tokenless
+			// socket while the list routes stay refused, so a standing auth failure outranks Ok here.
+			if (this.authError) this.updateStatus(InstanceStatus.AuthenticationFailure, this.authError)
+			else this.updateStatus(InstanceStatus.Ok)
 			this.setLink('connected')
 			this.reconnectDelay = 1000
 			// Any inbound frame forces the server to resend current state — belt-and-suspenders resync.
