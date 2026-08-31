@@ -170,6 +170,10 @@ async function bootOnce(
     // Breaks the runner/cache cycle: the cache spots a new broadcast going live, the runner is
     // what can write to it. See StateCache.replayPendingIfNeeded.
     cache.setReplayHandler((pending) => runner.replayPending(pending));
+    // Feeds the go-live half of grace mode's exit condition (issue 047). The poll loop already
+    // watches broadcasts change state, so the counter costs no extra quota and cannot disagree
+    // with what the dashboard shows.
+    cache.setGoLiveHandler((broadcastId) => auth.grace.recordGoLive(broadcastId));
     const fills = new FillRequests(events);
     ctx = {
       store,

@@ -282,6 +282,78 @@ export const inviteSchema = z.object({
 });
 export type Invite = z.infer<typeof inviteSchema>;
 
+/**
+ * A credential for a machine, not a person (PRD-15 §2, issue 047).
+ *
+ * The Companion module runs unattended on a shared machine and cannot sign in: its credential
+ * lives in a config file that anyone with the desk can read. So a device token buys exactly one
+ * thing — running the show — and is refused on every admin-only route no matter how it is
+ * presented. There is no `role` field here on purpose: a machine token that could be an admin is
+ * a config file that owns the channel.
+ *
+ * Only a SHA-256 hash of the token is stored, exactly as for sessions and invites. The plaintext
+ * exists once, in the response to the create call, and is never retrievable afterwards.
+ *
+ * Revoked tokens are kept rather than deleted, so `lastUsedAt` still answers "was this the one
+ * that was live on the machine we just cut off?" after the fact.
+ */
+export const deviceTokenSchema = z.object({
+  id: z.string().min(1),
+  /** What an admin calls it — "companion machine", "booth laptop". Names the thing to revoke. */
+  name: z.string().min(1),
+  tokenHash: z.string().min(1),
+  /** The account id of the admin who created it. */
+  createdBy: z.string().min(1),
+  createdAt: z.string(),
+  /** Coarse (5-minute) last-use stamp, so a live token can be told from a forgotten one. */
+  lastUsedAt: z.string().nullable().default(null),
+  /** Set when revoked. A stamped token is refused from its next request and its live socket. */
+  revokedAt: z.string().nullable().default(null),
+});
+export type DeviceToken = z.infer<typeof deviceTokenSchema>;
+
+/**
+ * Grace mode, and the evidence for ending it (PRD-15 §4, issues 042 and 047).
+ *
+ * The module in the field carries no token yet (issue 048 gives it one), so the Companion-facing
+ * endpoints accept a tokenless caller while `enforcing` is false. That is authentication switched
+ * off, and the only thing that keeps "temporary" from becoming permanent is a readout saying when
+ * it is safe to turn on.
+ *
+ * The exit condition is **two counters, not one**. Days alone are not evidence: a 14-day
+ * off-season satisfies them while the still-tokenless Companion machine sits powered down, and
+ * grace mode comes off just in time for the next show to go dark. So a go-live counter runs
+ * beside the clock, and both are reset by any tokenless connection.
+ */
+export const graceSchema = z.object({
+  /**
+   * The runtime switch issue 049 flips. False means tokenless Companion callers are accepted
+   * (and recorded); true means they are refused. Persisted, so flipping it needs no redeploy.
+   */
+  enforcing: z.boolean().default(false),
+  /** When something last connected without a token. Null once nothing ever has. */
+  lastTokenlessAt: z.string().nullable().default(null),
+  /** How that caller identified itself — user agent, trimmed. Names the offender in the warning. */
+  lastTokenlessClient: z.string().nullable().default(null),
+  /** Where it came from, so the warning points at a machine rather than at a mystery. */
+  lastTokenlessFrom: z.string().nullable().default(null),
+  /** Which endpoint it reached, so "the module" can be told from "somebody's curl". */
+  lastTokenlessRoute: z.string().nullable().default(null),
+  /** Total tokenless connections ever seen. Never reset — it is the size of the problem. */
+  tokenlessCount: z.number().int().min(0).default(0),
+  /**
+   * Go-lives observed since the last tokenless connection. Reset to zero by one, which is what
+   * makes "a show ran tokenless" fail the exit condition rather than quietly satisfying it.
+   */
+  goLivesSinceTokenless: z.number().int().min(0).default(0),
+  /**
+   * The broadcast id the go-live counter last counted. The poll loop sees the same live
+   * broadcast every few seconds; without this, one show would read as a thousand go-lives.
+   */
+  lastGoLiveId: z.string().nullable().default(null),
+});
+export type Grace = z.infer<typeof graceSchema>;
+
 export const storeSchema = z.object({
   credentials: credentialsSchema.default({ clientId: "", clientSecret: "", refreshToken: "" }),
   presets: z.array(presetSchema).default([]),
@@ -292,6 +364,8 @@ export const storeSchema = z.object({
   accounts: z.array(accountSchema).default([]),
   sessions: z.array(sessionSchema).default([]),
   invites: z.array(inviteSchema).default([]),
+  deviceTokens: z.array(deviceTokenSchema).default([]),
+  grace: graceSchema.default({}),
   quota: quotaSchema.default({ date: null, used: 0 }),
   webhook: webhookSchema.default({ url: null }),
   notify: notifySchema.default({ ntfyServer: "https://ntfy.sh", ntfyTopic: "", publicBaseUrl: "" }),

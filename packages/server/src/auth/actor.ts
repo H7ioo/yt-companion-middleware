@@ -1,8 +1,10 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import type { JsonStore } from "../storage/jsonStore.js";
-import type { Account } from "../storage/schema.js";
+import type { Account, DeviceToken } from "../storage/schema.js";
 import { authenticate, seedAdmin, type SeedConfig } from "./accounts.js";
 import { Invites } from "./invites.js";
+import { DeviceTokens } from "./deviceTokens.js";
+import { Grace } from "./grace.js";
 import { IDLE_MS, Sessions, type Actor } from "./sessions.js";
 import { LoginThrottle } from "./throttle.js";
 import { AppError, toErrorBody } from "../core/errors.js";
@@ -36,17 +38,49 @@ export function readCookie(header: string | undefined, name: string): string | u
   return undefined;
 }
 
-/** Requests carry their resolved actor here once the guard (or a lookup) has run. */
+/**
+ * Who is asking, once a guard has decided (issue 047 widens issue 043's seam).
+ *
+ * Two kinds, and the difference is the point. A **person** signs in and gets a session; a
+ * **machine** presents a device token from a config file on a shared desk. Both authenticate, so
+ * both satisfy {@link Auth.requireSession} — the Companion module calls five `/api/dashboard/*`
+ * routes and would otherwise go dark on a seeded deployment. Only a person can be an admin: a
+ * device caller is refused by {@link Auth.requireAdmin} whatever route it arrives on.
+ */
+export type Caller =
+  | { kind: "session"; actor: Actor }
+  | { kind: "device"; token: DeviceToken };
+
+/** Requests carry their resolved caller here once the guard (or a lookup) has run. */
 const ACTOR = Symbol.for("app.actor");
+const CALLER = Symbol.for("app.caller");
 
 interface WithActor extends Request {
   [ACTOR]?: Actor | null;
+  [CALLER]?: Caller | null;
+}
+
+/**
+ * The device token on a request, from `Authorization: Bearer …`.
+ *
+ * A header, not a query parameter: a token in a URL lands in every access log and proxy log
+ * between the machine and here. The same reader serves the WebSocket upgrade, which carries real
+ * headers too (the `ws` client's handshake options are where issue 048 puts it).
+ */
+export function readBearer(header: string | undefined): string | undefined {
+  if (!header) return undefined;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match?.[1].trim() || undefined;
 }
 
 export class Auth {
   readonly sessions: Sessions;
   /** Invites — the only way an account other than the seeded admin comes into being (issue 046). */
   readonly invites: Invites;
+  /** Credentials for machines, which are never admins (issue 047). */
+  readonly devices: DeviceTokens;
+  /** Grace mode and the evidence for ending it (issue 047; issue 049 flips the switch). */
+  readonly grace: Grace;
   private readonly store: JsonStore;
   private readonly throttle: LoginThrottle;
   private readonly now: () => number;
@@ -56,7 +90,34 @@ export class Auth {
     this.now = now;
     this.sessions = new Sessions(store, now);
     this.invites = new Invites(store, now);
+    this.devices = new DeviceTokens(store, now);
+    this.grace = new Grace(store, now);
     this.throttle = new LoginThrottle(now);
+  }
+
+  /**
+   * Watchers notified when a device token is revoked. The socket layer subscribes: a revocation
+   * that only takes effect on the next *request* never takes effect at all on a Companion box,
+   * which opens one WebSocket and holds it for weeks.
+   */
+  private readonly revocationWatchers = new Set<(tokenId: string) => void>();
+
+  /** Subscribe to device-token revocations; returns an unsubscribe function. */
+  onDeviceRevoked(watcher: (tokenId: string) => void): () => void {
+    this.revocationWatchers.add(watcher);
+    return () => this.revocationWatchers.delete(watcher);
+  }
+
+  /** Announces a revocation. Called by the route that performs one, after the write has landed. */
+  announceDeviceRevoked(tokenId: string): void {
+    for (const watcher of this.revocationWatchers) {
+      // One bad watcher must not stop the others from cutting their sockets.
+      try {
+        watcher(tokenId);
+      } catch (err) {
+        console.error("[auth] device-revocation watcher failed:", err);
+      }
+    }
   }
 
   /** Seeds the configured admin at boot. See {@link seedAdmin}. */
@@ -99,6 +160,47 @@ export class Auth {
   }
 
   /**
+   * Resolves whoever is asking — a signed-in person or a machine holding a device token (issue
+   * 047). Memoized per request like {@link currentActor}, so several guards on one route do not
+   * each rewrite the session record or the token's last-use stamp.
+   *
+   * The session is tried first. A browser that is signed in *and* somehow carrying a bearer
+   * header is a person, and reporting them as a machine would silently drop their admin rights
+   * halfway through a page.
+   */
+  async currentCaller(req: Request): Promise<Caller | null> {
+    const carrier = req as WithActor;
+    if (carrier[CALLER] !== undefined) return carrier[CALLER];
+    const actor = await this.currentActor(req);
+    let caller: Caller | null = actor ? { kind: "session", actor } : null;
+    if (!caller) {
+      const token = await this.devices.verify(readBearer(req.headers.authorization));
+      if (token) caller = { kind: "device", token };
+    }
+    carrier[CALLER] = caller;
+    return caller;
+  }
+
+  /** The caller already resolved for this request, without touching the store again. */
+  callerOf(req: Request): Caller | null {
+    return (req as WithActor)[CALLER] ?? null;
+  }
+
+  /**
+   * Resolves a caller off a WebSocket upgrade, which runs no express middleware and so has no
+   * request object to memoize on — just the raw headers the handshake carried.
+   */
+  async callerOfHeaders(headers: {
+    cookie?: string;
+    authorization?: string;
+  }): Promise<Caller | null> {
+    const actor = await this.actorOfCookies(headers.cookie);
+    if (actor) return { kind: "session", actor };
+    const token = await this.devices.verify(readBearer(headers.authorization));
+    return token ? { kind: "device", token } : null;
+  }
+
+  /**
    * Signs someone in, subject to the throttle. Returns the session token, or the reason it was
    * refused — `invalid` never distinguishes a wrong password from an account that does not exist.
    */
@@ -138,12 +240,57 @@ export class Auth {
           next();
           return;
         }
-        const actor = await this.currentActor(req);
-        if (!actor) {
+        // A device token satisfies this guard as a session does. The Companion module calls five
+        // routes under `/api/dashboard` — presets, categories, streams, service, fill-request —
+        // and a guard that only understood cookies would take a *correctly configured*, token
+        // carrying module dark on a seeded deployment (the note left in issue 044).
+        const caller = await this.currentCaller(req);
+        if (!caller) {
           res.status(401).json(toErrorBody(new AppError("UNAUTHENTICATED")));
           return;
         }
-        this.slideCookie(req, res, actor);
+        if (caller.kind === "session") this.slideCookie(req, res, caller.actor);
+        next();
+      })().catch(next);
+    };
+  }
+
+  /**
+   * Guards the Companion-facing endpoints — `/api/action`, `/api/feedback` and their socket
+   * (issue 047). Three answers, in order:
+   *
+   * 1. A valid credential — a device token, or a signed-in browser — passes.
+   * 2. No credential, **grace mode on**: passes, and the connection is recorded. The module in
+   *    the field has no token field at all until issue 048, so refusing here is the go-dark
+   *    outage PRD-15 §4 describes.
+   * 3. No credential, enforcement on (issue 049): refused.
+   *
+   * Recording is what keeps step 2 from being authentication quietly switched off forever: every
+   * tokenless connection resets the exit condition's two counters and names itself in the
+   * dashboard's standing warning.
+   */
+  requireCompanion(): RequestHandler {
+    return (req: Request, res: Response, next: NextFunction) => {
+      void (async () => {
+        if (!this.required) {
+          next();
+          return;
+        }
+        const caller = await this.currentCaller(req);
+        if (caller) {
+          if (caller.kind === "session") this.slideCookie(req, res, caller.actor);
+          next();
+          return;
+        }
+        if (this.grace.enforcing) {
+          res.status(401).json(toErrorBody(new AppError("UNAUTHENTICATED")));
+          return;
+        }
+        await this.grace.recordTokenless({
+          client: req.headers["user-agent"] ?? null,
+          from: req.ip ?? req.socket.remoteAddress ?? null,
+          route: req.baseUrl ? `${req.baseUrl}${req.path}` : req.path,
+        });
         next();
       })().catch(next);
     };
@@ -167,12 +314,23 @@ export class Auth {
           next();
           return;
         }
-        const actor = await this.currentActor(req);
-        if (!actor) {
+        const caller = await this.currentCaller(req);
+        if (!caller) {
           res.status(401).json(toErrorBody(new AppError("UNAUTHENTICATED")));
           return;
         }
-        if (actor.account.role !== "admin") {
+        // A device token is never an admin, and there is no role on one to check: it lives in a
+        // config file on a shared machine, so it runs the show and nothing else. Refused here
+        // rather than by giving tokens a role, so no future token can be minted into an admin.
+        if (caller.kind === "device") {
+          res.status(403).json(
+            toErrorBody(
+              new AppError("FORBIDDEN", "A device token cannot administer this deployment."),
+            ),
+          );
+          return;
+        }
+        if (caller.actor.account.role !== "admin") {
           res.status(403).json(toErrorBody(new AppError("FORBIDDEN")));
           return;
         }

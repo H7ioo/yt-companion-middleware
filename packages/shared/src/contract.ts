@@ -303,3 +303,50 @@ export interface SessionInfo {
   /** When the session's absolute cap falls, so the notice can name the day. Null when signed out. */
   absoluteExpiresAt: string | null;
 }
+
+/**
+ * One device token as the admin panel lists them (issue 047). The token itself is never in here:
+ * it is returned exactly once, from the create call. An admin who loses it revokes and makes
+ * another, which is also the only honest thing to offer — the server keeps only a hash.
+ */
+export interface DeviceTokenSummary {
+  id: string;
+  name: string;
+  createdAt: string;
+  /** The name of the admin who created it, or null if that account has since been removed. */
+  createdBy: string | null;
+  /** Coarse last-use stamp. Null for a token that has never been presented. */
+  lastUsedAt: string | null;
+  /** Set once revoked; a revoked token is refused and its live socket is dropped. */
+  revokedAt: string | null;
+}
+
+/**
+ * Whether it is safe to turn grace mode off (issues 042, 047 and 049).
+ *
+ * Deliberately two counters. `days` alone would let a 14-day off-season read as "met" while the
+ * still-tokenless Companion machine sits powered down — grace mode would come off just in time
+ * for the next show to go dark. `met` is true only when both halves hold.
+ */
+export interface GraceReadout {
+  /** False while tokenless Companion callers are still accepted. Issue 049 flips it. */
+  enforcing: boolean;
+  /** Whole days since the last tokenless connection. Null when nothing tokenless has ever connected. */
+  daysSinceTokenless: number | null;
+  /** The threshold `daysSinceTokenless` is measured against. */
+  daysRequired: number;
+  /** Go-lives observed since the last tokenless connection. Reset to zero by one. */
+  goLivesSinceTokenless: number;
+  /** The threshold `goLivesSinceTokenless` is measured against. */
+  goLivesRequired: number;
+  /** True only when both halves hold. 14 quiet days with no go-live in them is not met. */
+  met: boolean;
+  /** When something last connected without a token. Null when nothing ever has. */
+  lastTokenlessAt: string | null;
+  /** Who that was, as far as the server can tell: user agent, address and the route reached. */
+  lastTokenlessClient: string | null;
+  lastTokenlessFrom: string | null;
+  lastTokenlessRoute: string | null;
+  /** Total tokenless connections ever seen. Never reset — it is the size of the problem. */
+  tokenlessCount: number;
+}

@@ -5,6 +5,10 @@ import { buildDashboardState, changeSignature } from "../core/snapshot.js";
 
 const HEARTBEAT_MS = 25000;
 
+/** A live socket, tagged with the device token that opened it (null for a session or a
+ * tokenless grace-mode caller) so revocation can find it. */
+type SocketWithToken = WebSocket & { deviceTokenId?: string | null };
+
 /**
  * The upgrade table, and who may reach each entry (issue 044).
  *
@@ -16,18 +20,29 @@ const HEARTBEAT_MS = 25000;
  * Both bases upgrade to the same push stream, matching the by-caller /api/action (Companion) and
  * /api/dashboard/action (dashboard) mounting — both intentional.
  */
-export const WS_ROUTES: ReadonlyArray<{ path: string; guarded: boolean; why: string }> = [
+export const WS_ROUTES: ReadonlyArray<{
+  path: string;
+  /** `session` refuses an anonymous caller outright; `companion` defers to grace mode. */
+  guard: "session" | "companion";
+  /** Whether an anonymous caller is refused *today*, which is what the audit probes. */
+  guarded: boolean;
+  why: string;
+}> = [
   {
     path: "/api/feedback/ws",
+    guard: "companion",
     guarded: false,
     why:
-      "Companion-facing, exactly as /api/feedback is. The module carries no token today, so " +
-      "guarding it is the go-dark outage in PRD-15 §4 — handled by issues 047 → 048 → 049.",
+      "Companion-facing, exactly as /api/feedback is. Guarding the *handshake* is the point of " +
+      "issue 047 — the module uses both HTTP and this socket, so checking one is checking " +
+      "nothing — but the module carries no token until issue 048, so a tokenless handshake is " +
+      "still accepted and recorded while grace mode is on. Issue 049 flips it to refused.",
   },
   {
     path: "/api/dashboard/ws",
+    guard: "session",
     guarded: true,
-    why: "Browser-facing: it streams the full dashboard state, so it answers to a session only.",
+    why: "Browser-facing: it streams the full dashboard state, so it answers to a credential only.",
   },
 ];
 
@@ -52,17 +67,59 @@ export function attachStateSocket(server: Server, ctx: AppContext): WebSocketSer
       socket.destroy();
       return;
     }
+    const refuse = (): void => {
+      socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+      socket.destroy();
+    };
     void (async () => {
-      // The express guard cannot run here, so the same question is asked directly. It is a
-      // pass-through on a deployment with no accounts, exactly as `requireSession()` is.
-      if (route.guarded && ctx.auth.required && !(await ctx.auth.actorOfCookies(req.headers.cookie))) {
-        socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
-        socket.destroy();
-        return;
+      // The express guard cannot run here, so the same question is asked directly — and it is
+      // asked of the *handshake headers*, cookie and bearer alike (issue 047). The module speaks
+      // both HTTP and this socket, so a token checked on one and not the other guards nothing.
+      // Pass-through on a deployment with no accounts, exactly as `requireSession()` is.
+      let deviceTokenId: string | null = null;
+      if (ctx.auth.required) {
+        const caller = await ctx.auth.callerOfHeaders({
+          cookie: req.headers.cookie,
+          authorization: req.headers.authorization,
+        });
+        if (caller?.kind === "device") deviceTokenId = caller.token.id;
+        if (!caller) {
+          if (route.guard === "session") {
+            refuse();
+            return;
+          }
+          // Companion-facing and tokenless. Same three-way answer as the HTTP guard: refused
+          // once enforcement is on, otherwise admitted and recorded.
+          if (ctx.auth.grace.enforcing) {
+            refuse();
+            return;
+          }
+          await ctx.auth.grace.recordTokenless({
+            client: req.headers["user-agent"] ?? null,
+            from: req.socket.remoteAddress ?? null,
+            route: pathname,
+          });
+        }
       }
-      wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        // Carried onto the socket so revoking the token can find and drop it. A revocation that
+        // only takes effect on the next *request* never takes effect at all on a Companion box,
+        // which opens one socket and holds it for weeks.
+        (ws as SocketWithToken).deviceTokenId = deviceTokenId;
+        wss.emit("connection", ws, req);
+      });
     })().catch(() => socket.destroy());
   });
+
+  // Cut every socket a revoked token opened. Nothing else about the connection changes: sockets
+  // held by a session, or admitted tokenless under grace mode, are none of this revocation's
+  // business.
+  const stopWatching = ctx.auth.onDeviceRevoked((tokenId) => {
+    for (const client of wss.clients) {
+      if ((client as SocketWithToken).deviceTokenId === tokenId) client.close(4401, "revoked");
+    }
+  });
+  wss.on("close", stopWatching);
 
   wss.on("connection", (ws: WebSocket) => {
     let lastSignature: string | null = null;

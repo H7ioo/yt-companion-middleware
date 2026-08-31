@@ -19,6 +19,7 @@ import { setupRouter, setupStatusHandler, type SetupDeps } from "./routes/setup.
 import { appInfoRouter, type AppInfoDeps } from "./routes/appInfo.js";
 import { authRouter } from "./routes/auth.js";
 import { peopleRouter } from "./routes/people.js";
+import { devicesRouter } from "./routes/devices.js";
 import type { Auth } from "./auth/actor.js";
 
 /**
@@ -44,14 +45,14 @@ export const GUARD_EXEMPTIONS: ReadonlyArray<{ mount: string; why: string }> = [
   {
     mount: "/api/action",
     why:
-      "Companion-facing. The module carries no token today, so guarding it is the go-dark " +
-      "outage described in PRD-15 §4 — handled by issues 047 → 048 → 049. Note this leaves the " +
-      "module only half-open: it also calls five /api/dashboard/* routes, which the guard below " +
-      "does close on a seeded deployment (see the comment there).",
+      "Companion-facing, and behind requireCompanion() rather than open: a device token is " +
+      "accepted, and a tokenless caller is accepted *and recorded* only while grace mode is on " +
+      "(issue 047). The module in the field has no token field at all until issue 048, so a hard " +
+      "refusal here today is the go-dark outage PRD-15 §4 describes. Issue 049 flips the switch.",
   },
   {
     mount: "/api/feedback",
-    why: "Companion-facing, same as /api/action.",
+    why: "Companion-facing, behind requireCompanion() for the same reason as /api/action.",
   },
   {
     mount: "/api/feedback/stream",
@@ -95,6 +96,12 @@ export const ADMIN_ONLY: ReadonlyArray<{ mount: string; why: string }> = [
   {
     mount: "/api/dashboard/people",
     why: "Who is here and who is an admin. A machine or a user account must not be able to grant itself more.",
+  },
+  {
+    mount: "/api/dashboard/devices",
+    why:
+      "Minting and revoking machine credentials, and the grace-mode evidence beside them " +
+      "(issue 047). A device token that could mint another would be an admin with extra steps.",
   },
 ];
 
@@ -153,11 +160,16 @@ export function mountApiRoutes(app: Express, ctx: AppContext): void {
     });
   });
 
-  // Companion-facing endpoints — deliberately still open (see GUARD_EXEMPTIONS).
-  app.use("/api/action", actionRouter(ctx));
-  app.use("/api/feedback", feedbackRouter(ctx));
+  // Companion-facing endpoints, behind the grace-mode guard (issue 047). It admits a device
+  // token, admits a signed-in browser, and — while grace mode is on — admits a tokenless caller
+  // *and records it*, because the module in the field has no token field until issue 048. It is
+  // still listed in GUARD_EXEMPTIONS: a tokenless request does get through today, and that stays
+  // a stated, reviewable fact until issue 049 flips enforcement.
+  const companion = ctx.auth.requireCompanion();
+  app.use("/api/action", companion, actionRouter(ctx));
+  app.use("/api/feedback", companion, feedbackRouter(ctx));
   // SSE stream — an alternative to polling for any custom integration.
-  app.get("/api/feedback/stream", streamHandler(ctx));
+  app.get("/api/feedback/stream", companion, streamHandler(ctx));
 
   // Everything browser-facing, behind one guard (issue 044). A prefix guard rather than a guard
   // per mount, so the default for a route added below is "closed": forgetting to repeat the guard
@@ -167,11 +179,10 @@ export function mountApiRoutes(app: Express, ctx: AppContext): void {
   // be locked out by it — that switch (issue 043) is what makes widening it safe.
   //
   // "Browser-facing" is not the whole truth: the Companion module also calls five routes under
-  // this prefix — GET presets / categories / streams, PUT service, POST fill-request — and on a
-  // seeded deployment they are now closed to it. No install is affected today (no hosted one
-  // exists, and authentication is dormant without a seeded admin), but the token work in issues
-  // 047 → 049 has to cover these five as well as the Companion bases, or a token-carrying module
-  // still goes dark. See the note in issues/done/044-guard-dashboard-routes-and-exemptions.md.
+  // this prefix — GET presets / categories / streams, PUT service, POST fill-request. Issue 047
+  // closes the gap issue 044 left open here: requireSession() now also admits a device token, so
+  // a token-carrying module reaches these five as it reaches its own bases. What it still cannot
+  // reach is anything in ADMIN_ONLY — requireAdmin() refuses a device token outright.
   app.use("/api/dashboard", ctx.auth.requireSession());
 
   app.use("/api/dashboard/presets", presetsRouter(ctx));
@@ -185,6 +196,8 @@ export function mountApiRoutes(app: Express, ctx: AppContext): void {
   app.use("/api/dashboard/logs", logsRouter(ctx));
   // Roles and the people who hold them — admin only, per ADMIN_ONLY above.
   app.use("/api/dashboard/people", ctx.auth.requireAdmin(), peopleRouter({ store: ctx.store, auth: ctx.auth }));
+  // Credentials for machines, and the grace-mode readout — admin only, per ADMIN_ONLY above.
+  app.use("/api/dashboard/devices", ctx.auth.requireAdmin(), devicesRouter({ store: ctx.store, auth: ctx.auth }));
   // Companion key → dashboard-popup/phone-push fill flow (issue 003 trigger).
   app.use("/api/dashboard/fill-request", fillRequestRouter(ctx));
   app.use("/api/dashboard/notify", notifyRouter(ctx));
