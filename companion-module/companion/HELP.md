@@ -25,7 +25,8 @@ state, so there is nothing to poll.
    root), or via the **Developer
    modules path** (see the module README). Then **Connections → Add connection**, search
    **yt-companion-middleware**, add it.
-3. Set **Middleware base URL** to that host. Save — the status pill goes **Connecting → OK**.
+3. Set **Middleware base URL** to that host, and paste the **Device token** if the deployment
+   issues them. Save — the status pill goes **Connecting → OK**.
 4. Confirm it works: set any key's text to `$(ytmeta:display_label)`.
 5. On a key, add a **feedback** (image or boolean) and/or an **action** from the tables below.
 
@@ -49,14 +50,26 @@ Every dropped button stays fully editable afterwards.
 
 - **Middleware base URL** — e.g. `http://localhost:8080` (same host as the dashboard). HTTPS is
   fine; the module derives `wss://` automatically.
+- **Device token** — the credential a hosted deployment issues for this machine. An admin creates
+  it under **Settings → Machines** on the dashboard, names it, and copies it **once**; paste it
+  here. It is sent on both the HTTP actions and the WebSocket handshake, and it is revocable on
+  its own without touching anyone else's access.
 
-The middleware is unauthenticated (LAN-only personal tool) — there is no token to configure.
+Leave the token blank for a local install with no accounts — nothing checks it there. A hosted
+server may also run a **grace period** in which a blank token still connects; every such
+connection is recorded and named in a standing dashboard warning, so fill the field in before that
+window closes rather than after it does.
 
 ## Variables
 
 `display_label` (slug → preset id → "Custom"), `live_title`, `active_preset_id`,
 `active_preset_title`, `is_live`, `no_target`, `privacy`, `health` (`ok`/`degraded`/`offline`/`auth_error`), `health_message`, `busy`,
-`api_enabled`, `quota_used`, `quota_limit`, `quota_remaining`, `undo_label`, `last_error`, `dashboard_url`.
+`api_enabled`, `quota_used`, `quota_limit`, `quota_remaining`, `undo_label`, `last_error`, `dashboard_url`,
+`link`, `link_up`.
+
+`link` is the state socket: `connected`, `connecting` or `disconnected`. Every other variable is a
+reading the server pushed — while `link` is not `connected`, they are all as old as the outage and
+a key press goes nowhere. See **Server unreachable** below.
 
 `last_error` holds the code + message of the most recent **failed** action (e.g.
 `INVALID_PRESET: no such preset`, `MISSING_TEMPLATE_VARS: …`). By default action errors surface
@@ -71,6 +84,12 @@ changes when another action fails, so the last failure stays visible.
   Add one as the button's feedback; a two-state button can toggle slug ↔ title.
 - **On air / Busy / API disabled / Health state is… / Active preset is…** — boolean feedbacks
   that recolor a key. *Active preset is…* highlights the key whose preset is currently applied.
+- **Server unreachable (no live link)** — magenta, and the one to add to any key you would
+  otherwise trust. It fires whenever the module is not holding the state socket. This is not the
+  same as `offline` health: `offline` is the *server* telling you it cannot reach YouTube, which
+  means the server is still talking to you. This one means nothing is talking to you at all —
+  every reading on the deck is stale and every press lands nowhere. The **Server link**,
+  **On-air indicator**, **Busy indicator** and both image presets already carry it.
 - **Health color (auto)** — recolors a key to the current middleware health, no config:
 
   | health | meaning | key color |

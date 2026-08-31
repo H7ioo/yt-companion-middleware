@@ -98,8 +98,19 @@ usual cause.
    | Field | Value |
    |---|---|
    | **Middleware base URL** | The dashboard host, e.g. `http://192.168.1.50:8080` — no trailing path. HTTPS is fine; the module derives `wss://` automatically. |
+   | **Device token** | The credential a hosted deployment issues for this machine. Blank for a local install. |
 
-   The middleware is unauthenticated (LAN-only personal tool) — there is no token to configure.
+   A hosted deployment issues **device tokens**: an admin creates one under **Settings → Machines**
+   on the dashboard, names it ("companion machine"), and copies it **once**. Paste it into the
+   token field. It rides on both the HTTP actions and the WebSocket handshake, never expires, and
+   is revocable on its own — revoking it drops this connection's socket immediately and touches
+   nobody else's access. A device token can run the show and nothing else; it is never an admin.
+
+   Leave it blank on a local install with no accounts. A hosted server may also run a **grace
+   period** in which a blank token still connects — but every tokenless connection is recorded and
+   named in a standing warning on the dashboard, and the window closes on evidence. Fill the field
+   in before that, not after: enforcement arriving mid-show is exactly what the grace period
+   exists to avoid.
 
 3. Watch the connection's status pill. It goes **Connecting → OK** once the WebSocket is up. If it
    sits on **Connection failure**, the base URL is wrong or unreachable — fix it and the module
@@ -135,6 +146,8 @@ usual cause.
 | `undo_label` | Label of the change that **Undo** would revert. |
 | `last_error` | Code + message of the most recent **failed** action (e.g. `INVALID_PRESET: no such preset`). Blank until something fails; bind it to a key to see errors on-stream instead of only in the Log tab. Never cleared by a state update. |
 | `dashboard_url` | The configured base URL — handy for bookmarks and custom HTTP integrations. |
+| `link` | The state socket: `connected` / `connecting` / `disconnected`. |
+| `link_up` | `true` only while the socket is up. Every other variable in this table is a reading the server pushed, so while this is `false` they are all as old as the outage. |
 
 ### Presets (drag-drop buttons)
 
@@ -145,7 +158,12 @@ is fully editable afterwards.
 | Category | What drops |
 |---|---|
 | **Apply preset** | One button **per middleware preset** (regenerated on **Refresh lists**): its slug as the text, the **Apply preset** action bound to that preset, and the **Active preset is…** feedback pointed at it — so the key applies, self-labels, and lights violet when it’s the one on air. |
-| **State & controls** | Fixed helpers: *Arabic-safe live title (image)*, *Arabic-safe button label (image)*, *On-air indicator*, *Busy indicator*, *Privacy toggle*, *Undo last change*, *Refresh from YouTube*, *Refresh lists*, *API kill switch (toggle)*. |
+| **State & controls** | Fixed helpers: *Server link*, *Arabic-safe live title (image)*, *Arabic-safe button label (image)*, *On-air indicator*, *Busy indicator*, *Privacy toggle*, *Undo last change*, *Refresh from YouTube*, *Refresh lists*, *API kill switch (toggle)*. |
+
+> The state-showing presets (*Server link*, both images, *On-air indicator*, *Busy indicator*)
+> carry the **Server unreachable** feedback as their last layer, so they turn magenta the moment
+> the link drops instead of holding a stale reading. Feedbacks apply in order and the last match
+> wins — keep it last if you re-order them on your own keys.
 
 > Presets are authored by the module — you can't create new ones from the Companion UI, but you
 > can export your edited buttons as a custom library. Added presets in the dashboard? Run
@@ -164,6 +182,7 @@ Image feedbacks are the reason this module exists; boolean feedbacks recolour ke
 | **API disabled** | boolean | When the kill switch is off. Default: amber bg, black text. |
 | **Health state is…** | boolean | When `health` equals the dropdown value (`ok`/`degraded`/`auth_error`). Default: amber bg. |
 | **Active preset is…** | boolean | When the dropdown-selected preset is the active one — highlights the applied preset’s key. Default: violet bg. |
+| **Server unreachable (no live link)** | boolean | Whenever the module is not holding the state socket — connecting, reconnecting or given up. Default: magenta bg. Distinct from `offline` health, which is the *server* saying it cannot reach YouTube; this one means the module cannot reach the server, so every reading on the deck is stale and every press lands nowhere. |
 
 ### Actions
 
@@ -232,7 +251,9 @@ plain http on the LAN (`$(ytmeta:dashboard_url)`).
 
 | Symptom | Likely cause / fix |
 |---|---|
-| Status stuck on **Connection failure** | Base URL wrong/unreachable, or a bad/absent token. The module keeps retrying with backoff; fix the config and it recovers. |
+| Status stuck on **Connection failure** | Base URL wrong/unreachable, or a bad/absent device token. The module keeps retrying with backoff; fix the config and it recovers. |
+| Keys turn **magenta** | The **Server unreachable** feedback: the state socket is down. The stream itself is unaffected — the *control link* is gone, readings are stale and presses land nowhere. Check the network to the middleware host. |
+| Connection worked, now **401 / refused** after an upgrade | The server started enforcing device tokens. Paste this machine's token into the **Device token** field (dashboard → **Settings → Machines** → create one). |
 | Variables blank | Connection not **OK** yet, or the middleware hasn't pushed a state frame — check the status pill and the Log tab. |
 | Dropdowns missing new presets | Snapshot is stale — run **Refresh preset/category/stream lists**. |
 | Arabic still shows as boxes | You bound the *text* variable, not an *image feedback*. Use **Image: full live title** / **Image: button label**. |

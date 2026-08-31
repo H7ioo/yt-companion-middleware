@@ -6,17 +6,21 @@ import { InstanceBase, InstanceStatus, Regex, combineRgb, runEntrypoint } from '
 // @ts-ignore
 import WebSocket from 'ws'
 import {
+	apiHeaders,
 	categoryChoices,
 	COMPANION_COLORS,
 	formatLastError,
 	healthColor,
+	isLinkDown,
 	joinUrl,
+	linkVariables,
 	mapVariables,
 	nextApiEnabled,
 	presetButtons,
 	presetChoices,
 	streamChoices,
 	toPng64,
+	wsHandshakeOptions,
 	wsUrl,
 } from './src/transform.js'
 import { UpgradeScripts } from './src/upgrades.js'
@@ -31,11 +35,15 @@ const FEEDBACK_IDS = [
 	'health_state',
 	'health_color',
 	'active_preset',
+	'link_down',
 ]
 
 /**
  * Persisted instance config, as edited in Companion's module settings (see getConfigFields).
- * @typedef {{ url: string }} ModuleConfig
+ * `token` is the device token a hosted deployment issues (PRD-15 §2); it is optional, and blank on
+ * a LAN install. Optional because an upgraded connection may not have the key at all until
+ * `seedDeviceToken` has run — see src/upgrades.js.
+ * @typedef {{ url: string, token?: string }} ModuleConfig
  */
 
 /**
@@ -77,7 +85,7 @@ class YtMiddlewareInstance extends InstanceBase {
 	// Instance state is declared as fields (not just assigned in init) so `checkJs` sees a concrete,
 	// non-undefined type for each — a property only ever assigned inside a method infers `T | undefined`.
 	/** @type {ModuleConfig} */
-	config = { url: '' }
+	config = { url: '', token: '' }
 	/** @type {Record<string, any>} last DashboardState pushed over the WS */
 	latest = {}
 	/** @type {Preset[]} */
@@ -92,6 +100,8 @@ class YtMiddlewareInstance extends InstanceBase {
 	reconnectTimer = undefined
 	/** @type {any} ws WebSocket instance (the `ws` package ships no type declarations) */
 	ws = undefined
+	/** @type {import('./src/transform.js').LinkState} state-socket link, as the keys see it */
+	link = 'disconnected'
 
 	/** @param {ModuleConfig} config */
 	async init(config) {
@@ -102,19 +112,21 @@ class YtMiddlewareInstance extends InstanceBase {
 		this.streams = []
 		this.reconnectDelay = 1000
 		this.destroyed = false
+		this.link = 'disconnected'
 		this.defineVariables()
 		this.defineFeedbacks()
 		this.defineActions()
 		this.definePresets()
 		// last_error starts blank and is only ever set by a failed action — state frames never clear it,
 		// so a key bound to it stays empty until something actually fails (issue 029).
-		this.setVariableValues({ dashboard_url: this.config.url, last_error: '' })
+		this.setVariableValues({ dashboard_url: this.config.url, last_error: '', ...linkVariables(this.link) })
 		await this.refreshLists()
 		this.connectWs()
 	}
 
 	async destroy() {
 		this.destroyed = true
+		this.setLink('disconnected')
 		if (this.reconnectTimer) {
 			clearTimeout(this.reconnectTimer)
 			this.reconnectTimer = undefined
@@ -149,14 +161,32 @@ class YtMiddlewareInstance extends InstanceBase {
 				default: 'http://localhost:8080',
 				regex: Regex.SOMETHING,
 			},
+			{
+				type: 'textinput',
+				id: 'token',
+				label: 'Device token',
+				width: 8,
+				default: '',
+				// No regex: the field is legitimately empty on a LAN install, and a hosted token's
+				// exact shape is the server's business, not a pattern to re-declare here.
+				tooltip:
+					'Paste the device token an admin created for this machine (Settings → Machines on the dashboard). It is shown once. Leave blank for a local install with no accounts.',
+			},
+			{
+				type: 'static-text',
+				id: 'token_help',
+				width: 12,
+				label: '',
+				value:
+					'The token is sent on both the HTTP actions and the WebSocket handshake. A hosted server may run a grace period during which a blank token still connects — it is recorded and warned about on the dashboard, so fill this in before that window closes.',
+			},
 		]
 	}
 
 	// --- HTTP ---------------------------------------------------------------
 
 	headers() {
-		/** @type {Record<string, string>} */
-		return { 'Content-Type': 'application/json' }
+		return apiHeaders(this.config.token)
 	}
 
 	/**
@@ -251,11 +281,15 @@ class YtMiddlewareInstance extends InstanceBase {
 		}
 		this.closeWs()
 		this.updateStatus(InstanceStatus.Connecting)
+		this.setLink('connecting')
 		let ws
 		try {
-			ws = new WebSocket(wsUrl(this.config.url))
+			// The handshake carries the same bearer credential as the HTTP calls: the server checks
+			// both surfaces, so a token on only one of them authenticates nothing (PRD-15 §4).
+			ws = new WebSocket(wsUrl(this.config.url), wsHandshakeOptions(this.config.token))
 		} catch (err) {
 			this.updateStatus(InstanceStatus.ConnectionFailure, errText(err))
+			this.setLink('disconnected')
 			this.scheduleReconnect()
 			return
 		}
@@ -263,6 +297,7 @@ class YtMiddlewareInstance extends InstanceBase {
 
 		ws.on('open', () => {
 			this.updateStatus(InstanceStatus.Ok)
+			this.setLink('connected')
 			this.reconnectDelay = 1000
 			// Any inbound frame forces the server to resend current state — belt-and-suspenders resync.
 			try {
@@ -293,7 +328,23 @@ class YtMiddlewareInstance extends InstanceBase {
 	onWsDown(message) {
 		if (this.destroyed) return
 		this.updateStatus(InstanceStatus.ConnectionFailure, message)
+		this.setLink('disconnected')
 		this.scheduleReconnect()
+	}
+
+	/**
+	 * Records the state-socket link and pushes it out to the keys. Companion's connections list
+	 * already shows `updateStatus`, but nobody watches that mid-show — the operator is looking at a
+	 * deck. Hosted, a dropped socket no longer means "the laptop is off"; it means the link crossed
+	 * the internet and the internet blinked, while the stream itself carries on fine. Every key
+	 * bound to a state variable is now showing the last thing it heard, so the link has to say so.
+	 * @param {import('./src/transform.js').LinkState} next
+	 */
+	setLink(next) {
+		if (this.link === next) return
+		this.link = next
+		this.setVariableValues(linkVariables(next))
+		this.checkFeedbacks('link_down')
 	}
 
 	scheduleReconnect() {
@@ -342,6 +393,8 @@ class YtMiddlewareInstance extends InstanceBase {
 			{ variableId: 'target_conflict_message', name: 'Target conflict explanation' },
 			{ variableId: 'last_error', name: 'Last action error (code + message)' },
 			{ variableId: 'dashboard_url', name: 'Dashboard base URL' },
+			{ variableId: 'link', name: 'Server link (connected/connecting/disconnected)' },
+			{ variableId: 'link_up', name: 'Server link is up' },
 		])
 	}
 
@@ -433,6 +486,15 @@ class YtMiddlewareInstance extends InstanceBase {
 					if (!health) return {}
 					return { bgcolor: healthColor(health), color: combineRgb(255, 255, 255) }
 				},
+			},
+			link_down: {
+				type: 'boolean',
+				name: 'Server unreachable (no live link)',
+				description:
+					'True whenever the module is not holding the state socket — connecting, reconnecting or given up. Everything else on the deck is then a stale reading, and a key press goes nowhere. Add this to any key whose value you would otherwise trust.',
+				defaultStyle: { bgcolor: COMPANION_COLORS.linkDown, color: combineRgb(255, 255, 255) },
+				options: [],
+				callback: () => isLinkDown(this.link),
 			},
 			active_preset: {
 				type: 'boolean',
@@ -628,15 +690,32 @@ class YtMiddlewareInstance extends InstanceBase {
 			steps: [{ down: actionId ? [{ actionId, options: {} }] : [], up: [] }],
 			feedbacks: feedback ? [feedback] : [],
 		})
+		// Overlaid *last* on every key that shows middleware state, because Companion applies
+		// feedbacks in order and the last match wins. A key still reading "ON AIR" in tally red while
+		// the module has no link is the exact failure PRD-15 §4 is about: the stream is fine, the
+		// reading is minutes old, and the operator has no way to tell from the deck.
+		const linkDownOverlay = {
+			feedbackId: 'link_down',
+			options: {},
+			style: { bgcolor: COMPANION_COLORS.linkDown, color: white },
+		}
 		this.setPresetDefinitions({
 			...presetButtons(this.presets),
+			link_indicator: {
+				type: 'button',
+				category: 'State & controls',
+				name: 'Server link',
+				style: { text: 'LINK\\n$(ytmeta:link)', size: '14', color: white, bgcolor: COMPANION_COLORS.indicator },
+				steps: [{ down: [], up: [] }],
+				feedbacks: [linkDownOverlay],
+			},
 			live_title_image: {
 				type: 'button',
 				category: 'State & controls',
 				name: 'Arabic-safe live title (image)',
 				style: { text: '', size: 'auto', color: white, bgcolor: COMPANION_COLORS.imageCanvas },
 				steps: [{ down: [], up: [] }],
-				feedbacks: [{ feedbackId: 'title_image', options: {} }],
+				feedbacks: [{ feedbackId: 'title_image', options: {} }, linkDownOverlay],
 			},
 			slug_label_image: {
 				type: 'button',
@@ -644,7 +723,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				name: 'Arabic-safe button label (image)',
 				style: { text: '', size: 'auto', color: white, bgcolor: COMPANION_COLORS.imageCanvas },
 				steps: [{ down: [], up: [] }],
-				feedbacks: [{ feedbackId: 'slug_image', options: {} }],
+				feedbacks: [{ feedbackId: 'slug_image', options: {} }, linkDownOverlay],
 			},
 			on_air_indicator: {
 				type: 'button',
@@ -659,6 +738,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				steps: [{ down: [], up: [] }],
 				feedbacks: [
 					{ feedbackId: 'on_air', options: {}, style: { bgcolor: COMPANION_COLORS.onAir, color: white } },
+					linkDownOverlay,
 				],
 			},
 			privacy_toggle_btn: util(
@@ -692,6 +772,7 @@ class YtMiddlewareInstance extends InstanceBase {
 				steps: [{ down: [], up: [] }],
 				feedbacks: [
 					{ feedbackId: 'busy', options: {}, style: { bgcolor: COMPANION_COLORS.busy, color: white } },
+					linkDownOverlay,
 				],
 			},
 		})

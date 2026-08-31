@@ -64,12 +64,24 @@
               Set <strong>Middleware base URL</strong> to
               <code>http://&lt;APP_IP&gt;:8080</code> (same host as the
               dashboard). HTTPS is fine — the module derives <code>wss://</code>
-              itself. Save.
+              itself.
+            </li>
+            <li>
+              Paste the <strong>Device token</strong> if this deployment issues
+              them: an admin creates one under
+              <strong>Settings → Machines</strong>, names it, and copies it
+              <em>once</em>. Save.
             </li>
           </ol>
           <p>
-            There is no token to set — the middleware is unauthenticated
-            (LAN-only), so the module has no <strong>Bearer token</strong> field.
+            Leave the token blank on a local install with no accounts — nothing
+            checks it there. On a hosted deployment the token is what identifies
+            this machine: it rides on both the HTTP actions and the WebSocket
+            handshake, never expires, and is revocable on its own. A hosted
+            server may run a <strong>grace period</strong> in which a blank token
+            still connects, but every tokenless connection is recorded and named
+            in a standing dashboard warning — fill the field in before that
+            window closes, not after.
           </p>
           <div class="callout tip">
             <p>
@@ -78,6 +90,17 @@
               failure</strong> means a wrong/unreachable URL or a rejected token
               — fix it and it reconnects on its own. Confirm live: set any key's
               text to <code>$(ytmeta:display_label)</code>.
+            </p>
+            <p>
+              Nobody watches that pill mid-show, though — the operator is looking
+              at a deck. Drop the <strong>Server link</strong> preset onto a key,
+              or add the <strong>Server unreachable</strong> feedback to any key
+              you would otherwise trust: it turns the key magenta the moment the
+              module loses the socket. That matters more on a hosted deployment
+              than it ever did on a laptop, because losing the link no longer
+              means the machine is off — it means the connection blinked while
+              the stream carries on fine, every reading on the deck is stale, and
+              a press lands nowhere.
             </p>
           </div>
         </section>
