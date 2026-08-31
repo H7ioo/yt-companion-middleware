@@ -246,7 +246,14 @@
     const sec = el("section", "bus"); sec.id = bus.id;
     const head = el("div", "bus__head");
     head.appendChild(el("h2", null, bus.name));
-    const authBadge = el("span", "bus__auth is-open", "No auth · LAN");
+    // Two answers only, from the bus's own `auth` field: the dashboard buses sit behind the
+    // session guard (issue 044), the Companion-facing ones are still open on the LAN.
+    const guarded = bus.auth === "session";
+    const authBadge = el(
+      "span",
+      "bus__auth " + (guarded ? "is-token" : "is-open"),
+      guarded ? "Sign-in required" : "No auth · LAN",
+    );
     head.appendChild(authBadge);
     sec.appendChild(head);
     sec.appendChild(el("p", "bus__desc", bus.desc));

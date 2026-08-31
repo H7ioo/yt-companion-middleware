@@ -75,10 +75,18 @@ export class Auth {
   async currentActor(req: Request): Promise<Actor | null> {
     const carrier = req as WithActor;
     if (carrier[ACTOR] !== undefined) return carrier[ACTOR];
-    const token = readCookie(req.headers.cookie, SESSION_COOKIE);
-    const actor = await this.sessions.resolve(token);
+    const actor = await this.actorOfCookies(req.headers.cookie);
     carrier[ACTOR] = actor;
     return actor;
+  }
+
+  /**
+   * Resolves the caller from a raw `Cookie` header. The WebSocket upgrade never runs express
+   * middleware — it is served off the bare HTTP server — so the socket guard asks this directly
+   * instead of going through {@link requireSession} (issue 044).
+   */
+  async actorOfCookies(header: string | undefined): Promise<Actor | null> {
+    return this.sessions.resolve(readCookie(header, SESSION_COOKIE));
   }
 
   /** The actor already resolved for this request, without touching the store again. */

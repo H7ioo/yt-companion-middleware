@@ -26,6 +26,10 @@ import type { Auth } from "./auth/actor.js";
  * This is the list the route-table audit in `guard.integration.test.ts` checks the *real* mounted
  * app against: a route that is neither behind the guard nor named here fails CI rather than
  * shipping open. Adding an entry is therefore a deliberate, reviewable act — which is the point.
+ *
+ * Express mounts only. A WebSocket upgrade never runs express middleware, so the sockets carry
+ * their own table with the same shape — see `WS_ROUTES` in routes/socket.ts, which the same audit
+ * walks.
  */
 export const GUARD_EXEMPTIONS: ReadonlyArray<{ mount: string; why: string }> = [
   {
@@ -40,7 +44,9 @@ export const GUARD_EXEMPTIONS: ReadonlyArray<{ mount: string; why: string }> = [
     mount: "/api/action",
     why:
       "Companion-facing. The module carries no token today, so guarding it is the go-dark " +
-      "outage described in PRD-15 §4 — handled by issues 047 → 048 → 049.",
+      "outage described in PRD-15 §4 — handled by issues 047 → 048 → 049. Note this leaves the " +
+      "module only half-open: it also calls five /api/dashboard/* routes, which the guard below " +
+      "does close on a seeded deployment (see the comment there).",
   },
   {
     mount: "/api/feedback",
@@ -121,6 +127,13 @@ export function mountApiRoutes(app: Express, ctx: AppContext): void {
   //
   // The guard is a pass-through on a deployment with no accounts, so a desktop/LAN install cannot
   // be locked out by it — that switch (issue 043) is what makes widening it safe.
+  //
+  // "Browser-facing" is not the whole truth: the Companion module also calls five routes under
+  // this prefix — GET presets / categories / streams, PUT service, POST fill-request — and on a
+  // seeded deployment they are now closed to it. No install is affected today (no hosted one
+  // exists, and authentication is dormant without a seeded admin), but the token work in issues
+  // 047 → 049 has to cover these five as well as the Companion bases, or a token-carrying module
+  // still goes dark. See the note in issues/done/044-guard-dashboard-routes-and-exemptions.md.
   app.use("/api/dashboard", ctx.auth.requireSession());
 
   app.use("/api/dashboard/presets", presetsRouter(ctx));

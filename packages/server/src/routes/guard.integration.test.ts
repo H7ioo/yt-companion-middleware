@@ -12,7 +12,9 @@ import { QuotaTracker } from "../core/quota.js";
 import { StateEvents } from "../core/events.js";
 import { Logger } from "../core/logger.js";
 import { FillRequests } from "../core/fillRequests.js";
+import WebSocket from "ws";
 import { GUARD_EXEMPTIONS, mountApiRoutes, mountBootRoutes, mountWebApp } from "../app.js";
+import { attachStateSocket, WS_ROUTES } from "./socket.js";
 import { mountDocsRoutes } from "./docs.js";
 import type { AppContext } from "./context.js";
 import { Auth, SESSION_COOKIE } from "../auth/actor.js";
@@ -51,20 +53,38 @@ function mountsOf(app: Express): Mount[] {
 
   for (const layer of (app as any)._router.stack as any[]) {
     if (layer.route) {
-      const p = layer.route.path;
-      // A regex route — only the SPA catch-all. It has no path to print, so it is named.
-      if (typeof p !== "string") push("SPA", "/");
-      else push(p, p);
+      // `app.get(path)` accepts a string, a regexp, or an array of either.
+      const paths: unknown[] = Array.isArray(layer.route.path)
+        ? layer.route.path
+        : [layer.route.path];
+      for (const p of paths) {
+        if (typeof p === "string") push(p, p);
+        // The SPA catch-all is the one regexp route this app has, and it has no path to print,
+        // so it is named. Any *other* non-string path is unrecognised — probed at "/" so it
+        // answers 200 and lands in the audit's failure list rather than being waved through as
+        // the exempt SPA.
+        else if (String(p) === String(SPA_CATCHALL)) push("SPA", "/");
+        else push(`unrecognised route ${String(p)}`, "/");
+      }
       continue;
     }
     const mount = pathOfMount(layer.regexp);
+    // A shape the reader below does not know. Probed at "/" for the same reason: an unreadable
+    // mount must fail the audit, not disappear from it.
+    if (mount === null) {
+      push(`unparsed mount ${String(layer.regexp)}`, "/");
+      continue;
+    }
     // Global middleware (json parsing, express.static, the guard's own prefix layer) mounts at
     // "/" and is not a route table entry.
-    if (!mount || mount === "/") continue;
+    if (mount === "" || mount === "/") continue;
     push(mount, `${mount}/__guard_audit__`);
   }
   return found;
 }
+
+/** The dashboard bundle's catch-all, as app.ts registers it. */
+const SPA_CATCHALL = /^(?!\/api\/).*/;
 
 /** `/^\/api\/dashboard\/logs\/?(?=\/|$)/i` → `/api/dashboard/logs`. */
 function pathOfMount(regexp: RegExp): string | null {
@@ -141,6 +161,9 @@ async function boot(seed: { name: string; password: string } | null): Promise<Ha
   mountWebApp(app, webDist);
 
   const server = http.createServer(app);
+  // Attached exactly as server.ts does: the upgrade handler answers off the bare HTTP server,
+  // below every express middleware, so it is the half of the surface the mount walk cannot see.
+  const wss = attachStateSocket(server, ctx);
   await new Promise<void>((r) => server.listen(0, r));
   const { port } = server.address() as { port: number };
   return {
@@ -148,11 +171,37 @@ async function boot(seed: { name: string; password: string } | null): Promise<Ha
     auth,
     app,
     close: async () => {
+      for (const client of wss.clients) client.terminate();
+      await new Promise<void>((r) => wss.close(() => r()));
       server.closeAllConnections?.();
       await new Promise<void>((r) => server.close(() => r()));
       await fs.rm(dir, { recursive: true, force: true });
     },
   };
+}
+
+/**
+ * Opens a socket and reports how it went: "open" when the upgrade succeeded, or the HTTP status
+ * the server refused it with. A refusal arrives as an `unexpected-server-response` error, not a
+ * close frame — there is no socket to close in that case.
+ */
+async function upgrade(h: Harness, route: string, cookie?: string): Promise<"open" | number> {
+  const ws = new WebSocket(`${h.url.replace("http://", "ws://")}${route}`, {
+    headers: cookie ? { cookie } : {},
+  });
+  try {
+    return await new Promise<"open" | number>((resolve, reject) => {
+      ws.once("open", () => resolve("open"));
+      ws.once("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
+      ws.once("error", (err) => {
+        const status = /Unexpected server response: (\d+)/.exec(String(err))?.[1];
+        if (status) resolve(Number(status));
+        else reject(err);
+      });
+    });
+  } finally {
+    ws.close();
+  }
 }
 
 /**
@@ -215,6 +264,41 @@ describe("the route-table audit", () => {
     expect(labels).toContain("/api/feedback/health");
     expect(labels).toContain("SPA");
     expect(labels.length).toBeGreaterThan(15);
+  });
+});
+
+describe("the socket audit", () => {
+  beforeEach(async () => {
+    h = await boot(ADMIN);
+  });
+
+  it("guards every socket that is not an explicit, reasoned exemption", async () => {
+    // The express walk above cannot see these: an upgrade is served off the HTTP server and runs
+    // no middleware, so /api/dashboard/ws would otherwise have shipped open with the audit green.
+    const open: string[] = [];
+    for (const route of WS_ROUTES) {
+      if (!route.guarded) continue;
+      if ((await upgrade(h, route.path)) !== 401) open.push(route.path);
+    }
+    expect(open).toEqual([]);
+  });
+
+  it("gives every unguarded socket a stated reason", () => {
+    expect(WS_ROUTES.filter((r) => !r.guarded && r.why.trim().length < 20)).toEqual([]);
+  });
+
+  it("leaves the Companion socket open, as its base is", async () => {
+    expect(await upgrade(h, "/api/feedback/ws")).toBe("open");
+  });
+
+  it("lets the signed-in admin through", async () => {
+    expect(await upgrade(h, "/api/dashboard/ws", await signIn(h))).toBe("open");
+  });
+
+  it("covers every path the upgrade handler answers on", () => {
+    // The guard is only worth as much as this list: a socket added to socket.ts without an entry
+    // here would be answered and never audited.
+    expect(WS_ROUTES.map((r) => r.path).sort()).toEqual(["/api/dashboard/ws", "/api/feedback/ws"]);
   });
 });
 
@@ -304,5 +388,7 @@ describe("a deployment with no accounts", () => {
     ]) {
       expect(await probe(h, route), route).toBe(200);
     }
+    // Including the socket guard, which asks the same dormant question the express one does.
+    expect(await upgrade(h, "/api/dashboard/ws")).toBe("open");
   });
 });

@@ -79,5 +79,28 @@ PRD-15 §4 frames the token work around the Companion base only. **Grace mode (0
 No live deployment is affected today: authentication is dormant until an admin is seeded, and no
 hosted install exists yet.
 
+## Review follow-ups — 2026-08-31
+
+Five findings from the branch review, all closed in `fix(auth): close the socket hole the prefix
+guard could not see`:
+
+- **`/api/dashboard/ws` was open.** A WebSocket upgrade is served off the bare HTTP server and
+  runs no express middleware, so the prefix guard never saw it — a signed-out client got the whole
+  state stream on a seeded host, and the audit could not see it either. `socket.ts` now carries
+  `WS_ROUTES`, a table with the same guarded/why shape as `GUARD_EXEMPTIONS`, checks a session on
+  the upgrade (via the new `Auth.actorOfCookies`), and the audit walks that table too.
+- **The audit labelled *any* non-string route path `"SPA"`** — which is on the exemption list — so
+  a future regexp or array path would have shipped open with CI green. It now matches the SPA
+  catch-all by its actual source, and anything else (including a mount regexp it cannot parse)
+  gets a probe that answers 200 and lands in the failure list.
+- **No 401 recovery in the dashboard.** With every dashboard route guarded, an expired session
+  turned every panel into "Request failed (401)" with no way back short of a manual reload.
+  `api.ts` now publishes `onSessionLost`, and `main.tsx` shows the login screen on any 401 from a
+  guarded route.
+- The exemption comments claimed Companion-facing routes were untouched; the five
+  `/api/dashboard/*` routes the module calls are named in `app.ts` now, beside the guard itself.
+- The `/docs` console advertised `auth:false` for every dashboard endpoint. Those buses now read
+  as session-guarded, badge included.
+
 Still open, as scoped: roles are stored but unenforced (045), and the seeded admin cannot change
 its own password (noted in 043).
