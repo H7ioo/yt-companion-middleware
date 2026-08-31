@@ -6,6 +6,8 @@ import {
   type Person,
   type InviteSummary,
   type DeviceSession,
+  type DeviceTokenSummary,
+  type GraceReadout,
   type SetupStatus,
   type StreamInfo,
 } from "../api.js";
@@ -66,6 +68,12 @@ export function SettingsPanel({
   // Whose devices the newest fetch was for. Two quick clicks race, and the loser must not paint
   // one person's sessions under another's name — "Sign out" there would hit the wrong account.
   const devicesFor = useRef<string | null>(null);
+  // Keys for machines, and the evidence for ending grace mode (issue 047). `freshKey` is the one
+  // key this browser has just minted — the server keeps only a hash, so this is its only copy.
+  const [machines, setMachines] = useState<DeviceTokenSummary[]>([]);
+  const [machineName, setMachineName] = useState("");
+  const [freshKey, setFreshKey] = useState<{ id: string; name: string; token: string } | null>(null);
+  const [grace, setGrace] = useState<GraceReadout | null>(null);
   useEscape(busy === "idle" ? onClose : () => {});
 
   const loadStatus = () => api.setup.status().then(setStatus).catch(() => {});
@@ -99,6 +107,62 @@ export function SettingsPanel({
     } finally {
       setSavingRole(null);
       await loadPeople();
+    }
+  };
+
+  const loadMachines = () =>
+    Promise.all([api.machines.list(), api.machines.grace()])
+      .then(([m, g]) => {
+        setMachines(m.tokens);
+        setGrace(g);
+      })
+      // A user never gets here (the section is admin-only), so a failure means the server said no
+      // or is unreachable: show no section rather than an error nobody can act on.
+      .catch(() => {
+        setMachines([]);
+        setGrace(null);
+      });
+  useEffect(() => {
+    if (canAdminister) void loadMachines();
+  }, [canAdminister]);
+
+  /**
+   * Mints a key and shows it. It is in the response and nowhere else, so it is held in state
+   * until this panel closes and the admin is told plainly that it will not come back.
+   */
+  const createMachine = async () => {
+    try {
+      const created = await api.machines.create(machineName.trim());
+      setFreshKey({
+        id: created.device.id,
+        name: created.device.name,
+        token: created.token,
+      });
+      setMachineName("");
+      flash(`Key created for ${created.device.name} — copy it before you close this`);
+    } catch (e) {
+      flash((e as Error).message, "err");
+    } finally {
+      await loadMachines();
+    }
+  };
+
+  /**
+   * Revokes a key. Confirmed first, because this one is not undoable in the way removing a person
+   * is: there is no key to put back, and the machine holding it stops working mid-show.
+   */
+  const revokeMachine = async (machine: DeviceTokenSummary) => {
+    if (!window.confirm(`Revoke the key for ${machine.name}? That machine stops working at once.`)) {
+      return;
+    }
+    try {
+      await api.machines.revoke(machine.id);
+      if (freshKey?.id === machine.id) setFreshKey(null);
+      flash(`${machine.name} revoked`);
+    } catch (e) {
+      flash((e as Error).message, "err");
+    } finally {
+      await loadMachines();
     }
   };
 
@@ -526,6 +590,151 @@ export function SettingsPanel({
           </section>
         ) : null}
 
+        {/* ---- Machines (issue 047) ---- */}
+        {canAdminister && people.length > 0 ? (
+          <section className="settings__section">
+            <h3 className="settings__title">Machines</h3>
+            <p className="empty" style={{ marginTop: 0 }}>
+              Companion runs unattended, so it signs in with a key instead of a password. A key can
+              run the show and nothing else — it can never manage people or the YouTube connection.
+            </p>
+
+            {grace ? (
+              <div className={`grace${grace.met ? " grace--met" : ""}`}>
+                <p className="grace__lede">
+                  {grace.enforcing
+                    ? "A key is required. Anything without one is refused."
+                    : grace.lastTokenlessAt
+                      ? "Something is still connecting without a key."
+                      : "Nothing has connected without a key."}
+                </p>
+                {/* Two gauges, never one verdict. A fortnight of quiet on its own is not evidence:
+                    an off-season satisfies it while a keyless machine sits powered down, and the
+                    next show goes dark. Both halves are on screen so neither can be read alone. */}
+                <div className="grace__gauges">
+                  <div
+                    className={`grace__gauge${
+                      grace.daysSinceTokenless === null ||
+                      grace.daysSinceTokenless >= grace.daysRequired
+                        ? " grace__gauge--held"
+                        : ""
+                    }`}
+                  >
+                    <span className="grace__gauge-label">Quiet days</span>
+                    <span className="grace__gauge-value">
+                      {grace.daysSinceTokenless === null ? (
+                        "none seen"
+                      ) : (
+                        <>
+                          {grace.daysSinceTokenless}
+                          <span className="grace__gauge-of"> / {grace.daysRequired}</span>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <div
+                    className={`grace__gauge${
+                      grace.goLivesSinceTokenless >= grace.goLivesRequired
+                        ? " grace__gauge--held"
+                        : ""
+                    }`}
+                  >
+                    <span className="grace__gauge-label">Go-lives since</span>
+                    <span className="grace__gauge-value">
+                      {grace.goLivesSinceTokenless}
+                      <span className="grace__gauge-of"> / {grace.goLivesRequired}</span>
+                    </span>
+                  </div>
+                </div>
+                <p className="grace__verdict">{graceVerdict(grace)}</p>
+                {grace.lastTokenlessAt ? (
+                  <p className="grace__last">
+                    Last on {formatDay(grace.lastTokenlessAt)} ·{" "}
+                    {grace.lastTokenlessClient ?? "unnamed client"}
+                    {grace.lastTokenlessFrom ? ` · ${grace.lastTokenlessFrom}` : ""}
+                    {grace.lastTokenlessRoute ? ` · ${grace.lastTokenlessRoute}` : ""} ·{" "}
+                    {grace.tokenlessCount} in total
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="field--row" style={{ marginTop: 12 }}>
+              <div className="field">
+                <label htmlFor="machine-name">Machine name</label>
+                <input
+                  id="machine-name"
+                  value={machineName}
+                  placeholder="companion machine"
+                  onChange={(e) => setMachineName(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>&nbsp;</label>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={!machineName.trim()}
+                  onClick={() => void createMachine()}
+                >
+                  Create key
+                </button>
+              </div>
+            </div>
+
+            {freshKey ? (
+              <>
+                <div className="invite-link">
+                  <span className="invite-link__url">{freshKey.token}</span>
+                  <button
+                    className="btn btn--ghost"
+                    type="button"
+                    onClick={() => void navigator.clipboard?.writeText(freshKey.token)}
+                  >
+                    Copy
+                  </button>
+                </div>
+                <p className="hint" style={{ marginTop: 6 }}>
+                  Copy this now — the key is not shown again. Paste it into {freshKey.name}&rsquo;s
+                  Companion module settings. Losing it means revoking this key and creating another.
+                </p>
+              </>
+            ) : null}
+
+            {machines.length > 0 ? (
+              <ul className="invites">
+                {machines.map((machine) => (
+                  <li
+                    className={`invites__row${machine.revokedAt ? " invites__row--spent" : ""}`}
+                    key={machine.id}
+                  >
+                    <span>
+                      {machine.name}
+                      <span className="invites__meta">
+                        {" · "}
+                        {machine.revokedAt
+                          ? `revoked ${formatDay(machine.revokedAt)}`
+                          : machine.lastUsedAt
+                            ? `last used ${formatDay(machine.lastUsedAt)}`
+                            : "never used"}
+                      </span>
+                    </span>
+                    {machine.revokedAt ? null : (
+                      <button
+                        className="btn btn--ghost btn--sm"
+                        type="button"
+                        onClick={() => void revokeMachine(machine)}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        ) : null}
+
         {/* ---- App defaults ---- */}
         <section className="settings__section">
           <h3 className="settings__title">App defaults</h3>
@@ -594,6 +803,27 @@ async function settle(done: (s: SetupStatus) => boolean, timeoutMs = 15000): Pro
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * What the two counters add up to, in a sentence that names the half still missing (issue 047).
+ *
+ * Stated rather than left to be inferred from two numbers, because the decision it feeds — turn
+ * the requirement on, or wait — is made once, by someone who will not be reading it again.
+ */
+function graceVerdict(g: GraceReadout): string {
+  if (g.enforcing) return "A key is required on every Companion connection.";
+  if (g.met) {
+    return "Both halves hold. It is safe to require a key — do it on a night that is not a show night, with the operator there.";
+  }
+  const daysHeld = g.daysSinceTokenless === null || g.daysSinceTokenless >= g.daysRequired;
+  if (!daysHeld && g.goLivesSinceTokenless < g.goLivesRequired) {
+    return "Not yet. Give every machine a key, then wait — anything that connects without one puts both counts back to zero.";
+  }
+  if (!daysHeld) {
+    return "Not yet: a show has run on a key, but something connected without one more recently.";
+  }
+  return "Not yet: quiet days alone are not evidence. An off-season fortnight would pass while a keyless machine sat powered down. Waiting on a go-live.";
 }
 
 /**

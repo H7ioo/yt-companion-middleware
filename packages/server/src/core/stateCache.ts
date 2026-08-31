@@ -95,6 +95,14 @@ export class StateCache {
    */
   private presetEpoch = 0;
 
+  /**
+   * Told about every broadcast observed on air, set post-construction (issue 047). Grace mode's
+   * exit condition needs a go-live counter beside its clock, and the poll loop is the one place
+   * that already watches broadcasts change state — so the counter is fed from here rather than
+   * from a second watcher that would have its own quota cost and its own way to be wrong.
+   */
+  private onLive: ((broadcastId: string) => void | Promise<void>) | null = null;
+
   constructor(
     private readonly yt: youtube_v3.Youtube,
     private readonly store: JsonStore,
@@ -102,6 +110,32 @@ export class StateCache {
     private readonly events?: StateEvents,
     private readonly logger?: Logger,
   ) {}
+
+  /**
+   * Registers the go-live watcher. Set after construction like the replay handler, because Auth
+   * and the cache are built at different points in the boot and neither should have to know the
+   * other exists to be constructed.
+   */
+  setGoLiveHandler(handler: (broadcastId: string) => void | Promise<void>): void {
+    this.onLive = handler;
+  }
+
+  /**
+   * Reports a broadcast seen on air. Deduplication of "the same show, seen every five seconds"
+   * is the watcher's job, not this one's — it holds the id it last counted, and this call has no
+   * memory of its own to drift from it.
+   *
+   * A failure here is swallowed: a counter for a migration readout must never be the reason a
+   * refresh that reached YouTube gets recorded as a failed one.
+   */
+  private async noteGoLive(target: { id: string; isLive: boolean }): Promise<void> {
+    if (!this.onLive || !target.isLive) return;
+    try {
+      await this.onLive(target.id);
+    } catch (err) {
+      console.warn("[stateCache] go-live watcher failed:", err);
+    }
+  }
 
   /** Emit a "connection recovered" line when a refresh clears a previously-unhealthy state. */
   private logRecovery(wasUnhealthy: boolean): void {
@@ -191,6 +225,7 @@ export class StateCache {
       // Ordered after the cache write so the dashboard reflects the live broadcast even if the
       // replay itself fails; the replay writes the cache again on success.
       await this.replayPendingIfNeeded(previous, target);
+      await this.noteGoLive(target);
     } catch (err) {
       const mapped = mapYouTubeError(err);
       // An idle channel with no active/persistent broadcast is an expected state, not a

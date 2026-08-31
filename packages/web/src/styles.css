@@ -1985,3 +1985,86 @@ textarea {
   font-size: 12px;
   color: var(--ink-dim);
 }
+
+/* ---- Machines and the grace-mode evidence (issue 047) ------------------------------------ */
+
+/* The standing warning. Amber, not red: something is still connecting the old way, which is a
+   migration that has not finished — not a fault. Turns green only when both halves of the exit
+   condition hold, because a panel that goes green on one of them is the bug this slice exists
+   to prevent. */
+.grace {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: var(--seam-line);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+}
+.grace--met {
+  border-left-color: var(--ready);
+}
+.grace__lede {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* Two gauges side by side, and deliberately never collapsed into one figure. Reading either on
+   its own gives the wrong answer, so neither is ever on screen without the other. */
+.grace__gauges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+.grace__gauge {
+  flex: 1 1 130px;
+  padding: 8px 10px;
+  border: var(--seam-line);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.grace__gauge-label {
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.grace__gauge-value {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+}
+/* The half that is satisfied. Colour is on the number rather than the card, so a glance reads
+   "one of two", not "this panel is fine". */
+.grace__gauge--held .grace__gauge-value {
+  color: var(--ready);
+}
+.grace__gauge-of {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+.grace__verdict {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+/* Who was last seen connecting without a key. Monospace because it is a client string, an
+   address and a route — three things read character by character, not as prose. */
+.grace__last {
+  margin: 6px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}

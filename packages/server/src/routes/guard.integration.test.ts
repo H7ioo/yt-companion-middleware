@@ -99,6 +99,7 @@ function pathOfMount(regexp: RegExp): string | null {
 interface Harness {
   url: string;
   auth: Auth;
+  store: JsonStore;
   app: Express;
   close: () => Promise<void>;
 }
@@ -173,6 +174,7 @@ async function boot(seed: { name: string; password: string } | null): Promise<Ha
   return {
     url: `http://127.0.0.1:${port}`,
     auth,
+    store,
     app,
     close: async () => {
       for (const client of wss.clients) client.terminate();
@@ -189,9 +191,14 @@ async function boot(seed: { name: string; password: string } | null): Promise<Ha
  * the server refused it with. A refusal arrives as an `unexpected-server-response` error, not a
  * close frame — there is no socket to close in that case.
  */
-async function upgrade(h: Harness, route: string, cookie?: string): Promise<"open" | number> {
+async function upgrade(
+  h: Harness,
+  route: string,
+  cookie?: string,
+  headers: Record<string, string> = {},
+): Promise<"open" | number> {
   const ws = new WebSocket(`${h.url.replace("http://", "ws://")}${route}`, {
-    headers: cookie ? { cookie } : {},
+    headers: { ...(cookie ? { cookie } : {}), ...headers },
   });
   try {
     return await new Promise<"open" | number>((resolve, reject) => {
@@ -303,6 +310,108 @@ describe("the socket audit", () => {
     // The guard is only worth as much as this list: a socket added to socket.ts without an entry
     // here would be answered and never audited.
     expect(WS_ROUTES.map((r) => r.path).sort()).toEqual(["/api/dashboard/ws", "/api/feedback/ws"]);
+  });
+});
+
+describe("device tokens at the handshake", () => {
+  // The half of issue 047 the HTTP tests cannot reach. The module speaks both HTTP and this
+  // socket, so a token checked on one and not the other guards nothing.
+  beforeEach(async () => {
+    h = await boot(ADMIN);
+  });
+
+  /**
+   * Mints a token the way an admin would. Straight through the store rather than over HTTP: the
+   * route that does this is covered in devices.integration.test.ts, and what these tests are
+   * about is the *handshake*, not how the credential was obtained.
+   */
+  async function mint(name = "companion machine"): Promise<{ token: string; id: string }> {
+    const admin = h.store.get().accounts.find((a) => a.role === "admin")!;
+    const created = await h.auth.devices.create({ name, createdBy: admin.id });
+    return { token: created.token, id: created.record.id };
+  }
+
+  it("admits a device token on the dashboard socket, which a cookie-only guard would refuse", async () => {
+    const { token } = await mint();
+    expect(await upgrade(h, "/api/dashboard/ws", undefined, { authorization: `Bearer ${token}` })).toBe(
+      "open",
+    );
+  });
+
+  it("still refuses a bad token, so the header is a check and not a bypass", async () => {
+    expect(
+      await upgrade(h, "/api/dashboard/ws", undefined, { authorization: "Bearer ytm_nonsense" }),
+    ).toBe(401);
+  });
+
+  it("drops the live socket when the token is revoked", async () => {
+    const { token, id } = await mint();
+    const ws = new WebSocket(`${h.url.replace("http://", "ws://")}/api/dashboard/ws`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    await new Promise<void>((resolve, reject) => {
+      ws.once("open", () => resolve());
+      ws.once("error", reject);
+    });
+
+    const closed = new Promise<number>((resolve) => ws.once("close", (code) => resolve(code)));
+    await h.auth.devices.revoke(id);
+    h.auth.announceDeviceRevoked(id);
+
+    // Not "on its next request": a Companion box opens one socket and holds it for weeks, so a
+    // revocation that waits for a reconnect never takes effect at all.
+    expect(await closed).toBe(4401);
+  });
+
+  it("records a tokenless Companion handshake rather than letting it pass unseen", async () => {
+    expect(h.auth.grace.readout().tokenlessCount).toBe(0);
+    expect(await upgrade(h, "/api/feedback/ws")).toBe("open");
+    const g = h.auth.grace.readout();
+    expect(g.tokenlessCount).toBe(1);
+    expect(g.lastTokenlessRoute).toBe("/api/feedback/ws");
+  });
+
+  it("refuses a revoked token on the Companion endpoints instead of admitting it as tokenless", async () => {
+    // The loophole revocation had: verify() returns null for a revoked token, and the guard read
+    // that as "sent no token" and handed it the grace path. The box carried on running the show,
+    // and its socket reconnected the moment the 4401 above cut it.
+    const { token, id } = await mint();
+    await h.auth.devices.revoke(id);
+    const auth = { authorization: `Bearer ${token}` };
+
+    const action = await fetch(`${h.url}/api/action`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...auth },
+      body: JSON.stringify({ action: "refresh" }),
+    });
+    await action.body?.cancel();
+    expect(action.status).toBe(401);
+
+    const feedback = await fetch(`${h.url}/api/feedback`, { headers: auth });
+    await feedback.body?.cancel();
+    expect(feedback.status).toBe(401);
+
+    expect(await upgrade(h, "/api/feedback/ws", undefined, auth)).toBe(401);
+    // And it is a refusal, not a recorded tokenless connection: the exit condition must not be
+    // reset by a caller that did present a credential.
+    expect(h.auth.grace.readout().tokenlessCount).toBe(0);
+  });
+
+  it("counts one tokenless SSE connect once, not once per guard the path matches", async () => {
+    // /api/feedback/stream matches both the /api/feedback mount and its own app.get, so the
+    // guard runs twice on it. It used to record twice, inflating the number the exit condition
+    // is read from — the one thing the counter has to get right.
+    expect(await probe(h, "/api/feedback/stream")).toBe(200);
+    expect(h.auth.grace.readout().tokenlessCount).toBe(1);
+  });
+
+  it("refuses a tokenless handshake once enforcement is on, and admits a token", async () => {
+    const { token } = await mint();
+    await h.auth.grace.setEnforcing(true);
+    expect(await upgrade(h, "/api/feedback/ws")).toBe(401);
+    expect(
+      await upgrade(h, "/api/feedback/ws", undefined, { authorization: `Bearer ${token}` }),
+    ).toBe("open");
   });
 });
 

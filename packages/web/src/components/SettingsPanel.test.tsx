@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { DeviceSession, InviteSummary, Person, SetupStatus } from "@app/shared";
+import type {
+  DeviceSession,
+  DeviceTokenSummary,
+  GraceReadout,
+  InviteSummary,
+  Person,
+  SetupStatus,
+} from "@app/shared";
 import { SettingsPanel } from "./SettingsPanel.js";
 
 /**
@@ -20,6 +27,11 @@ const cancelInvite = vi.fn<(id: string) => Promise<{ ok: boolean }>>();
 const removePerson = vi.fn<(id: string) => Promise<{ account: Person }>>();
 const listSessions = vi.fn<(id: string) => Promise<{ sessions: DeviceSession[] }>>();
 const revokeSession = vi.fn<(id: string, sessionId: string) => Promise<{ ok: boolean }>>();
+const listMachines = vi.fn<() => Promise<{ tokens: DeviceTokenSummary[] }>>();
+const createMachine =
+  vi.fn<(name: string) => Promise<{ token: string; device: DeviceTokenSummary }>>();
+const revokeMachine = vi.fn<(id: string) => Promise<{ device: DeviceTokenSummary }>>();
+const graceOf = vi.fn<() => Promise<GraceReadout>>();
 
 vi.mock("../api.js", () => ({
   api: {
@@ -34,8 +46,39 @@ vi.mock("../api.js", () => ({
       sessions: (id: string) => listSessions(id),
       revokeSession: (id: string, sessionId: string) => revokeSession(id, sessionId),
     },
+    machines: {
+      list: () => listMachines(),
+      create: (name: string) => createMachine(name),
+      revoke: (id: string) => revokeMachine(id),
+      grace: () => graceOf(),
+    },
   },
 }));
+
+const machine = (over: Partial<DeviceTokenSummary> = {}): DeviceTokenSummary => ({
+  id: "m1",
+  name: "companion machine",
+  createdAt: "2026-08-01T00:00:00.000Z",
+  createdBy: "operator",
+  lastUsedAt: null,
+  revokedAt: null,
+  ...over,
+});
+
+const grace = (over: Partial<GraceReadout> = {}): GraceReadout => ({
+  enforcing: false,
+  daysSinceTokenless: 2,
+  daysRequired: 14,
+  goLivesSinceTokenless: 0,
+  goLivesRequired: 1,
+  met: false,
+  lastTokenlessAt: "2026-08-29T10:00:00.000Z",
+  lastTokenlessClient: "Companion/3.4.0",
+  lastTokenlessFrom: "192.168.1.40",
+  lastTokenlessRoute: "/api/action",
+  tokenlessCount: 37,
+  ...over,
+});
 
 const person = (over: Partial<Person> = {}): Person => ({
   id: "a1",
@@ -86,6 +129,12 @@ beforeEach(() => {
   status.mockResolvedValue(setupStatus());
   listPeople.mockResolvedValue({ accounts: [] });
   listInvites.mockResolvedValue({ invites: [] });
+  listMachines.mockReset();
+  createMachine.mockReset();
+  revokeMachine.mockReset();
+  graceOf.mockReset();
+  listMachines.mockResolvedValue({ tokens: [] });
+  graceOf.mockResolvedValue(grace());
 });
 afterEach(cleanup);
 
@@ -296,5 +345,89 @@ describe("cutting someone off", () => {
     await screen.findByText("camera");
     fireEvent.click(screen.getAllByRole("button", { name: /devices/i })[1]);
     expect(await screen.findByText(/not signed in on any device/i)).toBeTruthy();
+  });
+});
+
+describe("the machines section", () => {
+  beforeEach(() => {
+    listPeople.mockResolvedValue({ accounts: [person(), person({ id: "a2", name: "camera", role: "user", seeded: false })] });
+  });
+
+  it("is not offered to a user — a key that runs the show is an admin's to hand out", async () => {
+    panel(false);
+    await waitFor(() => expect(screen.getByLabelText(/default category/i)).toBeTruthy());
+    expect(screen.queryByRole("heading", { name: /machines/i })).toBeNull();
+  });
+
+  it("shows both halves of the evidence, never a single verdict", async () => {
+    graceOf.mockResolvedValue(grace({ daysSinceTokenless: 14, goLivesSinceTokenless: 0 }));
+    panel(true);
+
+    // The off-season case: the clock is satisfied and the answer is still no. A panel that
+    // showed only the days here would say "ready" and take the next show dark.
+    // Both gauges, with their thresholds, and the verdict that reads them together.
+    expect(await screen.findByText("Quiet days")).toBeTruthy();
+    expect(screen.getByText("Go-lives since")).toBeTruthy();
+    expect(screen.getByText("/ 14")).toBeTruthy();
+    expect(screen.getByText("/ 1")).toBeTruthy();
+    expect(screen.getByText(/quiet days alone are not evidence/i)).toBeTruthy();
+  });
+
+  it("names what is still connecting the old way", async () => {
+    panel(true);
+    expect(await screen.findByText(/still connecting without a key/i)).toBeTruthy();
+    expect(screen.getByText(/Companion\/3\.4\.0/)).toBeTruthy();
+    expect(screen.getByText(/192\.168\.1\.40/)).toBeTruthy();
+  });
+
+  it("calls it safe only when both halves hold", async () => {
+    graceOf.mockResolvedValue(grace({ daysSinceTokenless: 21, goLivesSinceTokenless: 2, met: true }));
+    panel(true);
+    expect(await screen.findByText(/both halves hold/i)).toBeTruthy();
+  });
+
+  it("shows a minted key once, and says it will not come back", async () => {
+    createMachine.mockResolvedValue({ token: "ytm_abc123", device: machine() });
+    panel(true);
+
+    const name = await screen.findByLabelText(/machine name/i);
+    fireEvent.change(name, { target: { value: "booth laptop" } });
+    fireEvent.click(screen.getByRole("button", { name: /create key/i }));
+
+    expect(await screen.findByText("ytm_abc123")).toBeTruthy();
+    expect(screen.getByText(/not shown again/i)).toBeTruthy();
+    expect(createMachine).toHaveBeenCalledWith("booth laptop");
+  });
+
+  it("will not mint a nameless key, because a nameless key cannot be revoked with confidence", async () => {
+    panel(true);
+    const button = await screen.findByRole("button", { name: /create key/i });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("lists a revoked key as a record rather than dropping it", async () => {
+    listMachines.mockResolvedValue({
+      tokens: [machine({ revokedAt: "2026-08-30T00:00:00.000Z", lastUsedAt: "2026-08-29T00:00:00.000Z" })],
+    });
+    panel(true);
+    expect(await screen.findByText(/revoked/i)).toBeTruthy();
+    // No button on a key that is already dead: one that always fails is worse than none.
+    expect(screen.queryByRole("button", { name: /^revoke$/i })).toBeNull();
+  });
+
+  it("confirms before cutting a machine off mid-show", async () => {
+    listMachines.mockResolvedValue({ tokens: [machine()] });
+    revokeMachine.mockResolvedValue({ device: machine({ revokedAt: "2026-08-31T00:00:00.000Z" }) });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    panel(true);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^revoke$/i }));
+    expect(confirm).toHaveBeenCalled();
+    expect(revokeMachine).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: /^revoke$/i }));
+    await waitFor(() => expect(revokeMachine).toHaveBeenCalledWith("m1"));
+    confirm.mockRestore();
   });
 });

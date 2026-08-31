@@ -33,6 +33,8 @@ export type {
   Person,
   InviteSummary,
   DeviceSession,
+  DeviceTokenSummary,
+  GraceReadout,
 } from "@app/shared";
 
 import type {
@@ -54,6 +56,8 @@ import type {
   Person,
   InviteSummary,
   DeviceSession,
+  DeviceTokenSummary,
+  GraceReadout,
 } from "@app/shared";
 
 /** Preset payload for create/update — the full preset minus its server-assigned id. */
@@ -165,6 +169,27 @@ export const api = {
       ),
     cancelInvite: (id: string) =>
       req<{ ok: boolean }>(`/api/dashboard/people/invites/${id}`, { method: "DELETE" }),
+  },
+  /**
+   * Keys for machines, and the evidence for ending grace mode (issue 047). Admin-only on the
+   * server, for the reason the admin guard exists: a credential that can mint credentials is an
+   * admin with extra steps.
+   */
+  machines: {
+    list: () => req<{ tokens: DeviceTokenSummary[] }>("/api/dashboard/devices"),
+    /**
+     * Mints a key. `token` comes back **once** — the server keeps only a hash, so there is
+     * nothing to ask for a second time and the caller has to show it before navigating away.
+     */
+    create: (name: string) =>
+      req<{ token: string; device: DeviceTokenSummary }>("/api/dashboard/devices", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      }),
+    revoke: (id: string) =>
+      req<{ device: DeviceTokenSummary }>(`/api/dashboard/devices/${id}`, { method: "DELETE" }),
+    /** Both halves of the exit condition, and the verdict that needs both of them. */
+    grace: () => req<GraceReadout>("/api/dashboard/devices/grace"),
   },
   /**
    * Redeeming an invite (issue 046). Deliberately outside `people`: these two are the only calls
