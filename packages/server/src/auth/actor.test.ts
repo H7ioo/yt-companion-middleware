@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { JsonStore } from "../storage/jsonStore.js";
 import { Auth, readCookie, SESSION_COOKIE, setSessionCookie } from "./actor.js";
+import { createAccount } from "./accounts.js";
 
 let dir: string;
 let store: JsonStore;
@@ -33,6 +34,12 @@ async function serve(auth: Auth): Promise<void> {
   app.get("/guarded", auth.requireSession(), (req, res) => {
     res.json({ who: auth.actorOf(req)?.account.name ?? null });
   });
+  app.get(
+    "/admin-only",
+    auth.requireSession(),
+    auth.requireAdmin(),
+    (req, res) => res.json({ who: auth.actorOf(req)?.account.name ?? null }),
+  );
   app.get("/open", (_req, res) => res.json({ ok: true }));
   server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -98,6 +105,55 @@ describe("the guarded route", () => {
     await serve(auth);
     expect(auth.required).toBe(false);
     expect((await call("/guarded")).status).toBe(200);
+  });
+});
+
+describe("the admin-only route", () => {
+  /** Signs someone in and returns their Cookie header. */
+  async function cookieFor(auth: Auth, name: string, password: string): Promise<string> {
+    const signIn = await auth.signIn(name, password, "1.2.3.4");
+    if (!signIn.ok) throw new Error(`could not sign ${name} in`);
+    return `${SESSION_COOKIE}=${signIn.token}`;
+  }
+
+  it("admits an admin", async () => {
+    const auth = new Auth(store);
+    await auth.seed({ name: "operator", password: "a-long-enough-secret" });
+    await serve(auth);
+    const res = await call("/admin-only", {
+      headers: { cookie: await cookieFor(auth, "operator", "a-long-enough-secret") },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.who).toBe("operator");
+  });
+
+  it("refuses a signed-in user, and says so rather than pretending they are signed out", async () => {
+    // 403, not 401: a 401 would send the dashboard to the login screen, where signing in again
+    // as the same person changes nothing. The person is known; the answer is no.
+    const auth = new Auth(store);
+    await auth.seed({ name: "operator", password: "a-long-enough-secret" });
+    await createAccount(store, { name: "camera", password: "another-long-secret", role: "user" });
+    await serve(auth);
+    const res = await call("/admin-only", {
+      headers: { cookie: await cookieFor(auth, "camera", "another-long-secret") },
+    });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe("FORBIDDEN");
+  });
+
+  it("refuses a caller with no session at all", async () => {
+    const auth = new Auth(store);
+    await auth.seed({ name: "operator", password: "a-long-enough-secret" });
+    await serve(auth);
+    expect((await call("/admin-only")).status).toBe(401);
+  });
+
+  it("passes everyone through when the deployment has no accounts", async () => {
+    // The desktop/LAN install again: one operator, no accounts, and nobody to be an admin.
+    const auth = new Auth(store);
+    await auth.seed(null);
+    await serve(auth);
+    expect((await call("/admin-only")).status).toBe(200);
   });
 });
 

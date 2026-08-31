@@ -1828,3 +1828,39 @@ textarea {
   outline-offset: 2px;
   border-radius: 2px;
 }
+
+/* ---- People (roles) ------------------------------------------------------- */
+.people {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: var(--seam-line);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+}
+.people__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+}
+.people__row + .people__row {
+  border-top: var(--seam-line);
+}
+.people__name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 600;
+}
+.people__tag {
+  color: var(--ink-dim);
+  font-size: 11.5px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+.people__role {
+  width: auto;
+  min-width: 108px;
+}

@@ -15,9 +15,10 @@ import { serviceRouter } from "./routes/service.js";
 import { logsRouter } from "./routes/logs.js";
 import { streamHandler } from "./routes/stream.js";
 import { fillRequestRouter, notifyRouter } from "./routes/fillRequest.js";
-import { setupRouter, type SetupDeps } from "./routes/setup.js";
+import { setupRouter, setupStatusHandler, type SetupDeps } from "./routes/setup.js";
 import { appInfoRouter, type AppInfoDeps } from "./routes/appInfo.js";
 import { authRouter } from "./routes/auth.js";
+import { peopleRouter } from "./routes/people.js";
 import type { Auth } from "./auth/actor.js";
 
 /**
@@ -71,21 +72,58 @@ export const GUARD_EXEMPTIONS: ReadonlyArray<{ mount: string; why: string }> = [
 ];
 
 /**
+ * Mounts only an admin may reach (issue 045, PRD-15 §1).
+ *
+ * The dividing line the PRD draws: **if getting it wrong means a bad stream it is a user action;
+ * if it means losing control of the channel or the server it is admin.** Everything absent from
+ * this table is therefore deliberately open to both roles — running the show is what a user
+ * account is *for*, and a per-feature permission here would be the second workspace PRD-15 §1
+ * refuses to build.
+ *
+ * Stated once, here, rather than as a guard remembered inside twelve routers: the role audit in
+ * `guard.integration.test.ts` walks the real route table against this list, so an admin guard
+ * added without an entry — or an entry with no guard — fails CI either way.
+ */
+export const ADMIN_ONLY: ReadonlyArray<{ mount: string; why: string }> = [
+  {
+    mount: "/api/setup",
+    why:
+      "Connect and disconnect YouTube. Getting this wrong loses the channel, not one stream — " +
+      "and it accepts a Google client ID and secret. Read-only status is mounted separately, " +
+      "ahead of this, and stays open to both roles.",
+  },
+  {
+    mount: "/api/dashboard/people",
+    why: "Who is here and who is an admin. A machine or a user account must not be able to grant itself more.",
+  },
+];
+
+/**
  * Routes that must answer in *both* boot modes: before YouTube credentials exist and after. Kept
  * here rather than inline in server.ts so the audit test can mount the real thing, guards
  * included, instead of a hand-rolled copy that can drift (PRD-05 §2.1).
  *
  * `/api/setup` and `/api/dashboard/app` are guarded. On a hosted deployment the admin is seeded,
  * never claimed, so setup belongs to that admin and to nobody who merely found the host first
- * (PRD-15 §2). On a desktop/LAN install no account exists, the guard is a pass-through, and
- * nothing about first run changes.
+ * (PRD-15 §2) — and to that admin alone, not to every signed-in account (issue 045; see
+ * {@link ADMIN_ONLY}). On a desktop/LAN install no account exists, both guards are pass-throughs,
+ * and nothing about first run changes.
  */
 export function mountBootRoutes(
   app: Express,
   deps: { auth: Auth; setup: SetupDeps; appInfo: AppInfoDeps },
 ): void {
   app.use("/api/auth", authRouter(deps.auth));
-  app.use("/api/setup", deps.auth.requireSession(), setupRouter(deps.setup));
+  // Connection status is the one readable half: booleans, no secrets, and the whole dashboard is
+  // built on it (see setupStatusHandler). Registered before the mount below so the admin guard
+  // there cannot swallow it, and audited as a mount of its own.
+  app.get("/api/setup/status", deps.auth.requireSession(), setupStatusHandler(deps.setup));
+  app.use(
+    "/api/setup",
+    deps.auth.requireSession(),
+    deps.auth.requireAdmin(),
+    setupRouter(deps.setup),
+  );
   app.use("/api/dashboard/app", deps.auth.requireSession(), appInfoRouter(deps.appInfo));
 }
 
@@ -145,6 +183,8 @@ export function mountApiRoutes(app: Express, ctx: AppContext): void {
   app.use("/api/dashboard/webhook", webhookRouter(ctx));
   app.use("/api/dashboard/service", serviceRouter(ctx));
   app.use("/api/dashboard/logs", logsRouter(ctx));
+  // Roles and the people who hold them — admin only, per ADMIN_ONLY above.
+  app.use("/api/dashboard/people", ctx.auth.requireAdmin(), peopleRouter({ store: ctx.store }));
   // Companion key → dashboard-popup/phone-push fill flow (issue 003 trigger).
   app.use("/api/dashboard/fill-request", fillRequestRouter(ctx));
   app.use("/api/dashboard/notify", notifyRouter(ctx));

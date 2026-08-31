@@ -3,6 +3,8 @@ import { api, type SetupStatus } from "../api.js";
 import { describeConnection } from "../lib/connection.js";
 
 interface Props {
+  /** False for a signed-in user: reconnecting the channel is an admin action (issue 045). */
+  canAdminister: boolean;
   /** Re-fetch live state so health re-evaluates; a successful reconnect clears the banner. */
   onReconnected: () => Promise<void> | void;
   /** Open the Settings panel — the reconnect path on hosts that can't run the in-app flow. */
@@ -18,14 +20,18 @@ interface Props {
  * successful reconnect we refresh state so health drops back to healthy and this banner unmounts.
  *
  * Never shown for `degraded` or `offline` — those are transient and self-heal on the next poll.
+ *
+ * A user sees the banner too: the outage is theirs as much as anyone's, and the dashboard has
+ * stopped working for them. What they are given is the name of who can fix it, in place of a
+ * button that would refuse them (issue 045).
  */
-export function ReauthBanner({ onReconnected, onOpenSettings, flash }: Props) {
+export function ReauthBanner({ canAdminister, onReconnected, onOpenSettings, flash }: Props) {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.setup.status().then(setStatus).catch(() => {});
-  }, []);
+    if (canAdminister) api.setup.status().then(setStatus).catch(() => {});
+  }, [canAdminister]);
 
   // Until the status lands, assume the in-app flow is unavailable so we never dead-end a click.
   const inApp = status ? describeConnection(status).editable : false;
@@ -54,17 +60,21 @@ export function ReauthBanner({ onReconnected, onOpenSettings, flash }: Props) {
         <span className="eyebrow">Connection</span>
         <span className="reauth__title">YouTube connection lost</span>
         <span className="reauth__note">
-          The saved sign-in stopped working. Reconnect to resume actions and status.
+          {canAdminister
+            ? "The saved sign-in stopped working. Reconnect to resume actions and status."
+            : "The saved sign-in stopped working. An admin has to reconnect the channel before actions and status resume."}
         </span>
       </div>
-      <button
-        className="btn btn--danger btn--sm reauth__action"
-        type="button"
-        onClick={reconnect}
-        disabled={busy}
-      >
-        {busy ? "Waiting for your browser…" : inApp ? "Reconnect" : "Reconnect in settings"}
-      </button>
+      {canAdminister ? (
+        <button
+          className="btn btn--danger btn--sm reauth__action"
+          type="button"
+          onClick={reconnect}
+          disabled={busy}
+        >
+          {busy ? "Waiting for your browser…" : inApp ? "Reconnect" : "Reconnect in settings"}
+        </button>
+      ) : null}
     </div>
   );
 }

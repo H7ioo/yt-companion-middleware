@@ -245,6 +245,19 @@ export interface AppInfo {
 }
 
 /**
+ * One person on this deployment, as `GET /api/dashboard/people` reports them (issue 045). The
+ * password hash never appears in this shape — it is the reason the shape exists.
+ */
+export interface Person {
+  id: string;
+  name: string;
+  role: "admin" | "user";
+  createdAt: string;
+  /** The account seeded from configuration. It cannot be removed (issue 046). */
+  seeded: boolean;
+}
+
+/**
  * What the dashboard knows about its own sign-in state, from `GET /api/auth/me` (issue 043).
  *
  * `authRequired` is the switch: a deployment with no accounts — the desktop and LAN installs the

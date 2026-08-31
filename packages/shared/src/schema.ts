@@ -210,9 +210,10 @@ export type CredentialsState = z.infer<typeof credentialsSchema>;
 /**
  * A person with access to this deployment (PRD-15 §2, issue 043).
  *
- * `role` is present but unenforced until issue 045 — every account can do everything an account
- * can do today. It is here now so the seeded admin is already stamped with the role the later
- * slice will read, rather than needing a migration to acquire one.
+ * `role` is enforced as of issue 045: an admin manages people, roles and the YouTube connection,
+ * and a user runs the show. The dividing line is PRD-15 §1's — if getting it wrong means a bad
+ * stream it is a user action, if it means losing the channel or the server it is admin. The
+ * routes that draw it are listed in `ADMIN_ONLY` in the server's app.ts.
  *
  * `passwordHash` holds the self-describing scrypt form; the plaintext never touches the store.
  */

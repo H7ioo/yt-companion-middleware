@@ -4,7 +4,8 @@ import { App } from "./App.js";
 import { FillPage } from "./FillPage.js";
 import { SetupScreen } from "./components/SetupScreen.js";
 import { LoginScreen } from "./components/LoginScreen.js";
-import { showLogin } from "./lib/session.js";
+import { SetupPending } from "./components/SetupPending.js";
+import { canAdminister, showLogin } from "./lib/session.js";
 import { parseFillRoute } from "./lib/fillRoute.js";
 import { api, onSessionLost, type SessionInfo } from "./api.js";
 import "./styles.css";
@@ -25,6 +26,10 @@ const fill = parseFillRoute(window.location);
  * every dashboard route, and the fill page reads two of them — an unauthenticated phone opening
  * the ntfy link would otherwise land on a bare "Request failed (401)" with nowhere to go. It
  * still skips the setup gate: it renders its own minimal page and has nothing to configure.
+ *
+ * The setup gate is an admin's (issue 045). A user who arrives before the channel is connected is
+ * told so and told who can fix it, rather than being handed a setup screen whose every button
+ * answers 403.
  *
  * The gate also closes again mid-session: a session that expires while the dashboard is open
  * makes every panel and the state stream answer 401, and the only way back would otherwise be a
@@ -67,7 +72,13 @@ function Root() {
     return <LoginScreen onSignedIn={() => window.location.reload()} />;
   }
   if (fill) return <FillPage route={fill} />;
-  if (!configured) return <SetupScreen onReady={() => setConfigured(true)} />;
+  if (!configured) {
+    return canAdminister(session) ? (
+      <SetupScreen onReady={() => setConfigured(true)} />
+    ) : (
+      <SetupPending />
+    );
+  }
   return <App />;
 }
 
