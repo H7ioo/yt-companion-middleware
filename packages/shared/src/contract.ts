@@ -258,13 +258,6 @@ export interface Person {
 }
 
 /**
- * What the dashboard knows about its own sign-in state, from `GET /api/auth/me` (issue 043).
- *
- * `authRequired` is the switch: a deployment with no accounts — the desktop and LAN installs the
- * app ships as today — reports false, and the dashboard shows no login screen at all. The hosted
- * deployment seeds an admin at boot and reports true.
- */
-/**
  * An outstanding or spent invite, as the People panel lists them (issue 046). The token itself is
  * never in here — it is returned exactly once, from the create call, and is not recoverable
  * afterwards. An admin who loses the link makes another one.
@@ -294,6 +287,13 @@ export interface DeviceSession {
   absoluteExpiresAt: string;
 }
 
+/**
+ * What the dashboard knows about its own sign-in state, from `GET /api/auth/me` (issue 043).
+ *
+ * `authRequired` is the switch: a deployment with no accounts — the desktop and LAN installs the
+ * app ships as today — reports false, and the dashboard shows no login screen at all. The hosted
+ * deployment seeds an admin at boot and reports true.
+ */
 export interface SessionInfo {
   authRequired: boolean;
   authenticated: boolean;

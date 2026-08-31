@@ -162,6 +162,43 @@ describe("inviting someone in", () => {
     expect((await makeInvite(USER)).status).toBe(403);
   });
 
+  /**
+   * On an install with no accounts the admin guard is a pass-through, so this route answers
+   * anyone who can reach the port. One admin invite there is enough to redeem it through the open
+   * `/api/auth/invite`, turn auth on, and lock the actual operator out.
+   */
+  it("refuses to mint an invite on a deployment that has no sign-in yet", async () => {
+    const open = await fs.mkdtemp(path.join(os.tmpdir(), "people-open-"));
+    const openStore = new JsonStore(path.join(open, "store.json"));
+    await openStore.init();
+    const openAuth = new Auth(openStore);
+    expect(openAuth.required).toBe(false);
+
+    const app = express();
+    app.use(express.json());
+    app.use(
+      "/people",
+      openAuth.requireSession(),
+      openAuth.requireAdmin(),
+      peopleRouter({ store: openStore, auth: openAuth }),
+    );
+    const listener = http.createServer(app);
+    await new Promise<void>((resolve) => listener.listen(0, resolve));
+    const port = (listener.address() as any).port;
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/people/invites`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ role: "admin" }),
+      });
+      expect(res.status).toBe(403);
+      expect(openAuth.invites.list()).toHaveLength(0);
+    } finally {
+      await new Promise<void>((resolve) => listener.close(() => resolve()));
+      await fs.rm(open, { recursive: true, force: true });
+    }
+  });
+
   it("never hands the token back a second time", async () => {
     const { body } = await makeInvite(ADMIN);
     const list = await call("/people/invites", {

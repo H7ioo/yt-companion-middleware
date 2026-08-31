@@ -90,7 +90,10 @@ export function authRouter(auth: Auth): Router {
       const invite = auth.invites.inspect(inviteToken(req));
       res.json({ ok: true, role: invite.role, expiresAt: invite.expiresAt });
     } catch (err) {
-      res.status(410).json(toErrorBody(asAppError(err)));
+      const appError = asAppError(err);
+      // 410 only for the link itself being spent or stale. A server fault is not a dead end, and
+      // telling the invitee it is one costs them an invite that is still good.
+      res.status(appError.code === "INVITE_INVALID" ? 410 : 500).json(toErrorBody(appError));
     }
   }));
 

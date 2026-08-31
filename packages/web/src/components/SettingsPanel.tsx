@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   type Category,
@@ -54,14 +54,18 @@ export function SettingsPanel({
   const [people, setPeople] = useState<Person[]>([]);
   const [savingRole, setSavingRole] = useState<string | null>(null);
   // Invites and devices (issue 046). The invite list is the record of who has been let in and who
-  // still holds an unspent link; `freshLink` is the one link this browser has just generated.
+  // still holds an unspent link; `fresh` is the one link this browser has just generated.
   const [invites, setInvites] = useState<InviteSummary[]>([]);
   const [inviteRole, setInviteRole] = useState<Person["role"]>("user");
-  const [freshLink, setFreshLink] = useState<string | null>(null);
+  // The id travels with the link so withdrawing some *other* invite does not wipe it off screen.
+  const [fresh, setFresh] = useState<{ id: string; url: string } | null>(null);
   // Which person's devices are expanded, and what they are. Fetched on demand: an admin opens
   // this to answer one question — "which of these is the phone I lost" — and not otherwise.
   const [openDevices, setOpenDevices] = useState<string | null>(null);
   const [devices, setDevices] = useState<DeviceSession[]>([]);
+  // Whose devices the newest fetch was for. Two quick clicks race, and the loser must not paint
+  // one person's sessions under another's name — "Sign out" there would hit the wrong account.
+  const devicesFor = useRef<string | null>(null);
   useEscape(busy === "idle" ? onClose : () => {});
 
   const loadStatus = () => api.setup.status().then(setStatus).catch(() => {});
@@ -115,7 +119,7 @@ export function SettingsPanel({
   const createInvite = async () => {
     try {
       const created = await api.people.invite(inviteRole);
-      setFreshLink(`${window.location.origin}${created.path}`);
+      setFresh({ id: created.invite.id, url: `${window.location.origin}${created.path}` });
       flash("Invite created — copy the link before you close this");
     } catch (e) {
       flash((e as Error).message, "err");
@@ -127,7 +131,8 @@ export function SettingsPanel({
   const cancelInvite = async (id: string) => {
     try {
       await api.people.cancelInvite(id);
-      setFreshLink(null);
+      // Only the withdrawn invite's own link is unusable now; another one still needs sending.
+      setFresh((f) => (f?.id === id ? null : f));
       flash("Invite withdrawn");
     } catch (e) {
       flash((e as Error).message, "err");
@@ -156,6 +161,7 @@ export function SettingsPanel({
       flash((e as Error).message, "err");
     } finally {
       setOpenDevices(null);
+      devicesFor.current = null;
       await loadPeople();
     }
   };
@@ -164,12 +170,15 @@ export function SettingsPanel({
   const toggleDevices = async (person: Person) => {
     if (openDevices === person.id) {
       setOpenDevices(null);
+      devicesFor.current = null;
       return;
     }
     setOpenDevices(person.id);
     setDevices([]);
+    devicesFor.current = person.id;
     try {
-      setDevices((await api.people.sessions(person.id)).sessions);
+      const { sessions } = await api.people.sessions(person.id);
+      if (devicesFor.current === person.id) setDevices(sessions);
     } catch (e) {
       flash((e as Error).message, "err");
     }
@@ -179,7 +188,8 @@ export function SettingsPanel({
     try {
       await api.people.revokeSession(person.id, sessionId);
       flash(`Signed one of ${person.name}'s devices out`);
-      setDevices((await api.people.sessions(person.id)).sessions);
+      const { sessions } = await api.people.sessions(person.id);
+      if (devicesFor.current === person.id) setDevices(sessions);
     } catch (e) {
       flash((e as Error).message, "err");
     }
@@ -464,19 +474,19 @@ export function SettingsPanel({
               </div>
             </div>
 
-            {freshLink ? (
+            {fresh ? (
               <div className="invite-link">
-                <span className="invite-link__url">{freshLink}</span>
+                <span className="invite-link__url">{fresh.url}</span>
                 <button
                   className="btn btn--ghost"
                   type="button"
-                  onClick={() => void navigator.clipboard?.writeText(freshLink)}
+                  onClick={() => void navigator.clipboard?.writeText(fresh.url)}
                 >
                   Copy
                 </button>
               </div>
             ) : null}
-            {freshLink ? (
+            {fresh ? (
               <p className="hint" style={{ marginTop: 6 }}>
                 Copy this now — the link is not shown again. Losing it means creating another.
               </p>

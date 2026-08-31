@@ -100,13 +100,18 @@ export function peopleRouter({ store, auth }: PeopleDeps): Router {
   router.post("/invites", handler(async (req, res) => {
     const { role } = inviteBody.parse(req.body);
     const actor = auth.actorOf(req);
-    const created = await auth.invites.create({
-      role,
-      // On a deployment with no accounts the admin guard is a pass-through and there is no actor
-      // to name. That install has nobody to invite either, but the route still has to answer
-      // something rather than crash on a null.
-      createdBy: actor?.account.id ?? "unknown",
-    });
+    // On a deployment with no accounts the admin guard is a pass-through, so this route would be
+    // open to anyone who can reach the port — and minting one admin invite there is enough to
+    // redeem it through the deliberately-open `/api/auth/invite`, flip auth on, and lock the real
+    // operator (and the Companion module) out of an install that has no seed config to recover
+    // with. Sign-in has to exist before invitations to it can.
+    if (!auth.required || !actor) {
+      throw new AppError(
+        "FORBIDDEN",
+        "This deployment has no accounts yet, so there is no sign-in to invite anyone to.",
+      );
+    }
+    const created = await auth.invites.create({ role, createdBy: actor.account.id });
     const accounts = store.get().accounts;
     res.status(201).json({
       token: created.token,
