@@ -251,6 +251,37 @@ export const sessionSchema = z.object({
 });
 export type Session = z.infer<typeof sessionSchema>;
 
+/**
+ * An unredeemed way in (PRD-15 §2, issue 046).
+ *
+ * This deployment has no mail server and should not grow one, so there is no "email them a link"
+ * step: an admin generates one of these, and hands the URL over however they already talk to that
+ * person. Password reset is the same act — a fresh invite, never a recovery flow the server has
+ * no channel to deliver.
+ *
+ * Like a session, only a SHA-256 hash of the token is stored: the plaintext exists once, in the
+ * link the admin copies. A leaked `store.json` therefore hands over no usable invite.
+ *
+ * Redeemed invites are kept rather than deleted. `redeemedAt` is what makes the link single-use,
+ * and the record is the only durable trace of who let whom in until the audit log lands
+ * (issue 050).
+ */
+export const inviteSchema = z.object({
+  id: z.string().min(1),
+  tokenHash: z.string().min(1),
+  /** The role the redeemed account gets. Chosen when the invite is made, not by the invitee. */
+  role: z.enum(["admin", "user"]).default("user"),
+  /** The account id of the admin who created it. */
+  createdBy: z.string().min(1),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  /** Set the moment it is used, which is what stops it being used twice. Null while open. */
+  redeemedAt: z.string().nullable().default(null),
+  /** The account id it created, once redeemed. */
+  redeemedBy: z.string().nullable().default(null),
+});
+export type Invite = z.infer<typeof inviteSchema>;
+
 export const storeSchema = z.object({
   credentials: credentialsSchema.default({ clientId: "", clientSecret: "", refreshToken: "" }),
   presets: z.array(presetSchema).default([]),
@@ -260,6 +291,7 @@ export const storeSchema = z.object({
   }),
   accounts: z.array(accountSchema).default([]),
   sessions: z.array(sessionSchema).default([]),
+  invites: z.array(inviteSchema).default([]),
   quota: quotaSchema.default({ date: null, used: 0 }),
   webhook: webhookSchema.default({ url: null }),
   notify: notifySchema.default({ ntfyServer: "https://ntfy.sh", ntfyTopic: "", publicBaseUrl: "" }),

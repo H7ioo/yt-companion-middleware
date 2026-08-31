@@ -264,6 +264,36 @@ export interface Person {
  * app ships as today — reports false, and the dashboard shows no login screen at all. The hosted
  * deployment seeds an admin at boot and reports true.
  */
+/**
+ * An outstanding or spent invite, as the People panel lists them (issue 046). The token itself is
+ * never in here — it is returned exactly once, from the create call, and is not recoverable
+ * afterwards. An admin who loses the link makes another one.
+ */
+export interface InviteSummary {
+  id: string;
+  role: "admin" | "user";
+  createdAt: string;
+  expiresAt: string;
+  /** The name of the admin who created it, or null if that account has since been removed. */
+  invitedBy: string | null;
+  /** `open` is the only one still usable; the other two are shown so the list explains itself. */
+  state: "open" | "expired" | "redeemed";
+  /** The name of the account it created, once redeemed. */
+  redeemedBy: string | null;
+}
+
+/**
+ * One signed-in browser belonging to an account (issue 046). Enough to tell two devices apart and
+ * decide which to cut off — the lost-phone case — and deliberately no more: this list is shown to
+ * an admin about somebody else, so it carries no token, no address and no user agent.
+ */
+export interface DeviceSession {
+  id: string;
+  createdAt: string;
+  lastSeenAt: string;
+  absoluteExpiresAt: string;
+}
+
 export interface SessionInfo {
   authRequired: boolean;
   authenticated: boolean;

@@ -31,6 +31,8 @@ export type {
   BroadcastCandidate,
   SessionInfo,
   Person,
+  InviteSummary,
+  DeviceSession,
 } from "@app/shared";
 
 import type {
@@ -50,6 +52,8 @@ import type {
   BroadcastCandidate,
   SessionInfo,
   Person,
+  InviteSummary,
+  DeviceSession,
 } from "@app/shared";
 
 /** Preset payload for create/update — the full preset minus its server-assigned id. */
@@ -139,6 +143,43 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ role }),
       }),
+    /** Cuts an account off. Its sessions stop working on their very next request (issue 046). */
+    remove: (id: string) =>
+      req<{ account: Person }>(`/api/dashboard/people/${id}`, { method: "DELETE" }),
+    /** The devices one person is signed in on, so the lost one can be cut off by itself. */
+    sessions: (id: string) =>
+      req<{ sessions: DeviceSession[] }>(`/api/dashboard/people/${id}/sessions`),
+    revokeSession: (id: string, sessionId: string) =>
+      req<{ ok: boolean }>(`/api/dashboard/people/${id}/sessions/${sessionId}`, {
+        method: "DELETE",
+      }),
+    invites: () => req<{ invites: InviteSummary[] }>("/api/dashboard/people/invites"),
+    /**
+     * Creates an invite. `token` and `path` come back **once** — there is no way to ask for them
+     * again, so the caller has to show the link before it navigates away.
+     */
+    invite: (role: Person["role"]) =>
+      req<{ token: string; path: string; invite: InviteSummary }>(
+        "/api/dashboard/people/invites",
+        { method: "POST", body: JSON.stringify({ role }) },
+      ),
+    cancelInvite: (id: string) =>
+      req<{ ok: boolean }>(`/api/dashboard/people/invites/${id}`, { method: "DELETE" }),
+  },
+  /**
+   * Redeeming an invite (issue 046). Deliberately outside `people`: these two are the only calls
+   * in the app made by somebody who has no session yet, which is the whole point of an invite.
+   */
+  invite: {
+    inspect: (token: string) =>
+      req<{ ok: boolean; role: Person["role"]; expiresAt: string }>(
+        `/api/auth/invite?token=${encodeURIComponent(token)}`,
+      ),
+    redeem: (token: string, name: string, password: string) =>
+      req<{ account: { id: string; name: string; role: Person["role"] } }>(
+        `/api/auth/invite?token=${encodeURIComponent(token)}`,
+        { method: "POST", body: JSON.stringify({ name, password }) },
+      ),
   },
   presets: {
     list: () => req<Preset[]>("/api/dashboard/presets"),

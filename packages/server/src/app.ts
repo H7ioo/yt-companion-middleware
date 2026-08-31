@@ -184,7 +184,7 @@ export function mountApiRoutes(app: Express, ctx: AppContext): void {
   app.use("/api/dashboard/service", serviceRouter(ctx));
   app.use("/api/dashboard/logs", logsRouter(ctx));
   // Roles and the people who hold them — admin only, per ADMIN_ONLY above.
-  app.use("/api/dashboard/people", ctx.auth.requireAdmin(), peopleRouter({ store: ctx.store }));
+  app.use("/api/dashboard/people", ctx.auth.requireAdmin(), peopleRouter({ store: ctx.store, auth: ctx.auth }));
   // Companion key → dashboard-popup/phone-push fill flow (issue 003 trigger).
   app.use("/api/dashboard/fill-request", fillRequestRouter(ctx));
   app.use("/api/dashboard/notify", notifyRouter(ctx));

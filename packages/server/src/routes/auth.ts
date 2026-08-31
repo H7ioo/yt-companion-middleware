@@ -76,6 +76,61 @@ export function authRouter(auth: Auth): Router {
     res.json({ account: publicAccount(result.account) });
   }));
 
+  /**
+   * What is behind this invite link, without spending it (issue 046).
+   *
+   * Deliberately unauthenticated — the person following the link has no session yet, which is the
+   * whole reason invites exist. It reveals only the role the invite carries and when it lapses:
+   * nothing about who else is on this deployment, and never the token back. A wrong or spent
+   * token gets the same clear sentence a redemption would, so the page can say "this link has
+   * expired" on arrival instead of after someone has typed a password twice.
+   */
+  router.get("/invite", handler(async (req, res) => {
+    try {
+      const invite = auth.invites.inspect(inviteToken(req));
+      res.json({ ok: true, role: invite.role, expiresAt: invite.expiresAt });
+    } catch (err) {
+      res.status(410).json(toErrorBody(asAppError(err)));
+    }
+  }));
+
+  /**
+   * Spends an invite: the invitee sets their own credential and is signed straight in, because
+   * being bounced to a login screen to retype the password they just chose is a step that only
+   * exists to be got wrong.
+   *
+   * The **role comes from the invite**, never from this body — a link sent to a camera operator
+   * must not be a way to ask for admin.
+   */
+  router.post("/invite", handler(async (req, res) => {
+    let parsed;
+    try {
+      parsed = credentials.parse(req.body);
+    } catch (err) {
+      const message = err instanceof z.ZodError ? err.issues[0]?.message : undefined;
+      res.status(400).json(toErrorBody(new AppError("INVALID_REQUEST", message)));
+      return;
+    }
+
+    let account;
+    try {
+      account = await auth.invites.redeem(inviteToken(req), parsed);
+    } catch (err) {
+      const appError = asAppError(err);
+      // 410 for the link itself being spent or stale, 400 for the form — the page shows the first
+      // as a dead end and the second as something to correct and try again.
+      res.status(appError.code === "INVITE_INVALID" ? 410 : 400).json(toErrorBody(appError));
+      return;
+    }
+
+    // Signed in as the account that was just created rather than by re-running signIn: the
+    // password is already known good, and re-checking it would put a brand-new account one
+    // throttle bucket away from being unable to finish its own redemption.
+    const { token } = await auth.sessions.create(account.id);
+    setSessionCookie(req, res, token);
+    res.status(201).json({ account: publicAccount(account) });
+  }));
+
   router.post("/logout", handler(async (req, res) => {
     await auth.sessions.revoke(readCookie(req.headers.cookie, SESSION_COOKIE));
     clearSessionCookie(req, res);
@@ -131,4 +186,21 @@ function handler(fn: (req: Request, res: Response) => Promise<void>): RequestHan
  */
 function callerIp(req: { ip?: string; socket: { remoteAddress?: string } }): string {
   return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+/**
+ * The invite token, taken from the query string rather than the path. A path segment lands in
+ * access logs and proxy logs as part of the URL either way, but keeping it a parameter means the
+ * dashboard's own routing never has to treat a secret as a route.
+ */
+function inviteToken(req: Request): string | undefined {
+  const token = req.query.token;
+  return typeof token === "string" && token ? token : undefined;
+}
+
+/** Anything the invite layer throws that is not already an {@link AppError} is this server failing. */
+function asAppError(err: unknown): AppError {
+  if (err instanceof AppError) return err;
+  console.error("[auth] invite failed:", err);
+  return new AppError("SERVER_ERROR");
 }

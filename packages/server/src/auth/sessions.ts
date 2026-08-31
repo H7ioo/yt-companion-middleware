@@ -136,6 +136,36 @@ export class Sessions {
     return issued;
   }
 
+  /**
+   * The live sessions of one account — the devices an admin can see and cut off (issue 046).
+   * Dead ones are filtered rather than returned greyed out: a session that has already lapsed is
+   * not a device anyone needs to decide about.
+   */
+  listFor(accountId: string): Session[] {
+    const at = this.now();
+    return this.live(
+      this.store.get().sessions.filter((s) => s.accountId === accountId),
+      at,
+    );
+  }
+
+  /**
+   * Cuts off **one** device without disturbing the others — the lost-phone case, and the reason a
+   * 90-day session is acceptable at all (PRD-15 §2).
+   *
+   * Scoped to the account on purpose: the route below reaches this with an id from the URL, and
+   * an id alone would let a mistyped path revoke a session belonging to someone else entirely.
+   */
+  async revokeById(accountId: string, sessionId: string): Promise<boolean> {
+    let removed = false;
+    await this.store.update((s) => {
+      const before = s.sessions.length;
+      s.sessions = s.sessions.filter((x) => !(x.id === sessionId && x.accountId === accountId));
+      removed = s.sessions.length < before;
+    });
+    return removed;
+  }
+
   /** Drops every session belonging to an account — used when an account is removed (issue 046). */
   async revokeAllFor(accountId: string): Promise<void> {
     await this.store.update((s) => {

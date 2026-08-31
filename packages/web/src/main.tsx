@@ -4,6 +4,7 @@ import { App } from "./App.js";
 import { FillPage } from "./FillPage.js";
 import { SetupScreen } from "./components/SetupScreen.js";
 import { LoginScreen } from "./components/LoginScreen.js";
+import { InviteScreen } from "./components/InviteScreen.js";
 import { SetupPending } from "./components/SetupPending.js";
 import { canAdminister, showLogin } from "./lib/session.js";
 import { parseFillRoute } from "./lib/fillRoute.js";
@@ -13,6 +14,10 @@ import "./styles.css";
 // The Companion deep link (`/fill?preset=…&redirect=…`) lands on the same bundle; a plain
 // location parse keeps the SPA router-free.
 const fill = parseFillRoute(window.location);
+
+// The invite link an admin hands over (`/invite?token=…`), parsed the same router-free way.
+const inviteToken = new URLSearchParams(window.location.search).get("token");
+const isInvite = window.location.pathname === "/invite" && Boolean(inviteToken);
 
 /**
  * Gates the dashboard, in the order the gates actually apply.
@@ -62,6 +67,18 @@ function Root() {
       .catch(() => setConfigured(true));
   }, []);
 
+  // Ahead of every other gate, sign-in included: the whole point of an invite is that the person
+  // following it has no account yet, so a login screen is the one thing they cannot get past.
+  if (isInvite) {
+    return (
+      <InviteScreen
+        token={inviteToken!}
+        // Redemption signs them in, so the dashboard is a reload away. Replacing the URL first
+        // keeps the spent token out of the address bar and out of the next reload.
+        onRedeemed={() => window.location.replace("/")}
+      />
+    );
+  }
   // A lost session outranks the boot probes: it can arrive before they finish, and there is
   // nothing to wait for once the server has said no.
   if (!sessionLost && (configured === null || !askedWhoIAm))

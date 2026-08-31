@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { Person, SetupStatus } from "@app/shared";
+import type { DeviceSession, InviteSummary, Person, SetupStatus } from "@app/shared";
 import { SettingsPanel } from "./SettingsPanel.js";
 
 /**
@@ -13,11 +13,27 @@ import { SettingsPanel } from "./SettingsPanel.js";
 const status = vi.fn<() => Promise<SetupStatus>>();
 const listPeople = vi.fn<() => Promise<{ accounts: Person[] }>>();
 const setRole = vi.fn<(id: string, role: Person["role"]) => Promise<{ account: Person }>>();
+const listInvites = vi.fn<() => Promise<{ invites: InviteSummary[] }>>();
+const createInvite =
+  vi.fn<(role: Person["role"]) => Promise<{ token: string; path: string; invite: InviteSummary }>>();
+const cancelInvite = vi.fn<(id: string) => Promise<{ ok: boolean }>>();
+const removePerson = vi.fn<(id: string) => Promise<{ account: Person }>>();
+const listSessions = vi.fn<(id: string) => Promise<{ sessions: DeviceSession[] }>>();
+const revokeSession = vi.fn<(id: string, sessionId: string) => Promise<{ ok: boolean }>>();
 
 vi.mock("../api.js", () => ({
   api: {
     setup: { status: () => status() },
-    people: { list: () => listPeople(), setRole: (id: string, role: Person["role"]) => setRole(id, role) },
+    people: {
+      list: () => listPeople(),
+      setRole: (id: string, role: Person["role"]) => setRole(id, role),
+      invites: () => listInvites(),
+      invite: (role: Person["role"]) => createInvite(role),
+      cancelInvite: (id: string) => cancelInvite(id),
+      remove: (id: string) => removePerson(id),
+      sessions: (id: string) => listSessions(id),
+      revokeSession: (id: string, sessionId: string) => revokeSession(id, sessionId),
+    },
   },
 }));
 
@@ -43,7 +59,7 @@ const setupStatus = (over: Partial<SetupStatus> = {}): SetupStatus =>
     ...over,
   }) as SetupStatus;
 
-function panel(canAdminister: boolean) {
+function panel(canAdminister: boolean, flash: (m: string, k?: string) => void = () => {}) {
   return render(
     <SettingsPanel
       settings={{ defaultCategory: null, defaultStreamBoundId: null }}
@@ -51,7 +67,7 @@ function panel(canAdminister: boolean) {
       streams={[]}
       canAdminister={canAdminister}
       onSaveSettings={() => {}}
-      flash={() => {}}
+      flash={flash}
       onClose={() => {}}
     />,
   );
@@ -61,8 +77,15 @@ beforeEach(() => {
   status.mockReset();
   listPeople.mockReset();
   setRole.mockReset();
+  listInvites.mockReset();
+  createInvite.mockReset();
+  cancelInvite.mockReset();
+  removePerson.mockReset();
+  listSessions.mockReset();
+  revokeSession.mockReset();
   status.mockResolvedValue(setupStatus());
   listPeople.mockResolvedValue({ accounts: [] });
+  listInvites.mockResolvedValue({ invites: [] });
 });
 afterEach(cleanup);
 
@@ -144,5 +167,134 @@ describe("the people section", () => {
     await waitFor(() => expect(screen.getByText(/only an admin can change/i)).toBeTruthy());
     expect(listPeople).not.toHaveBeenCalled();
     expect(screen.queryByText("camera")).toBeNull();
+  });
+});
+
+/**
+ * Invites and devices (issue 046). The panel is where an admin does the two things the issue is
+ * really about — hand someone a way in, and take it away again — and both have a failure mode the
+ * server cannot protect against: a link that is never copied, and a Remove clicked by accident.
+ */
+describe("invites", () => {
+  const twoPeople = () => ({
+    accounts: [person(), person({ id: "a2", name: "camera", role: "user" as const, seeded: false })],
+  });
+  const invite = (over: Partial<InviteSummary> = {}): InviteSummary => ({
+    id: "i1",
+    role: "user",
+    createdAt: "2026-08-30T00:00:00.000Z",
+    expiresAt: "2026-08-31T00:00:00.000Z",
+    invitedBy: "operator",
+    state: "open",
+    redeemedBy: null,
+    ...over,
+  });
+
+  it("shows the link once, and says it will not be shown again", async () => {
+    listPeople.mockResolvedValue(twoPeople());
+    createInvite.mockResolvedValue({ token: "tok", path: "/invite?token=tok", invite: invite() });
+    panel(true);
+    fireEvent.click(await screen.findByRole("button", { name: /create invite link/i }));
+
+    // The whole URL, not just the path: it is going into a chat message, not an address bar.
+    expect(await screen.findByText(`${window.location.origin}/invite?token=tok`)).toBeTruthy();
+    expect(screen.getByText(/not shown again/i)).toBeTruthy();
+  });
+
+  it("creates the role the admin picked, not the default", async () => {
+    listPeople.mockResolvedValue(twoPeople());
+    createInvite.mockResolvedValue({
+      token: "tok",
+      path: "/invite?token=tok",
+      invite: invite({ role: "admin" }),
+    });
+    panel(true);
+    fireEvent.change(await screen.findByLabelText(/^role$/i), { target: { value: "admin" } });
+    fireEvent.click(screen.getByRole("button", { name: /create invite link/i }));
+    await waitFor(() => expect(createInvite).toHaveBeenCalledWith("admin"));
+  });
+
+  it("offers Withdraw only on a link that still works", async () => {
+    listPeople.mockResolvedValue(twoPeople());
+    listInvites.mockResolvedValue({
+      invites: [
+        invite({ id: "i1", state: "open" }),
+        invite({ id: "i2", state: "redeemed", redeemedBy: "camera" }),
+        invite({ id: "i3", state: "expired" }),
+      ],
+    });
+    panel(true);
+    expect(await screen.findByText(/used by camera/i)).toBeTruthy();
+    expect(screen.getByText(/expired/i)).toBeTruthy();
+    // One open invite, so exactly one way to withdraw.
+    expect(screen.getAllByRole("button", { name: /withdraw/i })).toHaveLength(1);
+  });
+});
+
+describe("cutting someone off", () => {
+  const twoPeople = () => ({
+    accounts: [person(), person({ id: "a2", name: "camera", role: "user" as const, seeded: false })],
+  });
+
+  it("never offers to remove the account set up at install", async () => {
+    listPeople.mockResolvedValue(twoPeople());
+    panel(true);
+    await screen.findByText("camera");
+    // One Remove button, and it belongs to camera — the seeded operator has none, because the
+    // server refuses and a button that always fails is worse than no button.
+    expect(screen.getAllByRole("button", { name: /^remove$/i })).toHaveLength(1);
+  });
+
+  it("asks before removing, and does nothing if the answer is no", async () => {
+    listPeople.mockResolvedValue(twoPeople());
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    panel(true);
+    await screen.findByText("camera");
+    fireEvent.click(screen.getByRole("button", { name: /^remove$/i }));
+    expect(confirm).toHaveBeenCalled();
+    expect(removePerson).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it("removes once confirmed", async () => {
+    listPeople.mockResolvedValue(twoPeople());
+    removePerson.mockResolvedValue({ account: person({ id: "a2", name: "camera", seeded: false }) });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    panel(true);
+    await screen.findByText("camera");
+    fireEvent.click(screen.getByRole("button", { name: /^remove$/i }));
+    await waitFor(() => expect(removePerson).toHaveBeenCalledWith("a2"));
+    confirm.mockRestore();
+  });
+
+  it("lists one person's devices and signs a single one out", async () => {
+    listPeople.mockResolvedValue(twoPeople());
+    listSessions.mockResolvedValue({
+      sessions: [
+        { id: "s1", createdAt: "2026-08-01T00:00:00.000Z", lastSeenAt: "2026-08-30T00:00:00.000Z", absoluteExpiresAt: "2026-10-30T00:00:00.000Z" },
+        { id: "s2", createdAt: "2026-08-20T00:00:00.000Z", lastSeenAt: "2026-08-31T00:00:00.000Z", absoluteExpiresAt: "2026-11-18T00:00:00.000Z" },
+      ],
+    });
+    revokeSession.mockResolvedValue({ ok: true });
+    panel(true);
+    await screen.findByText("camera");
+    // Two people, so two Devices buttons — camera's is the second.
+    fireEvent.click(screen.getAllByRole("button", { name: /devices/i })[1]);
+
+    await waitFor(() => expect(listSessions).toHaveBeenCalledWith("a2"));
+    const signOut = await screen.findAllByRole("button", { name: /sign out/i });
+    expect(signOut).toHaveLength(2);
+
+    fireEvent.click(signOut[0]);
+    await waitFor(() => expect(revokeSession).toHaveBeenCalledWith("a2", "s1"));
+  });
+
+  it("says so plainly when a person is not signed in anywhere", async () => {
+    listPeople.mockResolvedValue(twoPeople());
+    listSessions.mockResolvedValue({ sessions: [] });
+    panel(true);
+    await screen.findByText("camera");
+    fireEvent.click(screen.getAllByRole("button", { name: /devices/i })[1]);
+    expect(await screen.findByText(/not signed in on any device/i)).toBeTruthy();
   });
 });
