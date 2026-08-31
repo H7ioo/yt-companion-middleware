@@ -29,6 +29,7 @@ import { extractVars } from "./lib/template.js";
 import { buildFillUrl } from "./lib/fillRoute.js";
 import { shouldAnnounce, readLastSeen, markSeen } from "./lib/whatsNew.js";
 import { appInfoChanged } from "./lib/appInfo.js";
+import { canAdminister } from "./lib/session.js";
 
 type Toast = { message: string; kind: "ok" | "err" } | null;
 
@@ -379,6 +380,9 @@ export function App() {
       `id ${settings.defaultCategory}`)
     : null;
   const apiEnabled = state?.apiEnabled ?? true;
+  // What this person is allowed to be shown (issue 045). Always true on a deployment with no
+  // accounts, so the desktop and LAN dashboards look exactly as they always have.
+  const admin = canAdminister(session);
 
   const defaultStreamLabel = settings.defaultStreamBoundId
     ? (streams.find((s) => s.id === settings.defaultStreamBoundId)?.title ??
@@ -517,6 +521,7 @@ export function App() {
         {/* Reauth banner — only for a hard auth failure, never degraded/offline (PRD-03 §4). */}
         {state?.health === "auth_error" ? (
           <ReauthBanner
+            canAdminister={admin}
             onReconnected={refreshSession}
             onOpenSettings={() => setSettingsOpen(true)}
             flash={flash}
@@ -943,6 +948,7 @@ export function App() {
           settings={settings}
           categories={categories}
           streams={streams}
+          canAdminister={admin}
           onSaveSettings={saveSettings}
           flash={flash}
           onClose={() => setSettingsOpen(false)}

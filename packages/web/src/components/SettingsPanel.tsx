@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import { api, type Category, type DefaultSettings, type SetupStatus, type StreamInfo } from "../api.js";
+import {
+  api,
+  type Category,
+  type DefaultSettings,
+  type Person,
+  type SetupStatus,
+  type StreamInfo,
+} from "../api.js";
 import { describeConnection } from "../lib/connection.js";
 import { CategorySelect } from "./CategorySelect.js";
 import { useEscape } from "../lib/useEscape.js";
@@ -8,6 +15,8 @@ interface Props {
   settings: DefaultSettings;
   categories: Category[];
   streams: StreamInfo[];
+  /** False for a signed-in user: the connection is theirs to read, not to change (issue 045). */
+  canAdminister: boolean;
   onSaveSettings: (next: DefaultSettings) => void;
   flash: (message: string, kind?: "ok" | "err") => void;
   onClose: () => void;
@@ -20,20 +29,63 @@ type Busy = "idle" | "connecting" | "waiting" | "disconnecting";
  * Connect / Reconnect / Disconnect) alongside the app defaults, reachable any time — not just on
  * first run. Reads the connection state as booleans from `/api/setup/status`; secrets never arrive
  * here. On a headless/Docker host, or when credentials come from env/CLI, the connection is
- * read-only and shows guidance instead of buttons.
+ * read-only and shows guidance instead of buttons. A user — as opposed to an admin — reads the
+ * same connection state and is offered none of the controls (issue 045): changing the channel is
+ * how a deployment loses it, and a button that always answers 403 is worse than no button.
  */
-export function SettingsPanel({ settings, categories, streams, onSaveSettings, flash, onClose }: Props) {
+export function SettingsPanel({
+  settings,
+  categories,
+  streams,
+  canAdminister,
+  onSaveSettings,
+  flash,
+  onClose,
+}: Props) {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [busy, setBusy] = useState<Busy>("idle");
   const [showOwn, setShowOwn] = useState(false);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  // Who else is here (issue 045). Empty on a deployment with no accounts, which is what hides the
+  // section on desktop and LAN installs — there are no roles there to manage.
+  const [people, setPeople] = useState<Person[]>([]);
+  const [savingRole, setSavingRole] = useState<string | null>(null);
   useEscape(busy === "idle" ? onClose : () => {});
 
   const loadStatus = () => api.setup.status().then(setStatus).catch(() => {});
   useEffect(() => {
     void loadStatus();
   }, []);
+
+  const loadPeople = () =>
+    api.people
+      .list()
+      .then((r) => setPeople(r.accounts))
+      // A user never gets here (the section is admin-only), so a failure means the server said no
+      // or is unreachable: show no section rather than an error nobody can act on.
+      .catch(() => setPeople([]));
+  useEffect(() => {
+    if (canAdminister) void loadPeople();
+  }, [canAdminister]);
+
+  /**
+   * Changes someone's role. The server is the authority on whether it is allowed — the last-admin
+   * refusal in particular — so the list is re-read either way rather than patched optimistically:
+   * a select that shows a change the server refused is a lie the operator acts on later.
+   */
+  const changeRole = async (person: Person, role: Person["role"]) => {
+    setSavingRole(person.id);
+    try {
+      await api.people.setRole(person.id, role);
+      flash(role === "admin" ? `${person.name} is now an admin` : `${person.name} is now a user`);
+    } catch (e) {
+      flash((e as Error).message, "err");
+    } finally {
+      setSavingRole(null);
+      await loadPeople();
+    }
+  };
 
   const view = status ? describeConnection(status) : null;
   const working = busy !== "idle";
@@ -108,7 +160,11 @@ export function SettingsPanel({ settings, categories, streams, onSaveSettings, f
                 </div>
               </div>
 
-              {view.editable ? (
+              {!canAdminister ? (
+                <p className="empty conn__guidance">
+                  Only an admin can change the YouTube connection.
+                </p>
+              ) : view.editable ? (
                 <div className="settings__actions">
                   {view.connected ? (
                     <>
@@ -146,7 +202,7 @@ export function SettingsPanel({ settings, categories, streams, onSaveSettings, f
                 </p>
               )}
 
-              {view.editable ? (
+              {view.editable && canAdminister ? (
                 <>
                   <button
                     className="settings__disclosure"
@@ -207,6 +263,37 @@ export function SettingsPanel({ settings, categories, streams, onSaveSettings, f
             </>
           )}
         </section>
+
+        {/* ---- People (issue 045) ---- */}
+        {canAdminister && people.length > 0 ? (
+          <section className="settings__section">
+            <h3 className="settings__title">People</h3>
+            <p className="empty" style={{ marginTop: 0 }}>
+              Everyone here can run the show. An admin also manages people and the YouTube
+              connection.
+            </p>
+            <ul className="people">
+              {people.map((person) => (
+                <li className="people__row" key={person.id}>
+                  <span className="people__name">
+                    {person.name}
+                    {person.seeded ? <span className="people__tag">set up at install</span> : null}
+                  </span>
+                  <select
+                    className="people__role"
+                    aria-label={`Role for ${person.name}`}
+                    value={person.role}
+                    disabled={savingRole === person.id}
+                    onChange={(e) => void changeRole(person, e.target.value as Person["role"])}
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="user">User</option>
+                  </select>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         {/* ---- App defaults ---- */}
         <section className="settings__section">

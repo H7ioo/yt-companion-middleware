@@ -13,7 +13,8 @@ import { StateEvents } from "../core/events.js";
 import { Logger } from "../core/logger.js";
 import { FillRequests } from "../core/fillRequests.js";
 import WebSocket from "ws";
-import { GUARD_EXEMPTIONS, mountApiRoutes, mountBootRoutes, mountWebApp } from "../app.js";
+import { ADMIN_ONLY, GUARD_EXEMPTIONS, mountApiRoutes, mountBootRoutes, mountWebApp } from "../app.js";
+import { createAccount } from "../auth/accounts.js";
 import { attachStateSocket, WS_ROUTES } from "./socket.js";
 import { mountDocsRoutes } from "./docs.js";
 import type { AppContext } from "./context.js";
@@ -27,6 +28,8 @@ import { Auth, SESSION_COOKIE } from "../auth/actor.js";
  */
 
 const ADMIN = { name: "operator", password: "a-long-enough-secret" };
+/** A second account, so the role split can be probed rather than assumed (issue 045). */
+const USER = { name: "camera", password: "another-long-secret", role: "user" as const };
 
 /** One mount as express recorded it, recovered from the layer it built. */
 interface Mount {
@@ -107,6 +110,7 @@ async function boot(seed: { name: string; password: string } | null): Promise<Ha
   await store.init();
   const auth = new Auth(store);
   await auth.seed(seed);
+  if (seed) await createAccount(store, USER);
 
   const events = new StateEvents();
   const logger = new Logger();
@@ -215,11 +219,11 @@ async function probe(h: Harness, route: string, cookie?: string): Promise<number
 }
 
 /** Signs the seeded admin in and returns the `Cookie` header for their session. */
-async function signIn(h: Harness): Promise<string> {
+async function signIn(h: Harness, who: { name: string; password: string } = ADMIN): Promise<string> {
   const res = await fetch(`${h.url}/api/auth/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(ADMIN),
+    body: JSON.stringify({ name: who.name, password: who.password }),
   });
   await res.text();
   const jar = res.headers.getSetCookie().find((c) => c.startsWith(`${SESSION_COOKIE}=`));
@@ -366,6 +370,77 @@ describe("what the seeded admin can reach", () => {
     expect(await probe(h, "/api/dashboard/app", cookie)).toBe(200);
     expect(await probe(h, "/api/dashboard/state", cookie)).toBe(200);
     expect(await probe(h, "/api/dashboard/settings", cookie)).toBe(200);
+  });
+});
+
+describe("the role audit", () => {
+  // The second half of the same question the guard audit asks. That audit fixes the line between
+  // signed-out and signed-in; this one fixes the line between a user and an admin, and it walks
+  // the same real route table so an admin guard added without a listing — or a listing without a
+  // guard — fails here rather than being discovered by whoever it locks out (issue 045).
+  beforeEach(async () => {
+    h = await boot(ADMIN);
+  });
+
+  it("refuses a user on every admin-only mount, and admits the admin", async () => {
+    const user = await signIn(h, USER);
+    const admin = await signIn(h);
+    for (const entry of ADMIN_ONLY) {
+      const route = `${entry.mount}/__guard_audit__`;
+      expect(await probe(h, route, user), entry.mount).toBe(403);
+      // Not asserting 200: the audit path is a route nobody serves. 403 is the only wrong answer.
+      expect(await probe(h, route, admin), entry.mount).not.toBe(403);
+    }
+  });
+
+  it("lets a user reach everything that is not listed — the show is theirs to run", async () => {
+    const user = await signIn(h, USER);
+    const admins = new Set(ADMIN_ONLY.map((e) => e.mount));
+    const refused: string[] = [];
+    for (const mount of mountsOf(h.app)) {
+      if (admins.has(mount.label)) continue;
+      if ((await probe(h, mount.probe, user)) === 403) refused.push(mount.label);
+    }
+    // Reads as the list of routes an admin quietly took away from the person running the stream.
+    expect(refused).toEqual([]);
+  });
+
+  it("names real mounts, each with a stated reason", () => {
+    const mounted = new Set(mountsOf(h.app).map((m) => m.label));
+    expect(ADMIN_ONLY.map((e) => e.mount).filter((m) => !mounted.has(m))).toEqual([]);
+    expect(ADMIN_ONLY.filter((e) => e.why.trim().length < 20)).toEqual([]);
+    // Vacuity check, as above: an empty table would make both assertions pass saying nothing.
+    expect(ADMIN_ONLY.length).toBeGreaterThan(0);
+  });
+
+  it("keeps the show-running routes open to a user", async () => {
+    const user = await signIn(h, USER);
+    for (const route of [
+      "/api/dashboard/state",
+      "/api/dashboard/presets",
+      "/api/dashboard/settings",
+      "/api/dashboard/target",
+      "/api/dashboard/streams",
+      "/api/dashboard/categories",
+      "/api/dashboard/service",
+      "/api/dashboard/app",
+    ]) {
+      expect(await probe(h, route, user), route).toBe(200);
+    }
+  });
+
+  it("refuses a user the routes that could lose the channel or the server", async () => {
+    const user = await signIn(h, USER);
+    expect(await probe(h, "/api/setup/disconnect", user)).toBe(403);
+    expect(await probe(h, "/api/dashboard/people", user)).toBe(403);
+  });
+
+  it("still tells a user whether YouTube is connected", async () => {
+    // Read-only booleans, and the dashboard is built on them: the setup gate and the connection
+    // card both read this. Hiding it would leave a user staring at a dashboard that cannot say
+    // why nothing works.
+    const user = await signIn(h, USER);
+    expect(await probe(h, "/api/setup/status", user)).toBe(200);
   });
 });
 

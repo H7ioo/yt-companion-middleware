@@ -251,6 +251,19 @@ export interface AppInfo {
  * app ships as today — reports false, and the dashboard shows no login screen at all. The hosted
  * deployment seeds an admin at boot and reports true.
  */
+/**
+ * One person on this deployment, as `GET /api/dashboard/people` reports them (issue 045). The
+ * password hash never appears in this shape — it is the reason the shape exists.
+ */
+export interface Person {
+  id: string;
+  name: string;
+  role: "admin" | "user";
+  createdAt: string;
+  /** The account seeded from configuration. It cannot be removed (issue 046). */
+  seeded: boolean;
+}
+
 export interface SessionInfo {
   authRequired: boolean;
   authenticated: boolean;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionInfo } from "../api.js";
-import { expiryNotice, showLogin } from "./session.js";
+import { canAdminister, expiryNotice, showLogin } from "./session.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 const now = Date.UTC(2026, 0, 1);
@@ -31,6 +31,35 @@ describe("showLogin", () => {
 
   it("shows nothing until the state has actually loaded", () => {
     expect(showLogin(null)).toBe(false);
+  });
+});
+
+describe("canAdminister", () => {
+  it("lets an admin see the admin controls", () => {
+    expect(canAdminister(info())).toBe(true);
+  });
+
+  it("hides them from a user, rather than offering a button that answers 403", () => {
+    expect(canAdminister(info({ account: { id: "a2", name: "camera", role: "user" } }))).toBe(false);
+  });
+
+  it("shows everything on a deployment with no accounts", () => {
+    // The desktop and LAN installs: one operator, no roles, and the connection controls are the
+    // only way they have ever set the app up.
+    expect(canAdminister(info({ authRequired: false, authenticated: false, account: null }))).toBe(
+      true,
+    );
+  });
+
+  it("shows everything when there is no sign-in state at all", () => {
+    // Null is the same answer showLogin gives: /me was unreachable or never asked, which is the
+    // desktop case. Hiding the connection controls there would leave an operator no way to set
+    // the app up.
+    expect(canAdminister(null)).toBe(true);
+  });
+
+  it("hides them from a browser that is not signed in to a deployment that authenticates", () => {
+    expect(canAdminister(info({ authenticated: false, account: null }))).toBe(false);
   });
 });
 

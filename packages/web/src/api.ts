@@ -30,6 +30,7 @@ export type {
   TargetPin,
   BroadcastCandidate,
   SessionInfo,
+  Person,
 } from "@app/shared";
 
 import type {
@@ -48,6 +49,7 @@ import type {
   TargetPin,
   BroadcastCandidate,
   SessionInfo,
+  Person,
 } from "@app/shared";
 
 /** Preset payload for create/update — the full preset minus its server-assigned id. */
@@ -125,6 +127,18 @@ export const api = {
      */
     disconnect: () =>
       req<{ ok: boolean; restarting: boolean }>("/api/setup/disconnect", { method: "POST" }),
+  },
+  /**
+   * Who is on this deployment, and what each of them may do (issue 045). Admin-only on the
+   * server, so the dashboard only ever calls it for an admin.
+   */
+  people: {
+    list: () => req<{ accounts: Person[] }>("/api/dashboard/people"),
+    setRole: (id: string, role: Person["role"]) =>
+      req<{ account: Person }>(`/api/dashboard/people/${id}/role`, {
+        method: "PUT",
+        body: JSON.stringify({ role }),
+      }),
   },
   presets: {
     list: () => req<Preset[]>("/api/dashboard/presets"),

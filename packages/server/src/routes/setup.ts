@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import type { JsonStore } from "../storage/jsonStore.js";
 import { AppError, toErrorBody } from "../core/errors.js";
@@ -54,10 +54,15 @@ export interface SetupDeps {
  * POST /oauth/start runs the in-app OAuth flow instead of pasting a token by hand. The refresh
  * token is write-only — it is never returned to the client.
  */
-export function setupRouter({ store, configured, requestRestart, oauth }: SetupDeps): Router {
-  const router = Router();
-
-  router.get("/status", (_req, res) => {
+/**
+ * Whether the app is connected, as booleans. Exported apart from the router because it is mounted
+ * apart from it: the rest of `/api/setup` is admin-only (issue 045), while this is read by every
+ * signed-in browser — the setup gate and the connection card are both built on it, and a user
+ * who could not read it would face a dashboard that cannot say why nothing works. It carries no
+ * secret and no way to change anything.
+ */
+export function setupStatusHandler({ store, configured, oauth }: SetupDeps): RequestHandler {
+  return (_req, res) => {
     const c = store.get().credentials;
     res.json({
       configured,
@@ -73,7 +78,16 @@ export function setupRouter({ store, configured, requestRestart, oauth }: SetupD
       // The loopback redirect the operator must register on their own OAuth client (override flow).
       redirectUri: OAUTH_REDIRECT,
     });
-  });
+  };
+}
+
+export function setupRouter(deps: SetupDeps): Router {
+  const { store, configured, requestRestart, oauth } = deps;
+  const router = Router();
+
+  // Also served here, so the router remains a complete unit for its own tests and for any host
+  // that mounts it alone. In the app the mount in app.ts answers first — see mountBootRoutes.
+  router.get("/status", setupStatusHandler(deps));
 
   // Disconnect (issue 014): wipe the stored credentials and reboot into setup mode. Reversible
   // only by reconnecting — the refresh token is discarded, so YouTube access stops immediately.

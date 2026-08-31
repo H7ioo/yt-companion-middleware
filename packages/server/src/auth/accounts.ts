@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 import type { JsonStore } from "../storage/jsonStore.js";
 import type { Account } from "../storage/schema.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
+import { AppError } from "../core/errors.js";
 
 /**
  * Accounts for the hosted deployment (PRD-15 §2, issue 043).
@@ -52,6 +53,91 @@ export async function seedAdmin(store: JsonStore, seed: SeedConfig | null): Prom
   await store.update((s) => {
     s.accounts = [...s.accounts, account];
   });
+  return account;
+}
+
+/**
+ * Adds a person. The role is the caller's to decide — the route above it is what limits who may
+ * ask for an admin (issue 045); this is the store-level operation, used by the role-management
+ * routes now and by invite redemption in issue 046.
+ *
+ * Names are unique case-insensitively, because sign-in compares them that way: two accounts
+ * called `Camera` and `camera` would make "which one did I just authenticate?" a coin toss.
+ */
+export async function createAccount(
+  store: JsonStore,
+  person: { name: string; password: string; role: Account["role"] },
+): Promise<Account> {
+  const name = person.name.trim();
+  if (store.get().accounts.some((a) => sameName(a.name, name))) {
+    throw new AppError("INVALID_REQUEST", `Someone here is already called "${name}".`);
+  }
+  const account: Account = {
+    id: nanoid(),
+    name,
+    passwordHash: await hashPassword(person.password),
+    role: person.role,
+    createdAt: new Date().toISOString(),
+    seeded: false,
+  };
+  await store.update((s) => {
+    s.accounts = [...s.accounts, account];
+  });
+  return account;
+}
+
+/**
+ * Changes someone's role (issue 045). Refuses to demote the last admin — see
+ * {@link assertAnAdminRemains}.
+ */
+export async function setRole(
+  store: JsonStore,
+  accountId: string,
+  role: Account["role"],
+): Promise<Account> {
+  const account = find(store, accountId);
+  if (role !== "admin") assertAnAdminRemains(store, account);
+  await store.update((s) => {
+    const record = s.accounts.find((a) => a.id === accountId);
+    if (record) record.role = role;
+  });
+  return { ...account, role };
+}
+
+/**
+ * Removes an account, and its sessions with it. The cut-off is immediate either way — session
+ * resolution refuses a session whose account is gone — but the records go too, so a removed
+ * person leaves nothing behind in the store. Issue 046 adds the route and the invite half.
+ */
+export async function removeAccount(store: JsonStore, accountId: string): Promise<Account> {
+  const account = find(store, accountId);
+  assertAnAdminRemains(store, account);
+  await store.update((s) => {
+    s.accounts = s.accounts.filter((a) => a.id !== accountId);
+    s.sessions = s.sessions.filter((x) => x.accountId !== accountId);
+  });
+  return account;
+}
+
+/**
+ * The one invariant this deployment cannot recover from breaking: **an admin must remain**.
+ * Demoting or removing the last one leaves a workspace nobody can add people to, change roles in,
+ * or reconnect YouTube from — and the only fix is shell access to the host, at whatever hour it
+ * is discovered. Cheap to refuse, unrecoverable to allow.
+ */
+function assertAnAdminRemains(store: JsonStore, leaving: Account): void {
+  if (leaving.role !== "admin") return;
+  const admins = store.get().accounts.filter((a) => a.role === "admin");
+  if (admins.length > 1) return;
+  throw new AppError(
+    "FORBIDDEN",
+    `${leaving.name} is the last admin. Make someone else an admin first.`,
+  );
+}
+
+function find(store: JsonStore, accountId: string): Account {
+  const account = store.get().accounts.find((a) => a.id === accountId);
+  if (!account) throw new AppError("INVALID_REQUEST", "No such account.");
   return account;
 }
 

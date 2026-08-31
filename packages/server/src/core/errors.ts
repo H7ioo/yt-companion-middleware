@@ -14,6 +14,7 @@ export type ErrorCode =
   | "OAUTH_FAILED"
   | "OAUTH_NO_REFRESH_TOKEN"
   | "UNAUTHENTICATED"
+  | "FORBIDDEN"
   | "INVALID_CREDENTIALS"
   | "TOO_MANY_ATTEMPTS"
   | "SERVER_ERROR";
@@ -35,6 +36,9 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   OAUTH_NO_REFRESH_TOKEN:
     "Google returned no refresh token — revoke the app at myaccount.google.com/permissions and reconnect",
   UNAUTHENTICATED: "Sign in to continue",
+  // Distinct from UNAUTHENTICATED on purpose: the caller is known, and signing in again as the
+  // same person would change nothing (issue 045).
+  FORBIDDEN: "Your account cannot do that — ask an admin",
   // Deliberately says nothing about which half was wrong — see routes/auth.ts.
   INVALID_CREDENTIALS: "Incorrect username or password",
   TOO_MANY_ATTEMPTS: "Too many sign-in attempts — try again later",

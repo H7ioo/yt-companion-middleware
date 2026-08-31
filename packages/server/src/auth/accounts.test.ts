@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { JsonStore } from "../storage/jsonStore.js";
-import { authenticate, seedAdmin } from "./accounts.js";
+import { authenticate, createAccount, removeAccount, seedAdmin, setRole } from "./accounts.js";
 
 let dir: string;
 let store: JsonStore;
@@ -92,5 +92,76 @@ describe("authenticate", () => {
     // Not a strict constant-time claim — just that a missing account is not an order of
     // magnitude faster, which is what would enumerate accounts.
     expect(missing).toBeGreaterThan(real / 4);
+  });
+});
+
+describe("createAccount", () => {
+  it("adds a person with the role they were given, and stores no plaintext password", async () => {
+    const account = await createAccount(store, {
+      name: "camera",
+      password: "another-long-secret",
+      role: "user",
+    });
+    expect(account.role).toBe("user");
+    expect(account.seeded).toBe(false);
+    expect(store.get().accounts.map((a) => a.name)).toEqual(["camera"]);
+    const persisted = await fs.readFile(path.join(dir, "store.json"), "utf8");
+    expect(persisted).not.toContain("another-long-secret");
+    expect(await authenticate(store, "camera", "another-long-secret")).toMatchObject({
+      id: account.id,
+    });
+  });
+
+  it("refuses a name another account already answers to, whatever its casing", async () => {
+    await createAccount(store, { name: "camera", password: "another-long-secret", role: "user" });
+    await expect(
+      createAccount(store, { name: "Camera", password: "yet-another-secret", role: "user" }),
+    ).rejects.toThrow(/already/i);
+  });
+});
+
+describe("the last admin", () => {
+  it("cannot be demoted — at 11pm there is no way back", async () => {
+    const admin = (await seedAdmin(store, { name: "operator", password: "a-long-enough-secret" }))!;
+    await createAccount(store, { name: "camera", password: "another-long-secret", role: "user" });
+    await expect(setRole(store, admin.id, "user")).rejects.toThrow(/last admin/i);
+    expect(store.get().accounts.find((a) => a.id === admin.id)!.role).toBe("admin");
+  });
+
+  it("cannot be removed either", async () => {
+    const admin = (await seedAdmin(store, { name: "operator", password: "a-long-enough-secret" }))!;
+    await expect(removeAccount(store, admin.id)).rejects.toThrow(/last admin/i);
+    expect(store.get().accounts).toHaveLength(1);
+  });
+
+  it("stops being the last one as soon as a second admin exists", async () => {
+    const admin = (await seedAdmin(store, { name: "operator", password: "a-long-enough-secret" }))!;
+    const second = await createAccount(store, {
+      name: "producer",
+      password: "another-long-secret",
+      role: "admin",
+    });
+    await setRole(store, admin.id, "user");
+    expect(store.get().accounts.find((a) => a.id === admin.id)!.role).toBe("user");
+    // …and now the second one is the last, so it is the one that cannot go.
+    await expect(setRole(store, second.id, "user")).rejects.toThrow(/last admin/i);
+  });
+});
+
+describe("setRole", () => {
+  it("promotes a user to admin", async () => {
+    await seedAdmin(store, { name: "operator", password: "a-long-enough-secret" });
+    const user = await createAccount(store, {
+      name: "camera",
+      password: "another-long-secret",
+      role: "user",
+    });
+    expect((await setRole(store, user.id, "admin")).role).toBe("admin");
+    expect(store.get().accounts.find((a) => a.id === user.id)!.role).toBe("admin");
+  });
+
+  it("refuses an account that does not exist", async () => {
+    await seedAdmin(store, { name: "operator", password: "a-long-enough-secret" });
+    await expect(setRole(store, "nobody", "admin")).rejects.toThrow(/not found|no such/i);
   });
 });

@@ -14,6 +14,23 @@ export function showLogin(info: SessionInfo | null): boolean {
   return info.authRequired && !info.authenticated;
 }
 
+/**
+ * Whether this browser may see the admin-only controls (issue 045): connecting and disconnecting
+ * YouTube, and the roles of the people here. The dashboard hides what the signed-in person cannot
+ * do rather than offering it and answering 403 — a button that always fails is worse than no
+ * button, and this is the only place the two roles differ visually.
+ *
+ * A deployment with no accounts says yes to everything, for the same reason it shows no login
+ * screen: the desktop and LAN installs have one operator, no roles, and nobody to ask.
+ *
+ * This is a display rule, never a security one. The guard on the server is what actually refuses;
+ * this only decides what is worth rendering.
+ */
+export function canAdminister(info: SessionInfo | null): boolean {
+  if (!info || !info.authRequired) return true;
+  return info.account?.role === "admin";
+}
+
 /** Whole days from now until the session's absolute cap, rounded down. */
 export function daysUntilExpiry(info: SessionInfo, now: number = Date.now()): number {
   if (!info.absoluteExpiresAt) return 0;

@@ -146,6 +146,38 @@ export class Auth {
   }
 
   /**
+   * Guards a route that only an admin may reach (issue 045). Mounted *after* {@link requireSession},
+   * which is what turns "no session" into a 401; reaching here with no actor still refuses, so the
+   * order can never be the difference between closed and open.
+   *
+   * The refusal is a 403, never a 401. A 401 sends the dashboard to the login screen, and signing
+   * in again as the same person answers the same way — the caller is known, and the answer is no.
+   *
+   * Dormant with the rest of authentication: a deployment with no accounts has no admins either,
+   * and the single operator of a desktop install would otherwise be locked out of their own setup.
+   */
+  requireAdmin(): RequestHandler {
+    return (req: Request, res: Response, next: NextFunction) => {
+      void (async () => {
+        if (!this.required) {
+          next();
+          return;
+        }
+        const actor = await this.currentActor(req);
+        if (!actor) {
+          res.status(401).json(toErrorBody(new AppError("UNAUTHENTICATED")));
+          return;
+        }
+        if (actor.account.role !== "admin") {
+          res.status(403).json(toErrorBody(new AppError("FORBIDDEN")));
+          return;
+        }
+        next();
+      })().catch(next);
+    };
+  }
+
+  /**
    * Re-stamps the cookie's expiry to match the session's refreshed idle clock. The server slides
    * its own 30-day window on every authenticated request; without this the browser would still
    * discard the cookie 30 days after sign-in, so an active session would die at day 30 and the
