@@ -2,6 +2,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import type { Server } from "node:http";
 import type { AppContext } from "./context.js";
 import { buildDashboardState, changeSignature } from "../core/snapshot.js";
+import { readBearer } from "../auth/actor.js";
 
 const HEARTBEAT_MS = 25000;
 
@@ -88,9 +89,11 @@ export function attachStateSocket(server: Server, ctx: AppContext): WebSocketSer
             refuse();
             return;
           }
-          // Companion-facing and tokenless. Same three-way answer as the HTTP guard: refused
-          // once enforcement is on, otherwise admitted and recorded.
-          if (ctx.auth.grace.enforcing) {
+          // Companion-facing and tokenless. Same answers as the HTTP guard: a token that was
+          // presented and rejected — revoked, expired, mistyped — is refused whatever grace mode
+          // says, or a revoked box would simply reconnect the moment the 4401 below cut it.
+          // Silence, meanwhile, is what grace mode covers: admitted, and recorded.
+          if (readBearer(req.headers.authorization) || ctx.auth.grace.enforcing) {
             refuse();
             return;
           }

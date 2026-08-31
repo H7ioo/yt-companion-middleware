@@ -200,6 +200,74 @@ describe("Grace", () => {
     expect(new Grace(store, () => now).readout().met).toBe(false);
   });
 
+  it("keeps deferring writes while a show is on air, rather than rewriting the store per poll", async () => {
+    // The two paths interleave for the whole broadcast: Companion polls tokenless every few
+    // seconds, and the poll loop reports the same live show just as often. Clearing lastGoLiveId
+    // on a tokenless connection let the next poll re-count that show, which made the next
+    // tokenless connection's verdict change and write again — two full store.json rewrites per
+    // poll cycle, for hours, which is exactly what the deferral exists to prevent.
+    const g = grace();
+    // One full cycle first: the show is counted, and the tokenless connection after it zeroes
+    // that count — one write each, and both are the verdict genuinely moving. What must not
+    // happen is that pair repeating for every poll after it.
+    await g.recordTokenless(COMPANION);
+    await g.recordGoLive("show-1");
+    await g.recordTokenless(COMPANION);
+
+    // Counted rather than read off the file's mtime: what matters is that neither path *asks*
+    // for a write, and a filesystem's timestamp granularity is not the thing under test.
+    const real = store.update.bind(store);
+    let writes = 0;
+    store.update = (fn) => {
+      writes += 1;
+      return real(fn);
+    };
+    for (let i = 0; i < 20; i += 1) {
+      now += 5000;
+      await g.recordTokenless(COMPANION);
+      await g.recordGoLive("show-1");
+    }
+    store.update = real;
+
+    expect(writes).toBe(0);
+    expect(g.readout().tokenlessCount).toBe(22);
+    // And the verdict is still the right one: the show ran tokenless, so it is not evidence.
+    expect(g.readout().goLivesSinceTokenless).toBe(0);
+    expect(g.readout().met).toBe(false);
+  });
+
+  it("counts the next show once the tokenless caller is gone", async () => {
+    // The other half of keeping lastGoLiveId: the show that ran tokenless is not re-counted, but
+    // a *new* show is, or the counter could never be satisfied after a single tokenless poll.
+    const g = grace();
+    await g.recordGoLive("show-1");
+    await g.recordTokenless(COMPANION);
+    expect(g.readout().goLivesSinceTokenless).toBe(0);
+
+    now += DAY;
+    await g.recordGoLive("show-2");
+    expect(g.readout().goLivesSinceTokenless).toBe(GRACE_GO_LIVES_REQUIRED);
+  });
+
+  it("keeps the pending count when the store write fails, rather than dropping it on the caller", async () => {
+    // Recording is bookkeeping beside a Companion action that is otherwise fine. A failed disk
+    // write must not lose the connections already counted, and must not 500 a cue.
+    const g = grace();
+    await g.recordTokenless(COMPANION);
+    const real = store.update.bind(store);
+    store.update = () => Promise.reject(new Error("disk full"));
+
+    now += 10 * 60 * 1000;
+    await expect(g.recordTokenless(COMPANION)).resolves.toBeUndefined();
+    expect(g.readout().tokenlessCount).toBe(2);
+
+    store.update = real;
+    now += 10 * 60 * 1000;
+    await g.recordTokenless(COMPANION);
+    // All three landed: the failed write's counts rode along with the next one.
+    expect(new Grace(store, () => now).readout().tokenlessCount).toBe(3);
+  });
+
   it("trims a client string rather than storing whatever length a caller sends", async () => {
     const g = grace();
     await g.recordTokenless({ ...COMPANION, client: "x".repeat(5000) });

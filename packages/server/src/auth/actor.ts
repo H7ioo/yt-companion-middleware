@@ -54,10 +54,13 @@ export type Caller =
 /** Requests carry their resolved caller here once the guard (or a lookup) has run. */
 const ACTOR = Symbol.for("app.actor");
 const CALLER = Symbol.for("app.caller");
+/** Set once the Companion guard has recorded this request as tokenless, so it counts once. */
+const RECORDED = Symbol.for("app.graceRecorded");
 
 interface WithActor extends Request {
   [ACTOR]?: Actor | null;
   [CALLER]?: Caller | null;
+  [RECORDED]?: boolean;
 }
 
 /**
@@ -260,10 +263,15 @@ export class Auth {
    * (issue 047). Three answers, in order:
    *
    * 1. A valid credential — a device token, or a signed-in browser — passes.
-   * 2. No credential, **grace mode on**: passes, and the connection is recorded. The module in
-   *    the field has no token field at all until issue 048, so refusing here is the go-dark
+   * 2. A device token that was *presented and rejected* — revoked, expired, mistyped — is refused
+   *    outright, grace mode or not. Grace mode exists for the module that cannot send a token at
+   *    all; a caller that sent one is past that, and letting a revoked token fall through to the
+   *    tokenless path would make revocation a no-op on the two endpoints that matter and let the
+   *    socket reconnect the moment the 4401 cut it.
+   * 3. No credential at all, **grace mode on**: passes, and the connection is recorded. The
+   *    module in the field has no token field until issue 048, so refusing here is the go-dark
    *    outage PRD-15 §4 describes.
-   * 3. No credential, enforcement on (issue 049): refused.
+   * 4. No credential, enforcement on (issue 049): refused.
    *
    * Recording is what keeps step 2 from being authentication quietly switched off forever: every
    * tokenless connection resets the exit condition's two counters and names itself in the
@@ -282,10 +290,20 @@ export class Auth {
           next();
           return;
         }
-        if (this.grace.enforcing) {
+        // A rejected token is not the same silence grace mode covers — see (2) above.
+        if (readBearer(req.headers.authorization) || this.grace.enforcing) {
           res.status(401).json(toErrorBody(new AppError("UNAUTHENTICATED")));
           return;
         }
+        // Recorded once per request, whatever the mount table does. `/api/feedback/stream` matches
+        // both the `/api/feedback` mount and its own `app.get`, and a guard that ran twice counted
+        // one Companion connection as two in the number the exit condition is read from.
+        const carrier = req as WithActor;
+        if (carrier[RECORDED]) {
+          next();
+          return;
+        }
+        carrier[RECORDED] = true;
         await this.grace.recordTokenless({
           client: req.headers["user-agent"] ?? null,
           from: req.ip ?? req.socket.remoteAddress ?? null,

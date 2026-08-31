@@ -95,9 +95,7 @@ export class Grace {
     // the write happens here, because "met" going stale for five minutes is the readout being
     // wrong about the one question it exists to answer.
     const wouldChangeVerdict =
-      stored.lastTokenlessAt === null ||
-      stored.goLivesSinceTokenless > 0 ||
-      stored.lastGoLiveId !== null;
+      stored.lastTokenlessAt === null || stored.goLivesSinceTokenless > 0;
     const stale = stored.lastTokenlessAt
       ? now - Date.parse(stored.lastTokenlessAt) >= RECORD_GRANULARITY_MS
       : true;
@@ -106,19 +104,31 @@ export class Grace {
     const at = new Date(now).toISOString();
     const counted = this.unflushed;
     this.unflushed = 0;
-    await this.store.update((s) => {
-      s.grace.lastTokenlessAt = at;
-      s.grace.lastTokenlessClient = caller.client
-        ? caller.client.slice(0, MAX_CLIENT_LENGTH)
-        : null;
-      s.grace.lastTokenlessFrom = caller.from ?? null;
-      s.grace.lastTokenlessRoute = caller.route;
-      s.grace.tokenlessCount += counted;
-      s.grace.goLivesSinceTokenless = 0;
-      // Cleared too, or the next refresh of a show that is *already* live would be read as a new
-      // go-live and hand back a counter this connection was supposed to have zeroed.
-      s.grace.lastGoLiveId = null;
-    });
+    try {
+      await this.store.update((s) => {
+        s.grace.lastTokenlessAt = at;
+        s.grace.lastTokenlessClient = caller.client
+          ? caller.client.slice(0, MAX_CLIENT_LENGTH)
+          : null;
+        s.grace.lastTokenlessFrom = caller.from ?? null;
+        s.grace.lastTokenlessRoute = caller.route;
+        s.grace.tokenlessCount += counted;
+        s.grace.goLivesSinceTokenless = 0;
+        // `lastGoLiveId` is deliberately *kept*. It is what stops the show currently on air from
+        // being re-counted by the very next poll — and a show that ran while something was still
+        // connecting tokenless is not the evidence this counter exists to collect. Clearing it
+        // instead put the two paths into a loop: the poll re-counted the live show, which made
+        // the next tokenless request's verdict change again, and the pair rewrote the whole store
+        // twice per poll for the length of a broadcast — what the deferral above exists to stop.
+      });
+    } catch (err) {
+      // The counts go back on the pile rather than down the drain, and the failure is not the
+      // caller's problem: recording is bookkeeping alongside a Companion action that is otherwise
+      // fine, and 500-ing a cue because a disk write failed is the outage grace mode exists to
+      // avoid. The next successful write carries these connections with it.
+      this.unflushed += counted;
+      console.error("[grace] failed to record a tokenless connection:", err);
+    }
   }
 
   /**

@@ -168,7 +168,11 @@ export function mountApiRoutes(app: Express, ctx: AppContext): void {
   const companion = ctx.auth.requireCompanion();
   app.use("/api/action", companion, actionRouter(ctx));
   app.use("/api/feedback", companion, feedbackRouter(ctx));
-  // SSE stream — an alternative to polling for any custom integration.
+  // SSE stream — an alternative to polling for any custom integration. The guard is repeated
+  // here even though the `/api/feedback` mount above already prefix-matches this path: a route
+  // that carries its own guard cannot be left open by someone moving the mount. Matching twice
+  // is why the guard records tokenless callers once per request rather than once per run — it
+  // was counting a single Companion connection as two.
   app.get("/api/feedback/stream", companion, streamHandler(ctx));
 
   // Everything browser-facing, behind one guard (issue 044). A prefix guard rather than a guard

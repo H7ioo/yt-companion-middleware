@@ -371,6 +371,40 @@ describe("device tokens at the handshake", () => {
     expect(g.lastTokenlessRoute).toBe("/api/feedback/ws");
   });
 
+  it("refuses a revoked token on the Companion endpoints instead of admitting it as tokenless", async () => {
+    // The loophole revocation had: verify() returns null for a revoked token, and the guard read
+    // that as "sent no token" and handed it the grace path. The box carried on running the show,
+    // and its socket reconnected the moment the 4401 above cut it.
+    const { token, id } = await mint();
+    await h.auth.devices.revoke(id);
+    const auth = { authorization: `Bearer ${token}` };
+
+    const action = await fetch(`${h.url}/api/action`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...auth },
+      body: JSON.stringify({ action: "refresh" }),
+    });
+    await action.body?.cancel();
+    expect(action.status).toBe(401);
+
+    const feedback = await fetch(`${h.url}/api/feedback`, { headers: auth });
+    await feedback.body?.cancel();
+    expect(feedback.status).toBe(401);
+
+    expect(await upgrade(h, "/api/feedback/ws", undefined, auth)).toBe(401);
+    // And it is a refusal, not a recorded tokenless connection: the exit condition must not be
+    // reset by a caller that did present a credential.
+    expect(h.auth.grace.readout().tokenlessCount).toBe(0);
+  });
+
+  it("counts one tokenless SSE connect once, not once per guard the path matches", async () => {
+    // /api/feedback/stream matches both the /api/feedback mount and its own app.get, so the
+    // guard runs twice on it. It used to record twice, inflating the number the exit condition
+    // is read from — the one thing the counter has to get right.
+    expect(await probe(h, "/api/feedback/stream")).toBe(200);
+    expect(h.auth.grace.readout().tokenlessCount).toBe(1);
+  });
+
   it("refuses a tokenless handshake once enforcement is on, and admits a token", async () => {
     const { token } = await mint();
     await h.auth.grace.setEnforcing(true);
