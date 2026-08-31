@@ -2,6 +2,7 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import type { JsonStore } from "../storage/jsonStore.js";
 import type { Account } from "../storage/schema.js";
 import { authenticate, seedAdmin, type SeedConfig } from "./accounts.js";
+import { Invites } from "./invites.js";
 import { IDLE_MS, Sessions, type Actor } from "./sessions.js";
 import { LoginThrottle } from "./throttle.js";
 import { AppError, toErrorBody } from "../core/errors.js";
@@ -44,6 +45,8 @@ interface WithActor extends Request {
 
 export class Auth {
   readonly sessions: Sessions;
+  /** Invites — the only way an account other than the seeded admin comes into being (issue 046). */
+  readonly invites: Invites;
   private readonly store: JsonStore;
   private readonly throttle: LoginThrottle;
   private readonly now: () => number;
@@ -52,6 +55,7 @@ export class Auth {
     this.store = store;
     this.now = now;
     this.sessions = new Sessions(store, now);
+    this.invites = new Invites(store, now);
     this.throttle = new LoginThrottle(now);
   }
 

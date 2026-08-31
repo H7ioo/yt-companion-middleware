@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   type Category,
   type DefaultSettings,
   type Person,
+  type InviteSummary,
+  type DeviceSession,
   type SetupStatus,
   type StreamInfo,
 } from "../api.js";
@@ -51,6 +53,19 @@ export function SettingsPanel({
   // section on desktop and LAN installs — there are no roles there to manage.
   const [people, setPeople] = useState<Person[]>([]);
   const [savingRole, setSavingRole] = useState<string | null>(null);
+  // Invites and devices (issue 046). The invite list is the record of who has been let in and who
+  // still holds an unspent link; `fresh` is the one link this browser has just generated.
+  const [invites, setInvites] = useState<InviteSummary[]>([]);
+  const [inviteRole, setInviteRole] = useState<Person["role"]>("user");
+  // The id travels with the link so withdrawing some *other* invite does not wipe it off screen.
+  const [fresh, setFresh] = useState<{ id: string; url: string } | null>(null);
+  // Which person's devices are expanded, and what they are. Fetched on demand: an admin opens
+  // this to answer one question — "which of these is the phone I lost" — and not otherwise.
+  const [openDevices, setOpenDevices] = useState<string | null>(null);
+  const [devices, setDevices] = useState<DeviceSession[]>([]);
+  // Whose devices the newest fetch was for. Two quick clicks race, and the loser must not paint
+  // one person's sessions under another's name — "Sign out" there would hit the wrong account.
+  const devicesFor = useRef<string | null>(null);
   useEscape(busy === "idle" ? onClose : () => {});
 
   const loadStatus = () => api.setup.status().then(setStatus).catch(() => {});
@@ -84,6 +99,99 @@ export function SettingsPanel({
     } finally {
       setSavingRole(null);
       await loadPeople();
+    }
+  };
+
+  const loadInvites = () =>
+    api.people
+      .invites()
+      .then((r) => setInvites(r.invites))
+      .catch(() => setInvites([]));
+  useEffect(() => {
+    if (canAdminister) void loadInvites();
+  }, [canAdminister]);
+
+  /**
+   * Generates an invite and shows the link. The token is in the response and nowhere else — the
+   * server cannot be asked for it again — so it is held in state until this panel closes and the
+   * admin is told plainly that it will not come back.
+   */
+  const createInvite = async () => {
+    try {
+      const created = await api.people.invite(inviteRole);
+      setFresh({ id: created.invite.id, url: `${window.location.origin}${created.path}` });
+      flash("Invite created — copy the link before you close this");
+    } catch (e) {
+      flash((e as Error).message, "err");
+    } finally {
+      await loadInvites();
+    }
+  };
+
+  const cancelInvite = async (id: string) => {
+    try {
+      await api.people.cancelInvite(id);
+      // Only the withdrawn invite's own link is unusable now; another one still needs sending.
+      setFresh((f) => (f?.id === id ? null : f));
+      flash("Invite withdrawn");
+    } catch (e) {
+      flash((e as Error).message, "err");
+    } finally {
+      await loadInvites();
+    }
+  };
+
+  /**
+   * Removes someone. Confirmed first, and named in the confirmation: this signs every one of
+   * their devices out on the next request and cannot be undone by re-adding them — the new
+   * account would be a different one.
+   */
+  const removePerson = async (person: Person) => {
+    if (
+      !window.confirm(
+        `Remove ${person.name}? They are signed out everywhere immediately, and getting back in ` +
+          `means a new invite.`,
+      )
+    )
+      return;
+    try {
+      await api.people.remove(person.id);
+      flash(`${person.name} removed`);
+    } catch (e) {
+      flash((e as Error).message, "err");
+    } finally {
+      setOpenDevices(null);
+      devicesFor.current = null;
+      await loadPeople();
+    }
+  };
+
+  /** Opens (or closes) one person's device list, fetching it fresh each time it opens. */
+  const toggleDevices = async (person: Person) => {
+    if (openDevices === person.id) {
+      setOpenDevices(null);
+      devicesFor.current = null;
+      return;
+    }
+    setOpenDevices(person.id);
+    setDevices([]);
+    devicesFor.current = person.id;
+    try {
+      const { sessions } = await api.people.sessions(person.id);
+      if (devicesFor.current === person.id) setDevices(sessions);
+    } catch (e) {
+      flash((e as Error).message, "err");
+    }
+  };
+
+  const revokeDevice = async (person: Person, sessionId: string) => {
+    try {
+      await api.people.revokeSession(person.id, sessionId);
+      flash(`Signed one of ${person.name}'s devices out`);
+      const { sessions } = await api.people.sessions(person.id);
+      if (devicesFor.current === person.id) setDevices(sessions);
+    } catch (e) {
+      flash((e as Error).message, "err");
     }
   };
 
@@ -279,19 +387,142 @@ export function SettingsPanel({
                     {person.name}
                     {person.seeded ? <span className="people__tag">set up at install</span> : null}
                   </span>
-                  <select
-                    className="people__role"
-                    aria-label={`Role for ${person.name}`}
-                    value={person.role}
-                    disabled={savingRole === person.id}
-                    onChange={(e) => void changeRole(person, e.target.value as Person["role"])}
-                  >
-                    <option value="admin">Admin</option>
-                    <option value="user">User</option>
-                  </select>
+                  <span className="people__actions">
+                    <select
+                      className="people__role"
+                      aria-label={`Role for ${person.name}`}
+                      value={person.role}
+                      disabled={savingRole === person.id}
+                      onChange={(e) => void changeRole(person, e.target.value as Person["role"])}
+                    >
+                      <option value="admin">Admin</option>
+                      <option value="user">User</option>
+                    </select>
+                    <button
+                      className="btn btn--ghost btn--sm"
+                      type="button"
+                      aria-expanded={openDevices === person.id}
+                      onClick={() => void toggleDevices(person)}
+                    >
+                      Devices
+                    </button>
+                    {/* The seeded admin has no remove button at all rather than one that answers
+                        403: the server refuses it, and a button that always fails is worse than
+                        no button. */}
+                    {person.seeded ? null : (
+                      <button
+                        className="btn btn--ghost btn--sm"
+                        type="button"
+                        onClick={() => void removePerson(person)}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </span>
+                  {openDevices === person.id ? (
+                    <ul className="devices">
+                      {devices.length === 0 ? (
+                        <li className="devices__row">Not signed in on any device.</li>
+                      ) : (
+                        devices.map((device) => (
+                          <li className="devices__row" key={device.id}>
+                            <span>
+                              Signed in {formatDay(device.createdAt)} · last used{" "}
+                              {formatDay(device.lastSeenAt)}
+                            </span>
+                            <button
+                              className="btn btn--ghost btn--sm"
+                              type="button"
+                              onClick={() => void revokeDevice(person, device.id)}
+                            >
+                              Sign out
+                            </button>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  ) : null}
                 </li>
               ))}
             </ul>
+
+            {/* ---- Invites (issue 046) ---- */}
+            <h3 className="settings__title" style={{ marginTop: 20 }}>
+              Invites
+            </h3>
+            <p className="empty" style={{ marginTop: 0 }}>
+              Nothing is emailed. Create a link, then send it to that person however you normally
+              would. It works once and expires within a day.
+            </p>
+            <div className="field--row" style={{ marginTop: 12 }}>
+              <div className="field">
+                <label htmlFor="invite-role">Role</label>
+                <select
+                  id="invite-role"
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value as Person["role"])}
+                >
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>&nbsp;</label>
+                <button className="btn" type="button" onClick={() => void createInvite()}>
+                  Create invite link
+                </button>
+              </div>
+            </div>
+
+            {fresh ? (
+              <div className="invite-link">
+                <span className="invite-link__url">{fresh.url}</span>
+                <button
+                  className="btn btn--ghost"
+                  type="button"
+                  onClick={() => void navigator.clipboard?.writeText(fresh.url)}
+                >
+                  Copy
+                </button>
+              </div>
+            ) : null}
+            {fresh ? (
+              <p className="hint" style={{ marginTop: 6 }}>
+                Copy this now — the link is not shown again. Losing it means creating another.
+              </p>
+            ) : null}
+
+            {invites.length > 0 ? (
+              <ul className="invites">
+                {invites.map((invite) => (
+                  <li
+                    className={`invites__row${invite.state === "open" ? "" : " invites__row--spent"}`}
+                    key={invite.id}
+                  >
+                    <span>
+                      {invite.role === "admin" ? "Admin" : "User"}
+                      <span className="invites__meta">
+                        {" · "}
+                        {invite.state === "redeemed"
+                          ? `used by ${invite.redeemedBy ?? "someone since removed"}`
+                          : invite.state === "expired"
+                            ? "expired"
+                            : `expires ${formatDay(invite.expiresAt)}`}
+                      </span>
+                    </span>
+                    {invite.state === "open" ? (
+                      <button
+                        className="btn btn--ghost btn--sm"
+                        type="button"
+                        onClick={() => void cancelInvite(invite.id)}
+                      >
+                        Withdraw
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </section>
         ) : null}
 
@@ -363,4 +594,21 @@ async function settle(done: (s: SetupStatus) => boolean, timeoutMs = 15000): Pro
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * A timestamp as a person reads it: "3 Sep". The year is added only when it is not this one, so
+ * the common case stays short and the rare case is not ambiguous.
+ *
+ * These stamps answer "which of these devices is the one I lost" and "how long has this link
+ * got", and neither question is decided by the minute — so the time of day is left off.
+ */
+function formatDay(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "unknown";
+  return at.toLocaleDateString([], {
+    day: "numeric",
+    month: "short",
+    year: at.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+  });
 }

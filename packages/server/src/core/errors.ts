@@ -17,6 +17,7 @@ export type ErrorCode =
   | "FORBIDDEN"
   | "INVALID_CREDENTIALS"
   | "TOO_MANY_ATTEMPTS"
+  | "INVITE_INVALID"
   | "SERVER_ERROR";
 
 const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
@@ -42,6 +43,9 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   // Deliberately says nothing about which half was wrong — see routes/auth.ts.
   INVALID_CREDENTIALS: "Incorrect username or password",
   TOO_MANY_ATTEMPTS: "Too many sign-in attempts — try again later",
+  // The invite link is unknown, spent or past its expiry. The three are not distinguished to the
+  // caller by code, only by message: all three mean "ask an admin for a new link" (issue 046).
+  INVITE_INVALID: "That invite link cannot be used — ask an admin for a new one",
   SERVER_ERROR: "The server could not complete the request",
 };
 
