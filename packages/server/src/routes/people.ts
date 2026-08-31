@@ -58,10 +58,17 @@ export function peopleRouter({ store }: PeopleDeps): Router {
             .json(toErrorBody(new AppError("INVALID_REQUEST", "Role must be admin or user.")));
           return;
         }
+        // Anything that is not an AppError is this server failing, not the caller asking wrongly:
+        // a store write that could not land, say. Reporting it as a 400 with its own message
+        // mislabels the fault and hands the caller the store's filesystem path.
+        if (!(err instanceof AppError)) {
+          console.error("[people] request failed:", err);
+          res.status(500).json(toErrorBody(new AppError("SERVER_ERROR")));
+          return;
+        }
         // The last-admin refusal arrives here as FORBIDDEN — a 403, because no amount of retrying
         // or re-authenticating makes it succeed; a second admin does.
-        const status = err instanceof AppError && err.code === "FORBIDDEN" ? 403 : 400;
-        res.status(status).json(toErrorBody(err));
+        res.status(err.code === "FORBIDDEN" ? 403 : 400).json(toErrorBody(err));
       }
     })();
   });

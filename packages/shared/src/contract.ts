@@ -245,13 +245,6 @@ export interface AppInfo {
 }
 
 /**
- * What the dashboard knows about its own sign-in state, from `GET /api/auth/me` (issue 043).
- *
- * `authRequired` is the switch: a deployment with no accounts — the desktop and LAN installs the
- * app ships as today — reports false, and the dashboard shows no login screen at all. The hosted
- * deployment seeds an admin at boot and reports true.
- */
-/**
  * One person on this deployment, as `GET /api/dashboard/people` reports them (issue 045). The
  * password hash never appears in this shape — it is the reason the shape exists.
  */
@@ -264,6 +257,13 @@ export interface Person {
   seeded: boolean;
 }
 
+/**
+ * What the dashboard knows about its own sign-in state, from `GET /api/auth/me` (issue 043).
+ *
+ * `authRequired` is the switch: a deployment with no accounts — the desktop and LAN installs the
+ * app ships as today — reports false, and the dashboard shows no login screen at all. The hosted
+ * deployment seeds an admin at boot and reports true.
+ */
 export interface SessionInfo {
   authRequired: boolean;
   authenticated: boolean;

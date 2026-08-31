@@ -61,6 +61,11 @@ export function App() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   /** Sign-in state (issue 043). Null on a deployment that does not authenticate. */
   const [session, setSession] = useState<SessionInfo | null>(null);
+  // Tracked separately from `session`, as main.tsx does: "not signed in" and "not asked yet" are
+  // both null, and null reads as "no accounts here, show everything" to canAdminister. Without
+  // this a signed-in user would get the admin affordances — and the admin-only fetches behind
+  // them — for the moment before /api/auth/me answers.
+  const [askedWhoIAm, setAskedWhoIAm] = useState(false);
   /** Which release notes the panel is showing, if any: the running build's, or the offered one's. */
   const [whatsNew, setWhatsNew] = useState<"running" | "offered" | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -118,7 +123,8 @@ export function App() {
       api.auth
         .me()
         .then(setSession)
-        .catch(() => {}),
+        .catch(() => {})
+        .finally(() => setAskedWhoIAm(true)),
     [],
   );
 
@@ -381,8 +387,9 @@ export function App() {
     : null;
   const apiEnabled = state?.apiEnabled ?? true;
   // What this person is allowed to be shown (issue 045). Always true on a deployment with no
-  // accounts, so the desktop and LAN dashboards look exactly as they always have.
-  const admin = canAdminister(session);
+  // accounts, so the desktop and LAN dashboards look exactly as they always have — but only once
+  // /api/auth/me has answered, so a user never flashes the admin controls on the way there.
+  const admin = askedWhoIAm && canAdminister(session);
 
   const defaultStreamLabel = settings.defaultStreamBoundId
     ? (streams.find((s) => s.id === settings.defaultStreamBoundId)?.title ??

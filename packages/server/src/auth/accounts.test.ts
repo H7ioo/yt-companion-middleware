@@ -118,6 +118,25 @@ describe("createAccount", () => {
       createAccount(store, { name: "Camera", password: "yet-another-secret", role: "user" }),
     ).rejects.toThrow(/already/i);
   });
+
+  it("refuses a password shorter than the seed's own minimum", async () => {
+    await expect(
+      createAccount(store, { name: "camera", password: "short", role: "user" }),
+    ).rejects.toThrow(/12 characters/i);
+    expect(store.get().accounts).toHaveLength(0);
+  });
+
+  it("lands only one of two concurrent creates of the same name", async () => {
+    // Both start before either has hashed, so neither can see the other in the pre-check — only
+    // the serialized update can. Without the check inside it, authenticate would then be a coin
+    // toss between two accounts called `camera`.
+    const results = await Promise.allSettled([
+      createAccount(store, { name: "camera", password: "another-long-secret", role: "user" }),
+      createAccount(store, { name: "Camera", password: "yet-another-secret", role: "user" }),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(store.get().accounts).toHaveLength(1);
+  });
 });
 
 describe("the last admin", () => {
@@ -132,6 +151,34 @@ describe("the last admin", () => {
     const admin = (await seedAdmin(store, { name: "operator", password: "a-long-enough-secret" }))!;
     await expect(removeAccount(store, admin.id)).rejects.toThrow(/last admin/i);
     expect(store.get().accounts).toHaveLength(1);
+  });
+
+  it("survives two admins being demoted at the same moment", async () => {
+    // The check has to happen inside the store's serialized update: run outside it, both calls
+    // see two admins, both proceed, and the deployment is left with none — the one state no
+    // amount of dashboard use can recover from.
+    const first = (await seedAdmin(store, { name: "operator", password: "a-long-enough-secret" }))!;
+    const second = await createAccount(store, {
+      name: "producer",
+      password: "another-long-secret",
+      role: "admin",
+    });
+    await Promise.allSettled([setRole(store, first.id, "user"), setRole(store, second.id, "user")]);
+    expect(store.get().accounts.filter((a) => a.role === "admin")).toHaveLength(1);
+  });
+
+  it("survives the last two admins being removed at the same moment", async () => {
+    const first = (await seedAdmin(store, { name: "operator", password: "a-long-enough-secret" }))!;
+    const second = await createAccount(store, {
+      name: "producer",
+      password: "another-long-secret",
+      role: "admin",
+    });
+    await Promise.allSettled([
+      removeAccount(store, first.id),
+      removeAccount(store, second.id),
+    ]);
+    expect(store.get().accounts.filter((a) => a.role === "admin")).toHaveLength(1);
   });
 
   it("stops being the last one as soon as a second admin exists", async () => {
