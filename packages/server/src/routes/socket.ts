@@ -5,9 +5,33 @@ import { buildDashboardState, changeSignature } from "../core/snapshot.js";
 
 const HEARTBEAT_MS = 25000;
 
-// Both bases upgrade to the same push stream, matching the by-caller /api/action
-// (Companion) and /api/dashboard/action (dashboard) mounting — both intentional.
-const WS_PATHS = new Set(["/api/feedback/ws", "/api/dashboard/ws"]);
+/**
+ * The upgrade table, and who may reach each entry (issue 044).
+ *
+ * A WebSocket never runs express middleware: the upgrade is served straight off the HTTP server,
+ * so the `/api/dashboard` prefix guard in app.ts cannot see it. The guard is therefore repeated
+ * here, from this table — and the audit in `guard.integration.test.ts` walks it, so a socket added
+ * without a stated answer fails CI rather than shipping open.
+ *
+ * Both bases upgrade to the same push stream, matching the by-caller /api/action (Companion) and
+ * /api/dashboard/action (dashboard) mounting — both intentional.
+ */
+export const WS_ROUTES: ReadonlyArray<{ path: string; guarded: boolean; why: string }> = [
+  {
+    path: "/api/feedback/ws",
+    guarded: false,
+    why:
+      "Companion-facing, exactly as /api/feedback is. The module carries no token today, so " +
+      "guarding it is the go-dark outage in PRD-15 §4 — handled by issues 047 → 048 → 049.",
+  },
+  {
+    path: "/api/dashboard/ws",
+    guarded: true,
+    why: "Browser-facing: it streams the full dashboard state, so it answers to a session only.",
+  },
+];
+
+const WS_PATHS = new Map(WS_ROUTES.map((r) => [r.path, r]));
 
 /**
  * WebSocket push of state changes — Bitfocus Companion's WebSocket module prefers this over
@@ -22,12 +46,22 @@ export function attachStateSocket(server: Server, ctx: AppContext): WebSocketSer
 
   server.on("upgrade", (req, socket, head) => {
     const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
-    if (!WS_PATHS.has(pathname)) {
+    const route = WS_PATHS.get(pathname);
+    if (!route) {
       // No other upgrade handler on this server — close unknown upgrades rather than leak them.
       socket.destroy();
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+    void (async () => {
+      // The express guard cannot run here, so the same question is asked directly. It is a
+      // pass-through on a deployment with no accounts, exactly as `requireSession()` is.
+      if (route.guarded && ctx.auth.required && !(await ctx.auth.actorOfCookies(req.headers.cookie))) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+    })().catch(() => socket.destroy());
   });
 
   wss.on("connection", (ws: WebSocket) => {

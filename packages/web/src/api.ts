@@ -53,6 +53,21 @@ import type {
 /** Preset payload for create/update — the full preset minus its server-assigned id. */
 export type PresetInput = Omit<Preset, "id">;
 
+/**
+ * Told whenever the server refuses a call for want of a session (issue 044). Every dashboard
+ * route is behind the guard now, so an expired session turns *every* panel into "Request failed
+ * (401)" with no way back to the login screen short of a manual reload — unless something
+ * notices. `main.tsx` subscribes and shows the login screen.
+ *
+ * Sign-in's own 401 (a wrong password) is not a lost session and never fires this.
+ */
+const sessionLostHandlers = new Set<() => void>();
+
+export function onSessionLost(handler: () => void): () => void {
+  sessionLostHandlers.add(handler);
+  return () => sessionLostHandlers.delete(handler);
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     headers: { "Content-Type": "application/json" },
@@ -61,6 +76,9 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
   if (!res.ok) {
+    if (res.status === 401 && !url.startsWith("/api/auth/")) {
+      for (const handler of sessionLostHandlers) handler();
+    }
     const message = body?.error?.message ?? `Request failed (${res.status})`;
     throw new Error(message);
   }

@@ -17,14 +17,12 @@ import { Logger } from "./core/logger.js";
 import { WebhookDispatcher } from "./core/webhook.js";
 import { FillRequests } from "./core/fillRequests.js";
 import type { AppContext } from "./routes/context.js";
-import { mountApiRoutes } from "./app.js";
-import { setupRouter } from "./routes/setup.js";
-import { appInfoRouter, type UpdateHost } from "./routes/appInfo.js";
+import { mountApiRoutes, mountBootRoutes, mountWebApp } from "./app.js";
+import { type UpdateHost } from "./routes/appInfo.js";
 import { loadChangelog } from "./core/changelog.js";
 import { mountDocsRoutes } from "./routes/docs.js";
 import { attachStateSocket } from "./routes/socket.js";
 import { Auth } from "./auth/actor.js";
-import { authRouter } from "./routes/auth.js";
 
 /** A running HTTP server that can be gracefully torn down (used for restart-on-setup). */
 interface BootHandle {
@@ -115,24 +113,19 @@ async function bootOnce(
       }
     : undefined;
 
-  // Sign-in is available in setup mode too: on a hosted deployment the person who has to finish
-  // setup is the person who has to sign in first (issue 043).
-  app.use("/api/auth", authRouter(auth));
-
-  // Setup endpoints are always available so the desktop app can be configured at runtime.
-  app.use("/api/setup", setupRouter({ store, configured, requestRestart, oauth }));
-
-  // Version + changelog + update state (PRD-09 §B.2). Mounted here, not in mountApiRoutes, because
-  // it must answer in setup mode too: the first launch after an update is often the first launch
-  // full stop, and the What's New panel has nothing to do with having YouTube connected.
-  app.use(
-    "/api/dashboard/app",
-    appInfoRouter({
+  // Sign-in, setup, and version/changelog/update state (PRD-09 §B.2) — the routes that must
+  // answer in setup mode too, so they cannot live in mountApiRoutes. On a hosted deployment the
+  // person who has to finish setup is the person who has to sign in first (issue 043), and the
+  // first launch after an update is often the first launch full stop.
+  mountBootRoutes(app, {
+    auth,
+    setup: { store, configured, requestRestart, oauth },
+    appInfo: {
       version: options.appVersion ?? packageVersion(),
       changelog: loadChangelog(options.changelogPath),
       updates: options.updates,
-    }),
-  );
+    },
+  });
 
   // Pieces that only exist once we have credentials — captured for graceful shutdown.
   let cache: StateCache | null = null;
@@ -229,13 +222,7 @@ async function bootOnce(
   mountDocsRoutes(app, path.resolve(here, "../public"));
 
   // Serve the built React dashboard, if present.
-  const webDist = path.resolve(here, "../../web/dist");
-  if (fs.existsSync(webDist)) {
-    app.use(express.static(webDist));
-    app.get(/^(?!\/api\/).*/, (_req, res) => {
-      res.sendFile(path.join(webDist, "index.html"));
-    });
-  }
+  mountWebApp(app, path.resolve(here, "../../web/dist"));
 
   const server = http.createServer(app);
   await new Promise<void>((resolve, reject) => {
