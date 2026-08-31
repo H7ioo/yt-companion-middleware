@@ -71,6 +71,94 @@ export function wsUrl(base) {
 }
 
 /**
+ * Builds the `Authorization` header carrying the module's device token, or nothing at all when no
+ * token is configured. The hosted middleware issues device tokens (PRD-15 §2) and reads them off
+ * `Authorization: Bearer` on both the HTTP requests and the WebSocket upgrade.
+ *
+ * The empty case is deliberately *no header* rather than a bare `Bearer `: the server refuses a
+ * credential that was presented and rejected whatever its grace mode says, while silence is
+ * exactly what grace mode admits and records. A LAN install with the field left blank must keep
+ * working, so a blank field must look blank on the wire.
+ * @param {unknown} token
+ * @returns {Record<string, string>}
+ */
+export function bearerHeaders(token) {
+  const trimmed = typeof token === 'string' ? token.trim() : '';
+  return trimmed ? { Authorization: `Bearer ${trimmed}` } : {};
+}
+
+/**
+ * The headers for every HTTP call the module makes: the JSON content type, plus the device-token
+ * credential when one is configured.
+ * @param {unknown} token
+ * @returns {Record<string, string>}
+ */
+export function apiHeaders(token) {
+  return { 'Content-Type': 'application/json', ...bearerHeaders(token) };
+}
+
+/**
+ * The `ws` client options for the state socket. A WebSocket handshake is an HTTP upgrade, so the
+ * same bearer header rides along on it — the server checks both surfaces through one seam, and a
+ * token sent on only one of them guards nothing.
+ * @param {unknown} token
+ * @returns {{ headers?: Record<string, string> }}
+ */
+export function wsHandshakeOptions(token) {
+  const headers = bearerHeaders(token);
+  return Object.keys(headers).length > 0 ? { headers } : {};
+}
+
+/**
+ * The operator-facing explanation for a refused HTTP status, or `undefined` when the status is not
+ * an authentication failure.
+ *
+ * The `/api/dashboard/*` list routes are *not* covered by the server's grace mode — only the action
+ * bus and the state socket are (PRD-15 §4). So a blank or wrong token on a seeded deployment leaves
+ * a module whose socket is up and whose dropdowns are empty, which reads as "the server has no
+ * presets" unless the refusal is said out loud. Which of the two it is decides the wording: silence
+ * needs a token, a rejected token needs a new one.
+ * @param {number} status
+ * @param {unknown} token
+ * @returns {string | undefined}
+ */
+export function authErrorMessage(status, token) {
+  if (status !== 401 && status !== 403) return undefined;
+  const configured = typeof token === 'string' && token.trim() !== '';
+  return configured
+    ? `Device token rejected (HTTP ${status}) — it may be revoked, expired or mistyped. Paste a fresh one from Settings → Machines.`
+    : `Device token required (HTTP ${status}) — this server has accounts. Paste a device token from Settings → Machines.`;
+}
+
+/**
+ * The module's link to the middleware, as the key sees it.
+ * @typedef {'connected' | 'connecting' | 'disconnected'} LinkState
+ */
+
+/**
+ * True whenever the state socket is not up. Anything unrecognised counts as down: a key must
+ * never read "fine" because the module forgot to say otherwise.
+ * @param {unknown} link
+ * @returns {boolean}
+ */
+export function isLinkDown(link) {
+  return link !== 'connected';
+}
+
+/**
+ * Maps the link state onto its variable values. On a laptop, losing the socket meant the machine
+ * was off and the operator could see that. Hosted, it means the internet blinked while the stream
+ * carries on perfectly — so the state has to be readable *on the key*, not just in Companion's
+ * connections list (PRD-15 §4).
+ * @param {unknown} link
+ * @returns {{ link: LinkState, link_up: boolean }}
+ */
+export function linkVariables(link) {
+  const known = link === 'connected' || link === 'connecting' ? link : 'disconnected';
+  return { link: known, link_up: !isLinkDown(known) };
+}
+
+/**
  * Turns the middleware's preset list into Companion dropdown choices. Labels prefer
  * `slug · title`, falling back to the title, then the raw id.
  * @param {Array<{ id: string, title?: string, slug?: string }>} presets
@@ -143,13 +231,19 @@ export function healthColor(status) {
 // (so a key's job reads even unlit), and saturated colour is reserved for live states. The
 // active-preset highlight is violet, not green — green already means "healthy" on the health
 // lamp, and two identical greens meaning different things is how keys get misread mid-service.
-/** @type {{ onAir: number, busy: number, activePreset: number, apiOff: number, presetIdle: number, indicator: number, imageCanvas: number, utility: number, privacy: number, caution: number, danger: number }} */
+/** @type {{ onAir: number, busy: number, activePreset: number, apiOff: number, linkDown: number, presetIdle: number, indicator: number, imageCanvas: number, utility: number, privacy: number, caution: number, danger: number }} */
 export const COMPANION_COLORS = {
   // Live states — saturated, white text
   onAir: rgb(220, 28, 28), // On Air — broadcast is live (tally red)
   busy: rgb(26, 98, 224), // Busy — an action is in flight
   activePreset: rgb(112, 46, 220), // Active-preset highlight (violet — green is the health lamp's)
   apiOff: rgb(232, 164, 12), // Kill switch engaged — amber, pair with black text
+  // Server link lost — magenta, and magenta on purpose. Every other alarm colour on a deck is
+  // already spoken for by something that is still *working*: tally red is on air, amber is the
+  // kill switch, slate is health `offline` (the server saying it cannot reach YouTube). This one
+  // means the module is not talking to the server at all, and the key it lights is lying about
+  // everything else it shows.
+  linkDown: rgb(190, 24, 140),
   // Idle surfaces — dark, tinted by role
   presetIdle: rgb(24, 27, 38), // a preset key at rest (cool indigo-charcoal)
   indicator: rgb(16, 18, 24), // passive indicators (on-air / busy) until they light

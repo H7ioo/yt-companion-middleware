@@ -1,15 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
+  apiHeaders,
+  authErrorMessage,
+  bearerHeaders,
   categoryChoices,
+  COMPANION_COLORS,
   formatLastError,
   healthColor,
+  isLinkDown,
   joinUrl,
+  linkVariables,
   mapVariables,
   nextApiEnabled,
   presetButtons,
   presetChoices,
   streamChoices,
   toPng64,
+  wsHandshakeOptions,
   wsUrl,
 } from './transform.js';
 
@@ -214,5 +221,116 @@ describe('categoryChoices / streamChoices', () => {
     const streams = streamChoices([{ id: 's1', title: 'Main', streamName: 'main' }]);
     expect(streams[0]).toEqual({ id: '', label: '— inherit default —' });
     expect(streams[1]).toEqual({ id: 's1', label: 'Main' });
+  });
+});
+
+// --- Device token (issue 048 / PRD-15 §4) -----------------------------------
+// The hosted server reads `Authorization: Bearer <token>` through one seam for both the HTTP
+// requests and the WebSocket upgrade, so these helpers are the module's whole credential path.
+
+describe('bearerHeaders', () => {
+  it('builds an Authorization header from a token', () => {
+    expect(bearerHeaders('ytm_abc123')).toEqual({ Authorization: 'Bearer ytm_abc123' });
+  });
+
+  it('trims surrounding whitespace — a token is copied once and pasted, often with a stray space', () => {
+    expect(bearerHeaders('  ytm_abc123\n')).toEqual({ Authorization: 'Bearer ytm_abc123' });
+  });
+
+  // An empty field is the normal state on a LAN install and during the server's grace window:
+  // sending `Bearer ` would be a *presented and rejected* credential, which the server refuses
+  // whatever grace mode says. Sending nothing is what grace mode admits.
+  it('sends no header at all when the token is empty, blank or missing', () => {
+    for (const value of ['', '   ', undefined, null, 42, {}]) {
+      expect(bearerHeaders(/** @type {any} */ (value))).toEqual({});
+    }
+  });
+});
+
+describe('apiHeaders', () => {
+  it('always carries the JSON content type', () => {
+    expect(apiHeaders('')).toEqual({ 'Content-Type': 'application/json' });
+  });
+
+  it('adds the bearer credential when a token is configured', () => {
+    expect(apiHeaders('ytm_abc123')).toEqual({
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ytm_abc123',
+    });
+  });
+});
+
+describe('authErrorMessage', () => {
+  // Grace mode covers the action bus and the socket, never the `/api/dashboard/*` list routes, so a
+  // blank token on a seeded server is a refusal the operator has to be told about.
+  it('names a missing token when the field is blank', () => {
+    for (const value of ['', '   ', undefined]) {
+      expect(authErrorMessage(401, /** @type {any} */ (value))).toMatch(/Device token required/);
+    }
+  });
+
+  it('names a rejected token when one was configured', () => {
+    expect(authErrorMessage(401, 'ytm_abc123')).toMatch(/Device token rejected/);
+    expect(authErrorMessage(403, 'ytm_abc123')).toMatch(/HTTP 403/);
+  });
+
+  it('stays out of the way of every other failure — those are not credential problems', () => {
+    for (const status of [200, 400, 404, 429, 500, 503]) {
+      expect(authErrorMessage(status, 'ytm_abc123')).toBeUndefined();
+    }
+  });
+});
+
+describe('wsHandshakeOptions', () => {
+  it('passes the credential as a handshake header', () => {
+    expect(wsHandshakeOptions('ytm_abc123')).toEqual({ headers: { Authorization: 'Bearer ytm_abc123' } });
+  });
+
+  // `new WebSocket(url, {})` and `new WebSocket(url)` behave identically, but an empty `headers`
+  // object would be a lie about what the handshake carries.
+  it('passes no headers when there is no token', () => {
+    expect(wsHandshakeOptions('')).toEqual({});
+    expect(wsHandshakeOptions(undefined)).toEqual({});
+  });
+});
+
+// --- Server link state (issue 048 / PRD-15 §4) ------------------------------
+// Hosted, losing the socket no longer means "the laptop is off" — it means the internet blinked
+// while the stream carries on fine. The key must say so, distinctly from "connected but idle".
+
+describe('linkVariables', () => {
+  it('reports a connected link', () => {
+    expect(linkVariables('connected')).toEqual({ link: 'connected', link_up: true });
+  });
+
+  it('reports connecting and disconnected as link-down', () => {
+    expect(linkVariables('connecting')).toEqual({ link: 'connecting', link_up: false });
+    expect(linkVariables('disconnected')).toEqual({ link: 'disconnected', link_up: false });
+  });
+
+  // A key must never read as "fine" because the module forgot to say otherwise.
+  it('treats an unknown or missing state as down', () => {
+    expect(linkVariables(undefined)).toEqual({ link: 'disconnected', link_up: false });
+    expect(linkVariables('nonsense')).toEqual({ link: 'disconnected', link_up: false });
+  });
+});
+
+describe('isLinkDown', () => {
+  it('is false only while connected', () => {
+    expect(isLinkDown('connected')).toBe(false);
+    expect(isLinkDown('connecting')).toBe(true);
+    expect(isLinkDown('disconnected')).toBe(true);
+    expect(isLinkDown(undefined)).toBe(true);
+  });
+});
+
+describe('COMPANION_COLORS.linkDown', () => {
+  // It has to be legible as "not the same thing" next to every other state the deck can show —
+  // tally red means on air, amber means the kill switch, slate means health `offline`.
+  it('is distinct from every other colour in the palette', () => {
+    const others = Object.entries(COMPANION_COLORS).filter(([name]) => name !== 'linkDown');
+    for (const [, value] of others) expect(value).not.toBe(COMPANION_COLORS.linkDown);
+    expect(COMPANION_COLORS.linkDown).not.toBe(healthColor('offline'));
+    expect(COMPANION_COLORS.linkDown).not.toBe(healthColor('auth_error'));
   });
 });

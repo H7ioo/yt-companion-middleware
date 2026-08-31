@@ -24,8 +24,9 @@ describe('UpgradeScripts array', () => {
   // Pinning the length is the point: this test failing means someone appended (fine — extend the
   // suite below with that step's own cases) or, far worse, spliced into the middle (not fine).
   it('holds exactly the migration history shipped so far', () => {
-    expect(UpgradeScripts).toHaveLength(1);
+    expect(UpgradeScripts).toHaveLength(2);
     expect(UpgradeScripts[0].name).toBe('dropBearerToken');
+    expect(UpgradeScripts[1].name).toBe('seedDeviceToken');
   });
 
   it('never mutates the config it is handed', () => {
@@ -85,6 +86,54 @@ describe('dropBearerToken (v1.x -> v2.0.0)', () => {
 
   it('migrates no actions or feedbacks — the removed check_connection action has no replacement', () => {
     const result = run(dropBearerToken, { url: 'http://x:3000', token: 't' });
+    expect(result.updatedActions).toEqual([]);
+    expect(result.updatedFeedbacks).toEqual([]);
+  });
+});
+
+// v2.3.0 re-adds the token field that v2.0.0 removed, because the hosted server now issues device
+// tokens (PRD-15 §4). The prior shape is `{ url }`; the shape it migrates to is `{ url, token }`.
+// It seeds an *empty* token so an upgraded install is configurable, never silently credentialled.
+describe('seedDeviceToken (v2.0.0 -> v2.3.0)', () => {
+  const seedDeviceToken = UpgradeScripts[1];
+
+  it('adds an empty token field to a tokenless v2 config', () => {
+    const result = run(seedDeviceToken, { url: 'http://10.0.0.5:3000' });
+    expect(result.updatedConfig).toEqual({ url: 'http://10.0.0.5:3000', token: '' });
+  });
+
+  it('keeps every other stored field intact', () => {
+    const result = run(seedDeviceToken, { url: 'http://x:3000', label: 'Studio' });
+    expect(result.updatedConfig).toEqual({ url: 'http://x:3000', label: 'Studio', token: '' });
+  });
+
+  // The pair matters: dropBearerToken runs first on a v1.x config and strips the old token, then
+  // this seeds the new empty one. An operator upgrading straight from v1.x lands on the v2.3 shape
+  // with a blank field, not with a v1 token silently resurrected as a device credential — those
+  // are different secrets issued by different systems.
+  it('leaves a v1.x config on the v2.3 shape when run after dropBearerToken', () => {
+    const stored = { url: 'http://x:3000', token: 'a-v1-bearer' };
+    const afterDrop = run(UpgradeScripts[0], stored).updatedConfig;
+    expect(run(seedDeviceToken, afterDrop).updatedConfig).toEqual({ url: 'http://x:3000', token: '' });
+  });
+
+  it('reports no change when a token field is already present', () => {
+    expect(run(seedDeviceToken, { url: 'http://x:3000', token: '' }).updatedConfig).toBeNull();
+    expect(run(seedDeviceToken, { url: 'http://x:3000', token: 'ytm_abc' }).updatedConfig).toBeNull();
+  });
+
+  it('never overwrites a token an operator already pasted in', () => {
+    const result = run(seedDeviceToken, { url: 'http://x:3000', token: 'ytm_keepme' });
+    expect(result.updatedConfig).toBeNull();
+  });
+
+  it('survives a null config without throwing', () => {
+    expect(() => run(seedDeviceToken, null)).not.toThrow();
+    expect(run(seedDeviceToken, null).updatedConfig).toBeNull();
+  });
+
+  it('migrates no actions or feedbacks — nothing was renamed or removed', () => {
+    const result = run(seedDeviceToken, { url: 'http://x:3000' });
     expect(result.updatedActions).toEqual([]);
     expect(result.updatedFeedbacks).toEqual([]);
   });
