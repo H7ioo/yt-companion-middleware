@@ -18,6 +18,7 @@ export type ErrorCode =
   | "INVALID_CREDENTIALS"
   | "TOO_MANY_ATTEMPTS"
   | "INVITE_INVALID"
+  | "BROADCAST_WRITE_UNSAFE"
   | "SERVER_ERROR";
 
 const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
@@ -46,6 +47,10 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   // The invite link is unknown, spent or past its expiry. The three are not distinguished to the
   // caller by code, only by message: all three mean "ask an admin for a new link" (issue 046).
   INVITE_INVALID: "That invite link cannot be used — ask an admin for a new one",
+  // Raised before the write leaves the process, never by YouTube: the update body had lost a
+  // field the fetched broadcast had, and sending it would have deleted that field (issue 056).
+  BROADCAST_WRITE_UNSAFE:
+    "Refused to write the broadcast — the update would have deleted fields it should have preserved",
   SERVER_ERROR: "The server could not complete the request",
 };
 

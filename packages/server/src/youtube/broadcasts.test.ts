@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { youtube_v3 } from "googleapis";
+import { resolve } from "../core/resolve.js";
 import {
+  applyPlan,
   resolveTarget,
   getBroadcast,
   toStatus,
@@ -494,5 +496,57 @@ describe("toStatus", () => {
       privacyStatus: null,
       isLive: false,
     });
+  });
+});
+
+describe("applyPlan (issue 056 — one guarded write path)", () => {
+  const current = {
+    id: "b1",
+    snippet: { title: "Old", description: "Keep me" },
+    status: { privacyStatus: "unlisted" },
+    contentDetails: {
+      boundStreamId: "s1",
+      monitorStream: { enableMonitorStream: true, broadcastStreamDelayMs: 0 },
+      enableAutoStart: true,
+    },
+  };
+
+  function updateRecordingYt() {
+    const bodies: unknown[] = [];
+    const yt = {
+      liveBroadcasts: {
+        update: async (p: { requestBody?: unknown }) => {
+          bodies.push(p.requestBody);
+          return { data: {} };
+        },
+      },
+    } as unknown as youtube_v3.Youtube;
+    return { yt, bodies };
+  }
+
+  it("sends the merged resource with every un-owned field intact", async () => {
+    const plan = resolve(current, { title: "New" }, {
+      defaultCategory: null,
+      defaultStreamBoundId: null,
+    });
+    const { yt, bodies } = updateRecordingYt();
+    await applyPlan(yt, plan);
+
+    expect(bodies[0]).toEqual({
+      ...current,
+      snippet: { title: "New", description: "Keep me" },
+    });
+  });
+
+  it("refuses a plan whose merged broadcast lost a field", async () => {
+    const plan = resolve(current, { title: "New" }, {
+      defaultCategory: null,
+      defaultStreamBoundId: null,
+    });
+    delete (plan.broadcast.contentDetails as Record<string, unknown>).enableAutoStart;
+
+    const { yt, bodies } = updateRecordingYt();
+    await expect(applyPlan(yt, plan)).rejects.toThrow(/enableAutoStart/);
+    expect(bodies).toHaveLength(0);
   });
 });

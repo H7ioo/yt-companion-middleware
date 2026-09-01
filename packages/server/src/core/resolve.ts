@@ -35,6 +35,12 @@ export interface BroadcastResource {
 
 export interface ResolvedPlan {
   /**
+   * The resource exactly as the GET returned it. Carried alongside the merged copy so the write
+   * path can refuse a body that has lost one of its fields — `liveBroadcasts.update` deletes
+   * whatever the request omits (issue 056).
+   */
+  original: BroadcastResource;
+  /**
    * Full broadcast object to PUT back via liveBroadcasts.update. All non-owned fields
    * (thumbnail, game id, etc.) are preserved from the GET.
    */
@@ -81,7 +87,7 @@ export function resolve(
   // 3. streamBoundId = preset override -> app default -> leave untouched.
   const streamBoundId = firstDefined(payload.streamBoundId, defaults.defaultStreamBoundId);
 
-  return { broadcast, categoryId, streamBoundId };
+  return { original: current, broadcast, categoryId, streamBoundId };
 }
 
 /** Returns the first non-null/non-undefined value, or null if none. */
