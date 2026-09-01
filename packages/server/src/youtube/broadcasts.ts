@@ -323,6 +323,9 @@ const MAX_PAGES = 4;
 export async function listBroadcasts(
   yt: youtube_v3.Youtube,
   params: youtube_v3.Params$Resource$Livebroadcasts$List,
+  // Called once per API call. Lets a caller report what one read cost from its own calls rather
+  // than from a delta of the process-wide quota counter, which the background poll also moves.
+  onPage?: () => void,
 ): Promise<youtube_v3.Schema$LiveBroadcast[]> {
   const items: youtube_v3.Schema$LiveBroadcast[] = [];
   let pageToken: string | undefined;
@@ -334,6 +337,7 @@ export async function listBroadcasts(
         ...params,
         ...(pageToken ? { pageToken } : {}),
       });
+      onPage?.();
       items.push(...(res.data.items ?? []));
       pageToken = res.data.nextPageToken ?? undefined;
       if (!pageToken) break;

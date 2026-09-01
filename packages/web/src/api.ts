@@ -29,6 +29,8 @@ export type {
   NotifyState,
   TargetPin,
   BroadcastCandidate,
+  BroadcastListing,
+  BroadcastListEntry,
   SessionInfo,
   Person,
   InviteSummary,
@@ -55,6 +57,7 @@ import type {
   NotifyState,
   TargetPin,
   BroadcastCandidate,
+  BroadcastListing,
   SessionInfo,
   Person,
   InviteSummary,
@@ -256,6 +259,10 @@ export const api = {
   },
   streams: {
     list: () => req<StreamInfo[]>("/api/dashboard/streams"),
+  },
+  /** The read-only answer to "which broadcast will actually air?" (issue 057). */
+  broadcasts: {
+    list: () => req<BroadcastListing>("/api/dashboard/broadcasts"),
   },
   /** Which broadcast actions edit — the operator's choice, or null to choose automatically. */
   target: {

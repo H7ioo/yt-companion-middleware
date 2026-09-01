@@ -17,6 +17,7 @@ import { ReauthBanner } from "./components/ReauthBanner.js";
 import { FirewallGuidance } from "./components/FirewallGuidance.js";
 import { TargetConflictBanner } from "./components/TargetConflictBanner.js";
 import { TargetPicker } from "./components/TargetPicker.js";
+import { BroadcastList } from "./components/BroadcastList.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { PresetForm } from "./components/PresetForm.js";
 import { PresetFillModal } from "./components/PresetFillModal.js";
@@ -549,6 +550,10 @@ export function App() {
             refreshing={refreshing}
           />
         ) : null}
+
+        {/* What YouTube will actually feed when the encoder starts — read-only, and above the
+            edit target because "which one airs" is the question that comes first (issue 057). */}
+        <BroadcastList apiEnabled={state ? state.apiEnabled : null} />
 
         {/* Which broadcast every action below writes to. Placed above the presets because it
             governs where all of them land (PRD-12 / the pinned-target work). */}
