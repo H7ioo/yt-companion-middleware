@@ -20,7 +20,9 @@ import { appInfoRouter, type AppInfoDeps } from "./routes/appInfo.js";
 import { authRouter } from "./routes/auth.js";
 import { peopleRouter } from "./routes/people.js";
 import { devicesRouter } from "./routes/devices.js";
+import { auditRouter } from "./routes/audit.js";
 import type { Auth } from "./auth/actor.js";
+import { auditTrail, type AuditTrailDeps } from "./audit/middleware.js";
 
 /**
  * Mounts that answer without a session, each for a stated reason (issue 044).
@@ -98,12 +100,33 @@ export const ADMIN_ONLY: ReadonlyArray<{ mount: string; why: string }> = [
     why: "Who is here and who is an admin. A machine or a user account must not be able to grant itself more.",
   },
   {
+    mount: "/api/dashboard/audit",
+    why:
+      "Who did what, on this deployment, for the last ninety days (issue 050). It names every " +
+      "account and every machine attached to the server, and it is the record of the admin " +
+      "actions themselves — reading it is the 'losing control of the server' side of the line.",
+  },
+  {
     mount: "/api/dashboard/devices",
     why:
       "Minting and revoking machine credentials, and the grace-mode evidence beside them " +
       "(issue 047). A device token that could mint another would be an admin with extra steps.",
   },
 ];
+
+/**
+ * Mounts the audit trail (issue 050, PRD-15 §3).
+ *
+ * Called **before** every route mount, boot routes included, and that ordering is load-bearing:
+ * the middleware registers a `finish` listener on the way in, so a route mounted ahead of it —
+ * sign-in, setup, connecting YouTube — would answer without ever being recorded.
+ *
+ * Mounted at the root rather than at `/api`, so it stays out of the route table the guard audit
+ * walks: it is middleware like `express.json`, not an endpoint, and it filters to `/api/` itself.
+ */
+export function mountAuditTrail(app: Express, deps: AuditTrailDeps): void {
+  app.use(auditTrail(deps));
+}
 
 /**
  * Routes that must answer in *both* boot modes: before YouTube credentials exist and after. Kept
@@ -202,6 +225,8 @@ export function mountApiRoutes(app: Express, ctx: AppContext): void {
   app.use("/api/dashboard/people", ctx.auth.requireAdmin(), peopleRouter({ store: ctx.store, auth: ctx.auth }));
   // Credentials for machines, and the grace-mode readout — admin only, per ADMIN_ONLY above.
   app.use("/api/dashboard/devices", ctx.auth.requireAdmin(), devicesRouter({ store: ctx.store, auth: ctx.auth }));
+  // Who did what, and it survived the restart — admin only, per ADMIN_ONLY above.
+  app.use("/api/dashboard/audit", ctx.auth.requireAdmin(), auditRouter({ audit: ctx.audit }));
   // Companion key → dashboard-popup/phone-push fill flow (issue 003 trigger).
   app.use("/api/dashboard/fill-request", fillRequestRouter(ctx));
   app.use("/api/dashboard/notify", notifyRouter(ctx));

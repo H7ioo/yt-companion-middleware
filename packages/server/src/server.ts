@@ -17,12 +17,13 @@ import { Logger } from "./core/logger.js";
 import { WebhookDispatcher } from "./core/webhook.js";
 import { FillRequests } from "./core/fillRequests.js";
 import type { AppContext } from "./routes/context.js";
-import { mountApiRoutes, mountBootRoutes, mountWebApp } from "./app.js";
+import { mountApiRoutes, mountAuditTrail, mountBootRoutes, mountWebApp } from "./app.js";
 import { type UpdateHost } from "./routes/appInfo.js";
 import { loadChangelog } from "./core/changelog.js";
 import { mountDocsRoutes } from "./routes/docs.js";
 import { attachStateSocket } from "./routes/socket.js";
 import { Auth } from "./auth/actor.js";
+import { AuditLog } from "./audit/log.js";
 
 /** A running HTTP server that can be gracefully torn down (used for restart-on-setup). */
 interface BootHandle {
@@ -74,6 +75,7 @@ async function bootOnce(
   config: AppConfig,
   store: JsonStore,
   auth: Auth,
+  audit: AuditLog,
   requestRestart: () => void,
   options: StartServerOptions = {},
 ): Promise<BootHandle> {
@@ -112,6 +114,11 @@ async function bootOnce(
           }),
       }
     : undefined;
+
+  // Who did what, before anything that could be done (issue 050). Ahead of every route mount,
+  // boot routes included: it hooks the response on the way in, so a route mounted first would
+  // answer — connect YouTube, sign in, save credentials — without leaving a trace.
+  mountAuditTrail(app, { audit, auth });
 
   // Sign-in, setup, and version/changelog/update state (PRD-09 §B.2) — the routes that must
   // answer in setup mode too, so they cannot live in mountApiRoutes. On a hosted deployment the
@@ -185,6 +192,7 @@ async function bootOnce(
       logger,
       fills,
       auth,
+      audit,
       regionCode: config.regionCode,
     };
 
@@ -285,6 +293,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Boo
   // how the desktop and LAN installs keep behaving exactly as they do today (issue 043).
   const auth = new Auth(store);
   const seeded = await auth.seed(config.admin);
+  // Built once and shared across restarts for the same reason as Auth — and a JSONL file beside
+  // the store rather than a slice of it: every store write rewrites the whole document, and one
+  // audit entry per cue would rewrite store.json all evening (issue 050).
+  const audit = new AuditLog(path.join(config.dataDir, "audit.log"));
   if (seeded) console.log(`[server] authentication enabled — admin "${seeded.name}"`);
 
   let current: BootHandle | null = null;
@@ -298,7 +310,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Boo
       void (async () => {
         try {
           await current?.close();
-          current = await bootOnce(config, store, auth, requestRestart, options);
+          current = await bootOnce(config, store, auth, audit, requestRestart, options);
           console.log("[server] restarted after credential change");
         } catch (err) {
           console.error("[server] restart failed:", err);
@@ -309,11 +321,15 @@ export async function startServer(options: StartServerOptions = {}): Promise<Boo
     }, 250);
   };
 
-  current = await bootOnce(config, store, auth, requestRestart, options);
+  current = await bootOnce(config, store, auth, audit, requestRestart, options);
 
   return {
     async close() {
       await current?.close();
+      // The trail records after the response has gone, so an append can still be in flight when
+      // the last request finishes. Waiting here is what keeps the final action of a shutdown —
+      // often the interesting one — from being the entry nobody wrote (issue 050).
+      await audit.settled();
     },
   };
 }

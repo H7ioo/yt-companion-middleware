@@ -350,3 +350,56 @@ export interface GraceReadout {
   /** Total tokenless connections ever seen. Never reset — it is the size of the problem. */
   tokenlessCount: number;
 }
+
+/**
+ * Who did the thing, as the audit log records them (issue 050, PRD-15 §3).
+ *
+ * A machine is named by its device token's name, never as "unknown" — a log that cannot tell one
+ * Companion box from another answers none of the questions it exists for. `anonymous` is what a
+ * caller with no credential looks like: sign-in itself, and — until issue 049 flips the switch —
+ * a tokenless Companion request under grace mode.
+ */
+export interface AuditActor {
+  kind: "person" | "machine" | "anonymous";
+  /** Account id or device-token id. Null for an anonymous caller. */
+  id: string | null;
+  /** The name to show. For a machine, the token's name. */
+  name: string;
+}
+
+/** What happened to the request the entry records. */
+export type AuditOutcome = "ok" | "refused" | "failed";
+
+/**
+ * One line of the durable audit log: **who, what, which target, what happened, when** (PRD-15 §3).
+ *
+ * Deliberately not a {@link LogEntry}. The activity feed is a 200-entry in-memory ring buffer that
+ * wants noise — polls, refreshes, health transitions — and starts fresh on restart. This is the
+ * opposite: only what a *person* did, on disk, kept for months. One store cannot serve both.
+ */
+export interface AuditEntry {
+  id: string;
+  /** ISO-8601, stamped when the request finished. */
+  ts: string;
+  actor: AuditActor;
+  /** What was done, in words: "made someone an admin". Falls back to "POST /api/…". */
+  action: string;
+  method: string;
+  /** The path as it was called, ids included. */
+  path: string;
+  /** The specific thing acted on — an account id, a token id — when the route names one. */
+  target: string | null;
+  outcome: AuditOutcome;
+  status: number;
+  /**
+   * The request body, with every secret-shaped value replaced by `[redacted]`. Null when there
+   * was none. A log is the thing most likely to be copied around, so no token, secret or
+   * credential value ever reaches it.
+   */
+  detail: Record<string, unknown> | null;
+  /**
+   * Role and account changes — the entries someone will actually come looking for. "X changed the
+   * title" is routine; "X made Y an admin" is not, and the viewer filters on this.
+   */
+  notable: boolean;
+}

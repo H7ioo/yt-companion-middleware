@@ -13,7 +13,15 @@ import { StateEvents } from "../core/events.js";
 import { Logger } from "../core/logger.js";
 import { FillRequests } from "../core/fillRequests.js";
 import WebSocket from "ws";
-import { ADMIN_ONLY, GUARD_EXEMPTIONS, mountApiRoutes, mountBootRoutes, mountWebApp } from "../app.js";
+import {
+  ADMIN_ONLY,
+  GUARD_EXEMPTIONS,
+  mountApiRoutes,
+  mountAuditTrail,
+  mountBootRoutes,
+  mountWebApp,
+} from "../app.js";
+import { AuditLog } from "../audit/log.js";
 import { createAccount } from "../auth/accounts.js";
 import { attachStateSocket, WS_ROUTES } from "./socket.js";
 import { mountDocsRoutes } from "./docs.js";
@@ -131,6 +139,7 @@ async function boot(seed: { name: string; password: string } | null): Promise<Ha
     logger,
   );
   const runner = new ActionRunner(yt, store, cache, events, logger);
+  const audit = new AuditLog(path.join(dir, "audit.log"));
   const ctx: AppContext = {
     store,
     runner,
@@ -141,6 +150,7 @@ async function boot(seed: { name: string; password: string } | null): Promise<Ha
     logger,
     fills: new FillRequests(events),
     auth,
+    audit,
     regionCode: "US",
   };
 
@@ -155,7 +165,9 @@ async function boot(seed: { name: string; password: string } | null): Promise<Ha
 
   const app = express();
   app.use(express.json());
-  // The same order server.ts mounts in — the order is half of what the audit is checking.
+  // The same order server.ts mounts in — the order is half of what the audit is checking. The
+  // audit trail goes on first, exactly as it does there, so the mount walk sees what ships.
+  mountAuditTrail(app, { audit, auth });
   mountBootRoutes(app, {
     auth,
     setup: { store, configured: true, requestRestart: () => {} },

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   api,
+  type AuditEntry,
   type Category,
   type DefaultSettings,
   type Person,
@@ -74,6 +75,10 @@ export function SettingsPanel({
   const [machineName, setMachineName] = useState("");
   const [freshKey, setFreshKey] = useState<{ id: string; name: string; token: string } | null>(null);
   const [grace, setGrace] = useState<GraceReadout | null>(null);
+  // The audit log (issue 050). Opens on the account and role changes, because those are what
+  // someone comes looking for — "X changed the title" is routine, "X made Y an admin" is not.
+  const [auditEntries, setAuditEntries] = useState<AuditEntry[] | null>(null);
+  const [auditNotableOnly, setAuditNotableOnly] = useState(true);
   useEscape(busy === "idle" ? onClose : () => {});
 
   const loadStatus = () => api.setup.status().then(setStatus).catch(() => {});
@@ -125,6 +130,28 @@ export function SettingsPanel({
   useEffect(() => {
     if (canAdminister) void loadMachines();
   }, [canAdminister]);
+
+  /**
+   * Reads the log. Admin-only on the server, so a user is never asked to make a request that
+   * answers 403 — the section, and the call, exist only for an admin.
+   */
+  useEffect(() => {
+    if (!canAdminister) return;
+    let live = true;
+    void api.audit
+      .list({ limit: AUDIT_LIMIT, notable: auditNotableOnly })
+      // A filter switched twice in quick succession must not let the slower answer paint over
+      // the newer one — the rows would then disagree with the button that is pressed.
+      .then((r) => {
+        if (live) setAuditEntries(r.entries);
+      })
+      .catch(() => {
+        if (live) setAuditEntries([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [canAdminister, auditNotableOnly]);
 
   /**
    * Mints a key and shows it. It is in the response and nowhere else, so it is held in state
@@ -735,6 +762,71 @@ export function SettingsPanel({
           </section>
         ) : null}
 
+        {/* ---- Audit log (issue 050) ---- */}
+        {canAdminister && people.length > 0 ? (
+          <section className="settings__section">
+            <h3 className="settings__title">Audit log</h3>
+            <p className="empty" style={{ marginTop: 0 }}>
+              Who did what, kept on disk for {AUDIT_RETENTION_DAYS} days. Separate from Activity,
+              which is a live feed and starts fresh whenever the server restarts.
+            </p>
+
+            {/* The same chips the Activity feed filters with — this is the feed's sibling, and a
+                second filter idiom on the same screen would read as a different kind of control.
+                Two chips rather than a checkbox: it is which log you are reading, not an option
+                applied to one. The narrow view is first, because it is the question. */}
+            <div className="audit__filter" role="group" aria-label="Which entries to show">
+              <button
+                className={`chip ${auditNotableOnly ? "chip--on" : ""}`}
+                type="button"
+                aria-pressed={auditNotableOnly}
+                onClick={() => setAuditNotableOnly(true)}
+              >
+                Account changes
+              </button>
+              <button
+                className={`chip ${auditNotableOnly ? "" : "chip--on"}`}
+                type="button"
+                aria-pressed={!auditNotableOnly}
+                onClick={() => setAuditNotableOnly(false)}
+              >
+                Everything
+              </button>
+            </div>
+
+            {auditEntries === null ? null : auditEntries.length === 0 ? (
+              <p className="hint" style={{ marginTop: 10 }}>
+                {auditNotableOnly
+                  ? "No account or role changes recorded yet."
+                  : "Nothing recorded yet."}
+              </p>
+            ) : (
+              <ol className="audit">
+                {auditEntries.map((item) => (
+                  <li
+                    className={`audit__row audit__row--${item.outcome}${
+                      item.notable ? " audit__row--notable" : ""
+                    }`}
+                    key={item.id}
+                  >
+                    <span className="audit__when">{formatMoment(item.ts)}</span>
+                    <span className="audit__who">{item.actor.name}</span>
+                    <span className="audit__what">
+                      {item.action}
+                      {item.target ? <span className="audit__target">{item.target}</span> : null}
+                    </span>
+                    {item.outcome === "ok" ? null : (
+                      <span className="audit__outcome">
+                        {item.outcome === "refused" ? "refused" : "failed"}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+        ) : null}
+
         {/* ---- App defaults ---- */}
         <section className="settings__section">
           <h3 className="settings__title">App defaults</h3>
@@ -833,6 +925,21 @@ function graceVerdict(g: GraceReadout): string {
  * These stamps answer "which of these devices is the one I lost" and "how long has this link
  * got", and neither question is decided by the minute — so the time of day is left off.
  */
+/** Entries fetched in one read. Ninety days of human actions is small; a page control is not. */
+const AUDIT_LIMIT = 200;
+/** Mirrors the server's retention window, so the copy cannot promise a month the log does not keep. */
+const AUDIT_RETENTION_DAYS = 90;
+
+/**
+ * Day and time. The audit log is read to answer "when did that happen", and a date alone cannot
+ * separate two changes made the same afternoon.
+ */
+function formatMoment(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "unknown";
+  return `${formatDay(iso)} ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+}
+
 function formatDay(iso: string): string {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return "unknown";
