@@ -113,4 +113,48 @@ describe("writeBroadcast — monitorStream", () => {
       broadcastStreamDelayMs: 0,
     });
   });
+
+  it("refuses a body that dropped a monitorStream the fetched resource had", async () => {
+    const current = fullyPopulated();
+    const next = structuredClone(current);
+    delete (next.contentDetails as Record<string, unknown>).monitorStream;
+
+    const { yt, calls } = recordingYt();
+    // Without the guard running first, the defaults would backfill enableMonitorStream: true
+    // over a broadcast whose monitoring was deliberately off.
+    await expect(writeBroadcast(yt, current, next)).rejects.toThrow(
+      /contentDetails\.monitorStream/,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("supplies the defaults over an explicit null, which YouTube reads as a reset", async () => {
+    const current = fullyPopulated();
+    delete (current.contentDetails as Record<string, unknown>).monitorStream;
+    const next = structuredClone(current);
+    (next.contentDetails as Record<string, unknown>).monitorStream = null;
+
+    const { yt, calls } = recordingYt();
+    await writeBroadcast(yt, current, next);
+
+    const body = calls[0].requestBody as BroadcastResource;
+    expect(body.contentDetails?.monitorStream).toEqual({
+      enableMonitorStream: true,
+      broadcastStreamDelayMs: 0,
+    });
+  });
+});
+
+describe("writeBroadcast — undefined is a deletion", () => {
+  it("refuses a field set to undefined, which JSON drops on the way out", async () => {
+    const current = fullyPopulated();
+    const next = structuredClone(current);
+    (next.contentDetails as Record<string, unknown>).enableAutoStart = undefined;
+
+    const { yt, calls } = recordingYt();
+    await expect(writeBroadcast(yt, current, next)).rejects.toThrow(
+      /contentDetails\.enableAutoStart/,
+    );
+    expect(calls).toHaveLength(0);
+  });
 });

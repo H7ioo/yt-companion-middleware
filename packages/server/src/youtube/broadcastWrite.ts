@@ -25,8 +25,9 @@ export async function writeBroadcast(
   current: BroadcastResource,
   next: BroadcastResource,
 ): Promise<void> {
-  const body = withMonitorStream(next);
-  const dropped = droppedFields(current, body);
+  // Guard before the defaults go in: withMonitorStream cannot tell a monitorStream the caller
+  // dropped from one the GET never had, so it must not get the chance to backfill over a loss.
+  const dropped = droppedFields(current, next);
   if (dropped.length > 0) {
     throw new AppError(
       "BROADCAST_WRITE_UNSAFE",
@@ -35,6 +36,7 @@ export async function writeBroadcast(
     );
   }
 
+  const body = withMonitorStream(next);
   try {
     await yt.liveBroadcasts.update({
       part: BROADCAST_PARTS,
@@ -59,7 +61,9 @@ const DEFAULT_MONITOR_STREAM = {
 /** The outgoing body, with monitorStream guaranteed present. */
 function withMonitorStream(next: BroadcastResource): BroadcastResource {
   const contentDetails = next.contentDetails ?? {};
-  if (contentDetails.monitorStream !== undefined) return next;
+  // Nullish, not `!== undefined`: googleapis types every field as nullable, and sending
+  // `monitorStream: null` under `part=contentDetails` resets both properties just as omitting it does.
+  if (contentDetails.monitorStream != null) return next;
   return {
     ...next,
     contentDetails: { ...contentDetails, monitorStream: { ...DEFAULT_MONITOR_STREAM } },
@@ -68,8 +72,9 @@ function withMonitorStream(next: BroadcastResource): BroadcastResource {
 
 /**
  * Every key path present on `current` but missing from `next`, in traversal order. Only presence
- * is
- * compared, never values — changing a field is the whole point; losing one is the hazard.
+ * is compared, never values — changing a field is the whole point; losing one is the hazard.
+ * `undefined` counts as missing: the body is JSON-serialized on the way out, and a key whose value
+ * is `undefined` never reaches YouTube, so it is a deletion however it reads in memory.
  */
 function droppedFields(
   current: unknown,
@@ -81,7 +86,7 @@ function droppedFields(
   const missing: string[] = [];
   for (const [key, value] of Object.entries(current)) {
     const here = [...path, key];
-    if (!(key in next)) {
+    if (next[key] === undefined) {
       missing.push(here.join("."));
       continue;
     }
