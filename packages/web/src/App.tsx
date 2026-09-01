@@ -553,7 +553,7 @@ export function App() {
 
         {/* What YouTube will actually feed when the encoder starts — read-only, and above the
             edit target because "which one airs" is the question that comes first (issue 057). */}
-        <BroadcastList apiEnabled={apiEnabled} />
+        <BroadcastList apiEnabled={state ? state.apiEnabled : null} />
 
         {/* Which broadcast every action below writes to. Placed above the presets because it
             governs where all of them land (PRD-12 / the pinned-target work). */}

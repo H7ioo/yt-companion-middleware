@@ -19,7 +19,6 @@ export interface WillAirInput {
   streams: StreamInfo[];
   /** The key this app binds to by default — the operator's statement of what OBS pushes to. */
   defaultStreamBoundId: string | null;
-  now: number;
 }
 
 /**
@@ -33,11 +32,20 @@ export function listWhatWillAir(input: WillAirInput): WillAirResult {
   // *told* it by the operator's default binding. A channel with exactly one ingestion key needs
   // no telling — there is nothing else OBS could be pointed at — but two keys and no setting is
   // a genuine unknown, and guessing there would put a confident marker on a coin flip.
-  const encoderSource: WillAirResult["encoderSource"] = input.defaultStreamBoundId
-    ? "setting"
-    : input.streams.length === 1
-      ? "only-key"
-      : "unknown";
+  //
+  // A default naming a key the channel no longer has is its own case: the setting reads as an
+  // answer while pointing at nothing, so it is reported as broken rather than quietly obeyed
+  // (a broadcast can never be "attached to" a deleted key, so every row would read as out).
+  const dangling =
+    input.defaultStreamBoundId !== null &&
+    !input.streams.some((s) => s.id === input.defaultStreamBoundId);
+  const encoderSource: WillAirResult["encoderSource"] = dangling
+    ? "dangling"
+    : input.defaultStreamBoundId
+      ? "setting"
+      : input.streams.length === 1
+        ? "only-key"
+        : "unknown";
   const encoderStreamId =
     encoderSource === "setting"
       ? input.defaultStreamBoundId
@@ -52,10 +60,20 @@ export function listWhatWillAir(input: WillAirInput): WillAirResult {
           b.contentDetails?.enableAutoStart === true,
       )
     : [];
-  // A live broadcast settles the question outright: the encoder is already feeding it, so a
-  // contest among upcoming events is moot until it ends.
-  const onAir = input.active.length > 0;
-  const contested = !onAir && contenders.length > 1;
+  // A live broadcast only settles the question when the encoder is feeding *it* — that is, when
+  // it is bound to the encoder's key. A channel streaming from a second encoder on another key
+  // has a broadcast on air and an upcoming one that still airs the moment OBS starts, and
+  // treating every live broadcast as a blocker used to suppress exactly that row.
+  const blocking = encoderStreamId
+    ? input.active.filter(
+        (b) => b.contentDetails?.boundStreamId === encoderStreamId,
+      )
+    : [];
+  const onAir = blocking.length > 0;
+  // Two things can be genuinely undecidable: several upcoming broadcasts on the encoder's key,
+  // and several broadcasts already live at once (a missed transition, or a simulcast). Both
+  // leave more than one row marked, and the marker means nothing unless the panel says why.
+  const contested = (!onAir && contenders.length > 1) || input.active.length > 1;
 
   const entries: BroadcastListEntry[] = [
     ...input.active.map(
@@ -63,7 +81,10 @@ export function listWhatWillAir(input: WillAirInput): WillAirResult {
         ...base(b, input.streams),
         isLive: true,
         willAir: true,
-        reason: "On air now — this is what viewers are watching.",
+        reason:
+          input.active.length > 1
+            ? "On air now — and so is another broadcast. Only one of them is the encoder's."
+            : "On air now — this is what viewers are watching.",
       }),
     ),
     ...input.upcoming.map((b): BroadcastListEntry => {
@@ -79,7 +100,7 @@ export function listWhatWillAir(input: WillAirInput): WillAirResult {
         willAir: qualifies,
         reason: !qualifies
           ? whyNot(row, encoderStreamId, onAir)
-          : contested
+          : contenders.length > 1
             ? `Competing for “${row.boundStreamTitle}” with ${contenders.length - 1} other auto-start broadcast${contenders.length === 2 ? "" : "s"} — only one of them airs.`
             : `Bound to “${row.boundStreamTitle}” — the key the encoder pushes to — with auto-start on, so YouTube starts it when the encoder does.`,
       };
@@ -105,13 +126,14 @@ export function listWhatWillAir(input: WillAirInput): WillAirResult {
       : null,
     encoderSource,
     contested,
-    verdict: verdictFor(
-      winners,
-      contested,
-      encoderName(input.streams, encoderStreamId),
+    verdict: verdictFor({
+      live: winners.filter((w) => w.isLive),
+      upcoming: winners.filter((w) => !w.isLive),
+      encoderLabel: encoderName(input.streams, encoderStreamId),
       encoderSource,
-      input.streams.length,
-    ),
+      streamCount: input.streams.length,
+      danglingId: dangling ? input.defaultStreamBoundId : null,
+    }),
   };
 }
 
@@ -142,23 +164,40 @@ function whyNot(
 }
 
 /** The list's headline answer, stated rather than left to be inferred from a highlight. */
-function verdictFor(
-  winners: BroadcastListEntry[],
-  contested: boolean,
-  encoderLabel: string,
-  encoderSource: WillAirResult["encoderSource"],
-  streamCount: number,
-): string {
+function verdictFor(v: {
+  live: BroadcastListEntry[];
+  upcoming: BroadcastListEntry[];
+  encoderLabel: string;
+  encoderSource: WillAirResult["encoderSource"];
+  streamCount: number;
+  danglingId: string | null;
+}): string {
   // Already airing settles it, whatever the app does or does not know about ingestion keys.
-  if (winners.some((w) => w.isLive))
-    return airing(winners.find((w) => w.isLive)!);
-  if (encoderSource === "unknown")
-    return `This channel has ${streamCount} ingestion keys and none is set as the default, so the app cannot say which broadcast will air. Set the default stream in Settings to the key OBS pushes to.`;
-  if (contested)
-    return `${winners.length} broadcasts are attached to “${encoderLabel}” with auto-start on. The encoder can only feed one, and YouTube — not this app — decides which. Delete the ones you are not using.`;
-  if (winners.length === 0)
-    return `Nothing will air on its own. No upcoming broadcast is both attached to “${encoderLabel}” and set to auto-start, so starting the encoder makes YouTube create a broadcast of its own.`;
-  return airing(winners[0]);
+  if (v.live.length > 1)
+    return `${v.live.length} broadcasts are on air at once — ${v.live.map((w) => `“${w.title}”`).join(", ")}. Only one of them is the one your encoder is feeding, and the app cannot tell which. End the others in YouTube Studio.`;
+  if (v.live.length === 1) {
+    const live = v.live[0];
+    // A live broadcast and an upcoming one both marked means they sit on different ingestion
+    // keys — the upcoming one is not waiting on the live one, and saying only "X is on air"
+    // would hide the broadcast that starts the moment the operator opens OBS.
+    if (v.upcoming.length === 0) return airing(live);
+    if (v.upcoming.length === 1)
+      return `“${live.title}” is on air now, on a different ingestion key. Starting the encoder also airs “${v.upcoming[0].title}”, which is attached to “${v.encoderLabel}” with auto-start on.`;
+    return `“${live.title}” is on air now, on a different ingestion key, and ${v.upcoming.length} upcoming broadcasts are attached to “${v.encoderLabel}” with auto-start on. The encoder can only feed one of those, and YouTube — not this app — decides which.`;
+  }
+  // No ingestion key at all is a different problem from not knowing which key is the encoder's,
+  // and the remedy for the latter — "set the default in Settings" — is impossible here.
+  if (v.streamCount === 0)
+    return "This channel has no ingestion keys, so there is nothing for an encoder to push to. Create a stream in YouTube Studio (Go live → Stream), then set it as the default in Settings.";
+  if (v.encoderSource === "dangling")
+    return `The default ingestion key in Settings (“${v.danglingId}”) is not one of this channel's ${v.streamCount} keys — it was deleted or belongs to another channel — so the app cannot say which broadcast will air. Pick the key the encoder pushes to in Settings.`;
+  if (v.encoderSource === "unknown")
+    return `This channel has ${v.streamCount} ingestion keys and none is set as the default, so the app cannot say which broadcast will air. Set the default stream in Settings to the key OBS pushes to.`;
+  if (v.upcoming.length > 1)
+    return `${v.upcoming.length} broadcasts are attached to “${v.encoderLabel}” with auto-start on. The encoder can only feed one, and YouTube — not this app — decides which. Delete the ones you are not using.`;
+  if (v.upcoming.length === 0)
+    return `Nothing will air on its own. No upcoming broadcast is both attached to “${v.encoderLabel}” and set to auto-start, so starting the encoder makes YouTube create a broadcast of its own.`;
+  return airing(v.upcoming[0]);
 }
 
 function airing(winner: BroadcastListEntry): string {

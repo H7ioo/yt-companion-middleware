@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { youtube_v3 } from "googleapis";
 import type { AppContext } from "./context.js";
 import { mapYouTubeError } from "../youtube/client.js";
 import { toErrorBody } from "../core/errors.js";
@@ -26,10 +27,9 @@ export function streamsRouter(ctx: AppContext): Router {
       return;
     }
     try {
-      const resp = await ctx.yt.liveStreams.list({ part: ["snippet", "cdn"], mine: true });
-      const streams: StreamInfo[] = (resp.data.items ?? [])
-        .map(toStreamInfo)
-        .sort((a, b) => a.title.localeCompare(b.title));
+      const streams: StreamInfo[] = (await listStreams(ctx.yt)).sort((a, b) =>
+        a.title.localeCompare(b.title),
+      );
       cached = { at: Date.now(), streams };
       res.json(streams);
     } catch (err) {
@@ -38,6 +38,43 @@ export function streamsRouter(ctx: AppContext): Router {
   });
 
   return router;
+}
+
+/**
+ * YouTube's default page size for liveStreams.list is 5, the same default that used to hide the
+ * broadcast going to air. A channel with more keys than that had the rest silently dropped: the
+ * broadcast list then printed a truncated key count as fact and named the missing keys by raw id.
+ * 50 is the API maximum; 4 pages is the same ceiling the broadcast walk uses.
+ */
+const PAGE_SIZE = 50;
+const MAX_PAGES = 4;
+
+/**
+ * Every ingestion key on the channel, walked past page 1. `onPage` is called once per API call
+ * so a caller can report what the read actually cost instead of inferring it from a global
+ * counter that other work also moves.
+ *
+ * Errors are left raw for the caller to map — both call sites already do.
+ */
+export async function listStreams(
+  yt: youtube_v3.Youtube,
+  onPage?: () => void,
+): Promise<StreamInfo[]> {
+  const items: StreamInfo[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const res = await yt.liveStreams.list({
+      part: ["snippet", "cdn"],
+      mine: true,
+      maxResults: PAGE_SIZE,
+      ...(pageToken ? { pageToken } : {}),
+    });
+    onPage?.();
+    items.push(...(res.data.items ?? []).map(toStreamInfo));
+    pageToken = res.data.nextPageToken ?? undefined;
+    if (!pageToken) break;
+  }
+  return items;
 }
 
 /**

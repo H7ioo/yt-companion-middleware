@@ -428,7 +428,12 @@ export interface BroadcastListEntry {
   autoStart: boolean;
   /** True for a broadcast YouTube reports as `active` — already on air. */
   isLive: boolean;
-  /** The one that will air, or one of several tied for it. Never more than one unless contested. */
+  /**
+   * The broadcast that is airing or will air. More than one row carries it only when the app
+   * genuinely cannot separate them (`contested` — several auto-start broadcasts on the encoder's
+   * key, or several already live), or when a live broadcast and an upcoming one sit on different
+   * ingestion keys, where both are true at once.
+   */
   willAir: boolean;
   /** Why this row will or will not air, in words an operator can act on. */
   reason: string;
@@ -444,9 +449,10 @@ export interface BroadcastListing {
    */
   verdict: string;
   /**
-   * More than one upcoming broadcast qualifies. Both are marked rather than one silently
-   * winning — the app genuinely cannot tell which YouTube will feed, and pretending otherwise
-   * is how a show ends up on the wrong event.
+   * More than one broadcast qualifies and the app cannot say which YouTube will feed — several
+   * upcoming ones on the encoder's key, or several already live at once. All of them are marked
+   * rather than one silently winning: pretending otherwise is how a show ends up on the wrong
+   * event.
    */
   contested: boolean;
   /** The ingestion key the encoder is understood to push to, or null when it is not known. */
@@ -455,9 +461,11 @@ export interface BroadcastListing {
   /**
    * How that key was arrived at. `setting` is the operator's default binding; `only-key` is a
    * channel with exactly one ingestion key, where there is nothing else OBS could be pointed
-   * at; `unknown` means several keys exist and none was chosen, so no row can be marked.
+   * at; `unknown` means several keys exist and none was chosen; `dangling` means the default
+   * setting names a key the channel does not have (deleted, or another channel's), which reads
+   * as an answer while pointing at nothing. No row is marked under either of the last two.
    */
-  encoderSource: "setting" | "only-key" | "unknown";
+  encoderSource: "setting" | "only-key" | "unknown" | "dangling";
   /**
    * What this listing cost, in YouTube quota units, measured across the calls it just made
    * rather than assumed. Stated because a list is the kind of thing that gets put on a refresh

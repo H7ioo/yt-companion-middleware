@@ -260,11 +260,11 @@ export const api = {
   streams: {
     list: () => req<StreamInfo[]>("/api/dashboard/streams"),
   },
-  /** Which broadcast actions edit — the operator's choice, or null to choose automatically. */
   /** The read-only answer to "which broadcast will actually air?" (issue 057). */
   broadcasts: {
     list: () => req<BroadcastListing>("/api/dashboard/broadcasts"),
   },
+  /** Which broadcast actions edit — the operator's choice, or null to choose automatically. */
   target: {
     candidates: () => req<BroadcastCandidate[]>("/api/dashboard/target/candidates"),
     pin: (id: string | null, label: string | null) =>

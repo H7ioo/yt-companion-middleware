@@ -3,10 +3,14 @@ import { api, type BroadcastListEntry, type BroadcastListing } from "../api.js";
 
 interface Props {
   /**
-   * The YouTube API master switch. Reading the list is three live calls, and the switch's whole
-   * promise is that a paused install spends no quota — so while it is off, nothing is asked for.
+   * The YouTube API master switch, or null while the dashboard state has not loaded yet.
+   *
+   * Reading the list is three live calls, and the switch's whole promise is that a paused install
+   * spends no quota — so while it is off, nothing is asked for. `null` is the same "do not ask"
+   * as `false`: defaulting an unknown switch to "on" spent that quota on every page load of a
+   * paused install, before the state that would have said so arrived.
    */
-  apiEnabled: boolean;
+  apiEnabled: boolean | null;
 }
 
 /**
@@ -23,6 +27,10 @@ interface Props {
  * target the background loop already tracks, so the cost is stated and the operator asks.
  */
 export function BroadcastList({ apiEnabled }: Props) {
+  // Read once, at the top: `false` and `null` differ in what the panel says, but not in whether
+  // it may spend quota.
+  const paused = apiEnabled === false;
+  const known = apiEnabled !== null;
   const [listing, setListing] = useState<BroadcastListing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -44,7 +52,7 @@ export function BroadcastList({ apiEnabled }: Props) {
   }
 
   useEffect(() => {
-    if (!apiEnabled) return;
+    if (apiEnabled !== true) return;
     void load();
   }, [apiEnabled]);
 
@@ -62,19 +70,21 @@ export function BroadcastList({ apiEnabled }: Props) {
             type="button"
             className="btn btn--ghost btn--sm"
             onClick={() => void load()}
-            disabled={loading || !apiEnabled}
-            title={apiEnabled ? undefined : "YouTube API is paused"}
+            disabled={loading || apiEnabled !== true}
+            title={paused ? "YouTube API is paused" : undefined}
           >
             {loading ? "Reading…" : "Refresh list"}
           </button>
         </div>
       </div>
       <div className="panel__body">
-        {!apiEnabled ? (
+        {paused ? (
           <p className="patch__lede">
             The YouTube API is paused, so the broadcast list is not being read. Resume it to
             see which broadcast will air.
           </p>
+        ) : !known ? (
+          <p className="patch__empty">Waiting for the connection…</p>
         ) : (
           <>
             {error ? <p className="patch__error">{error}</p> : null}
@@ -151,10 +161,12 @@ function Row({ entry, contested }: { entry: BroadcastListEntry; contested: boole
 
 /** Which lamp colour the verdict itself carries — the answer's shape, not its severity. */
 function verdictTone(listing: BroadcastListing): "airs" | "warn" {
-  // Already airing settles it, whatever the app does or does not know about ingestion keys —
-  // the same order the server states the verdict in.
+  // Already airing settles it — unless two broadcasts are, which is exactly what `contested`
+  // carries for a live channel. Same order the server states the verdict in.
+  if (listing.contested) return "warn";
   if (listing.entries.some((e) => e.isLive)) return "airs";
-  if (listing.contested || listing.encoderSource === "unknown") return "warn";
+  if (listing.encoderSource === "unknown" || listing.encoderSource === "dangling")
+    return "warn";
   return listing.entries.some((e) => e.willAir) ? "airs" : "warn";
 }
 

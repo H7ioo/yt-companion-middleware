@@ -116,4 +116,12 @@ describe("BroadcastList", () => {
     );
     expect(list).not.toHaveBeenCalled();
   });
+
+  it("asks for nothing before the dashboard state says whether the API is paused", async () => {
+    // The switch used to default to "on" while state loaded, so a paused install spent three
+    // quota units on every page load — before the state that would have said so arrived.
+    render(<BroadcastList apiEnabled={null} />);
+    await waitFor(() => expect(screen.getByText("Waiting for the connection…")).toBeTruthy());
+    expect(list).not.toHaveBeenCalled();
+  });
 });

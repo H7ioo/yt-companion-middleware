@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { listWhatWillAir } from "./willAir.js";
 
-const NOW = Date.parse("2026-08-05T21:49:00Z");
-
 describe("listWhatWillAir", () => {
   it("marks the broadcast already on air — nothing else can win", () => {
     const listing = listWhatWillAir({
@@ -16,7 +14,6 @@ describe("listWhatWillAir", () => {
       upcoming: [],
       streams: [],
       defaultStreamBoundId: null,
-      now: NOW,
     });
 
     const marked = listing.entries.filter((e) => e.willAir);
@@ -37,7 +34,6 @@ describe("listWhatWillAir", () => {
       ],
       streams: [{ id: "stream-A", title: "OBS key", streamName: "abcd-efgh" }],
       defaultStreamBoundId: "stream-A",
-      now: NOW,
     });
 
     const marked = listing.entries.filter((e) => e.willAir);
@@ -68,7 +64,6 @@ describe("listWhatWillAir", () => {
         { id: "stream-B", title: "Spare key", streamName: "efgh" },
       ],
       defaultStreamBoundId: "stream-A",
-      now: NOW,
     });
 
     expect(listing.entries.some((e) => e.willAir)).toBe(false);
@@ -103,7 +98,6 @@ describe("listWhatWillAir", () => {
       ],
       streams: [{ id: "stream-A", title: "OBS key", streamName: "abcd" }],
       defaultStreamBoundId: "stream-A",
-      now: NOW,
     });
 
     expect(listing.entries.filter((e) => e.willAir).map((e) => e.id).sort()).toEqual([
@@ -131,7 +125,6 @@ describe("listWhatWillAir", () => {
       ],
       streams: [{ id: "stream-A", title: "OBS key", streamName: "abcd" }],
       defaultStreamBoundId: null,
-      now: NOW,
     });
 
     expect(listing.encoderStreamId).toBe("stream-A");
@@ -154,7 +147,6 @@ describe("listWhatWillAir", () => {
         { id: "stream-B", title: "Spare key", streamName: "efgh" },
       ],
       defaultStreamBoundId: null,
-      now: NOW,
     });
 
     expect(listing.encoderSource).toBe("unknown");
@@ -190,7 +182,6 @@ describe("listWhatWillAir against the recorded sessions", () => {
       ],
       streams,
       defaultStreamBoundId: "stream-A",
-      now: NOW,
     });
 
     expect(listing.entries.some((e) => e.willAir)).toBe(false);
@@ -225,7 +216,6 @@ describe("listWhatWillAir against the recorded sessions", () => {
       ],
       streams,
       defaultStreamBoundId: "stream-A",
-      now: NOW,
     });
 
     expect(listing.entries.filter((e) => e.willAir).map((e) => e.id)).toEqual([
@@ -254,7 +244,6 @@ describe("listWhatWillAir against the recorded sessions", () => {
       ],
       streams,
       defaultStreamBoundId: "stream-A",
-      now: NOW,
     });
 
     expect(listing.entries.filter((e) => e.willAir).map((e) => e.id)).toEqual([
@@ -280,7 +269,6 @@ describe("listWhatWillAir against the recorded sessions", () => {
       ],
       streams,
       defaultStreamBoundId: "stream-A",
-      now: NOW,
     });
 
     expect(listing.entries.map((e) => e.id)).toEqual([
@@ -306,7 +294,6 @@ describe("listWhatWillAir against the recorded sessions", () => {
         { id: "stream-B", title: "Spare key", streamName: "efgh" },
       ],
       defaultStreamBoundId: null,
-      now: NOW,
     });
 
     expect(byId(listing, "bound").reason).toBe(
@@ -323,11 +310,124 @@ describe("listWhatWillAir against the recorded sessions", () => {
         { id: "stream-B", title: "Spare key", streamName: "efgh" },
       ],
       defaultStreamBoundId: null,
-      now: NOW,
     });
 
     expect(listing.encoderSource).toBe("unknown");
     expect(listing.verdict).toContain("“tonight's show” will air");
+  });
+});
+
+describe("listWhatWillAir where the encoder's key is the pivot", () => {
+  const twoKeys = [
+    { id: "stream-A", title: "OBS key", streamName: "abcd" },
+    { id: "stream-B", title: "Spare key", streamName: "efgh" },
+  ];
+
+  it("does not let a broadcast live on another key suppress the one the encoder will start", () => {
+    // A second encoder is feeding key B. Starting OBS — which pushes to key A — airs the
+    // upcoming event, so "waiting, something is already on air" would be a lie that hides it.
+    const listing = listWhatWillAir({
+      active: [
+        {
+          id: "other-encoder",
+          snippet: { title: "the other room" },
+          status: { lifeCycleStatus: "live" },
+          contentDetails: { boundStreamId: "stream-B" },
+        },
+      ],
+      upcoming: [
+        {
+          id: "tonight",
+          snippet: { title: "tonight's show" },
+          contentDetails: { boundStreamId: "stream-A", enableAutoStart: true },
+        },
+      ],
+      streams: twoKeys,
+      defaultStreamBoundId: "stream-A",
+    });
+
+    expect(byId(listing, "tonight").willAir).toBe(true);
+    expect(listing.verdict).toBe(
+      "“the other room” is on air now, on a different ingestion key. Starting the encoder also airs “tonight's show”, which is attached to “OBS key” with auto-start on.",
+    );
+  });
+
+  it("still suppresses the upcoming rows when the live broadcast is on the encoder's own key", () => {
+    const listing = listWhatWillAir({
+      active: [
+        {
+          id: "on-air",
+          snippet: { title: "tonight's show" },
+          contentDetails: { boundStreamId: "stream-A" },
+        },
+      ],
+      upcoming: [
+        {
+          id: "waiting",
+          snippet: { title: "the next one" },
+          contentDetails: { boundStreamId: "stream-A", enableAutoStart: true },
+        },
+      ],
+      streams: twoKeys,
+      defaultStreamBoundId: "stream-A",
+    });
+
+    expect(listing.entries.filter((e) => e.willAir).map((e) => e.id)).toEqual(["on-air"]);
+    expect(byId(listing, "waiting").reason).toBe(
+      "Waiting — the encoder is already feeding the broadcast on air.",
+    );
+  });
+
+  it("calls two simultaneously-live broadcasts contested rather than marking both as the answer", () => {
+    const listing = listWhatWillAir({
+      active: [
+        { id: "one", snippet: { title: "first" }, contentDetails: { boundStreamId: "stream-A" } },
+        { id: "two", snippet: { title: "second" }, contentDetails: { boundStreamId: "stream-B" } },
+      ],
+      upcoming: [],
+      streams: twoKeys,
+      defaultStreamBoundId: "stream-A",
+    });
+
+    expect(listing.contested).toBe(true);
+    expect(listing.verdict).toBe(
+      "2 broadcasts are on air at once — “first”, “second”. Only one of them is the one your encoder is feeding, and the app cannot tell which. End the others in YouTube Studio.",
+    );
+  });
+
+  it("reports a default stream setting that names a key the channel no longer has", () => {
+    const listing = listWhatWillAir({
+      active: [],
+      upcoming: [
+        {
+          id: "tonight",
+          snippet: { title: "tonight's show" },
+          contentDetails: { boundStreamId: "stream-A", enableAutoStart: true },
+        },
+      ],
+      streams: twoKeys,
+      defaultStreamBoundId: "dead-key",
+    });
+
+    expect(listing.encoderSource).toBe("dangling");
+    expect(listing.encoderStreamId).toBe(null);
+    expect(listing.entries.some((e) => e.willAir)).toBe(false);
+    expect(listing.verdict).toBe(
+      "The default ingestion key in Settings (“dead-key”) is not one of this channel's 2 keys — it was deleted or belongs to another channel — so the app cannot say which broadcast will air. Pick the key the encoder pushes to in Settings.",
+    );
+  });
+
+  it("does not tell a channel with no ingestion keys to pick one as the default", () => {
+    const listing = listWhatWillAir({
+      active: [],
+      upcoming: [{ id: "tonight", snippet: { title: "tonight's show" }, contentDetails: {} }],
+      streams: [],
+      defaultStreamBoundId: null,
+    });
+
+    expect(listing.verdict).toBe(
+      "This channel has no ingestion keys, so there is nothing for an encoder to push to. Create a stream in YouTube Studio (Go live → Stream), then set it as the default in Settings.",
+    );
   });
 });
 
