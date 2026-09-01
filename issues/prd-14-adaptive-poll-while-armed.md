@@ -45,7 +45,7 @@ Net effect: the wrong-title window drops from up to 60 seconds to a few seconds,
 
 ## Implementation Decisions
 
-_Proposed — not yet built._
+_Built in issue 054. The measurement that confirms it is issue 055._
 
 - **Cadence rule.** A single predicate over cache state decides the interval: fast when `pendingMetadata !== null && !status.isLive && apiEnabled && withinFastWindow`, normal otherwise. Keeping it a pure function of the snapshot makes it directly testable and keeps the timer dumb.
 - **Fast interval: 10s.** Five would shave two seconds off a worst case that is already only a few seconds, at double the cost. Ten keeps the observed window comfortably under the ~15s the live test demonstrated as acceptable.

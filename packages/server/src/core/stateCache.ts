@@ -1,11 +1,12 @@
 import type { youtube_v3 } from "googleapis";
 import type { JsonStore } from "../storage/jsonStore.js";
 import type { CacheState, PendingMetadata, TargetConflict } from "../storage/schema.js";
-import { getBroadcast, resolveTarget, toStatus } from "../youtube/broadcasts.js";
+import { getBroadcast, listBroadcasts, resolveTarget, toStatus } from "../youtube/broadcasts.js";
 import { isAuthError, isNetworkError, mapYouTubeError } from "../youtube/client.js";
 import { initialHealth, onFailure, onSuccess, type HealthState } from "./health.js";
 import type { StateEvents } from "./events.js";
 import { categoryForCode, levelForCode, type Logger } from "./logger.js";
+import { isFastWindow, pollIntervalMs, type CadenceInput } from "./pollCadence.js";
 
 /**
  * Holds the state served to Companion feedback endpoints (PRD §5.4). All feedback reads
@@ -75,6 +76,8 @@ function driftConflict(
 export class StateCache {
   private health: HealthState = initialHealth();
   private timer: NodeJS.Timeout | null = null;
+  /** Whether the poll loop is meant to keep re-arming; cleared by stop(). */
+  private running = false;
   /** The refresh currently in flight, if any — see the note on refresh(). */
   private inFlight: Promise<void> | null = null;
   /** Set post-construction via setReplayHandler — see the note there on the runner/cache cycle. */
@@ -87,6 +90,16 @@ export class StateCache {
    * refresh only records the target.
    */
   private firstRefresh = true;
+
+  /**
+   * When the last full refresh was started. The fast window replaces most ticks with a 1-unit
+   * probe, but a probe answers only "is anything active?" — it never runs resolveTarget, so on
+   * its own it would suspend conflict detection (MULTIPLE_UPCOMING, SHARED_STREAM_KEY,
+   * TARGET_DRIFT), out-of-band Studio edits and the `lastRefreshedAt` heartbeat for the whole
+   * 30 minutes, during exactly the pre-show setup those were built for. So the normal interval
+   * keeps its full refresh; probes ride between them.
+   */
+  private lastFullRefreshStartedAt = 0;
 
   /**
    * Bumped every time the active preset is set or cleared. A refresh samples it before its GET and
@@ -168,6 +181,7 @@ export class StateCache {
    */
   refresh(opts: { force?: boolean } = {}): Promise<void> {
     if (this.inFlight && !opts.force) return this.inFlight;
+    this.lastFullRefreshStartedAt = Date.now();
     const prior = this.inFlight;
     const run: Promise<void> = (async () => {
       // Its failure is its own caller's business — runRefresh already recorded it on health.
@@ -255,6 +269,19 @@ export class StateCache {
       }
       await this.recordFailure(mapped);
     }
+  }
+
+  /**
+   * Marks the connection healthy after a call that reached YouTube. `onSuccess` runs
+   * unconditionally — a run of failures still under the threshold leaves health "ok" but the
+   * counter part-way to `offline`, and that counter is exactly what a success has to clear.
+   */
+  private async recordSuccess(): Promise<void> {
+    const wasUnhealthy = this.health.status !== "ok";
+    this.health = onSuccess(this.health);
+    if (!wasUnhealthy) return;
+    this.logRecovery(wasUnhealthy);
+    await this.writeCache({ health: "ok", healthMessage: null });
   }
 
   /**
@@ -456,18 +483,107 @@ export class StateCache {
   }
 
   start(): void {
-    if (this.timer) return;
-    this.timer = setInterval(() => {
-      void this.refresh();
-    }, this.opts.refreshIntervalMs);
+    if (this.running) return;
+    this.running = true;
+    this.scheduleNext();
     // Kick off an immediate refresh so the cache is warm shortly after boot.
     void this.refresh();
   }
 
   stop(): void {
+    this.running = false;
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
+    }
+  }
+
+  /**
+   * How long until the next poll, from the current snapshot. Public so the dashboard and tests
+   * can see the cadence the timer is about to use without waiting for it to fire.
+   */
+  nextPollIntervalMs(): number {
+    return pollIntervalMs(this.cadenceInput());
+  }
+
+  private cadenceInput(): CadenceInput {
+    return {
+      cache: this.snapshot(),
+      apiEnabled: this.store.get().service.apiEnabled,
+      normalIntervalMs: this.opts.refreshIntervalMs,
+      now: Date.now(),
+    };
+  }
+
+  /**
+   * One tick of the poll loop: a cheap probe while a go-live is plausible, a full refresh
+   * otherwise. Separated from the timer so the choice can be tested without waiting on one.
+   */
+  async pollOnce(): Promise<void> {
+    if (!isFastWindow(this.cadenceInput())) return this.refresh();
+    // The full refresh still runs on its normal interval — a probe is an extra look between
+    // them, never a replacement for one. See lastFullRefreshStartedAt.
+    if (Date.now() - this.lastFullRefreshStartedAt >= this.opts.refreshIntervalMs) {
+      return this.refresh();
+    }
+    return this.probe();
+  }
+
+  /**
+   * The fast tick. Asks one question — is anything active? — for 1 quota unit, against the 3–4 a
+   * full refresh costs. A non-empty answer hands off to refresh(), which resolves the target
+   * properly and drives PRD-12's replay; there is deliberately no targeting logic here.
+   */
+  private async probe(): Promise<void> {
+    // The kill switch is already part of the cadence predicate, but probe() is reachable on its
+    // own and "API off" must mean no YouTube call from any path.
+    if (!this.store.get().service.apiEnabled) return;
+    // A refresh already running asks a strictly better version of the same question. Probing
+    // alongside it would spend a unit to learn something the in-flight run is about to write.
+    if (this.inFlight) return this.inFlight;
+    try {
+      const active = await withTimeout(
+        listBroadcasts(this.yt, { broadcastStatus: "active" }),
+        REFRESH_TIMEOUT_MS,
+      );
+      if (active.length === 0) {
+        // A probe that reached YouTube is the same evidence of a working connection that a
+        // refresh is. Without this, health could only degrade for the whole fast window: one
+        // blip would escalate to `offline` six times faster (failures now accrue every 10s) and
+        // stay red until the window expired.
+        await this.recordSuccess();
+        return;
+      }
+    } catch (err) {
+      // Same treatment as a failed refresh: the probe is a real API call, and a probe that
+      // cannot reach YouTube is the same evidence about the connection that a refresh would be.
+      await this.recordFailure(err);
+      return;
+    }
+    await this.refresh();
+  }
+
+  /** Re-arms the single poll timer with the interval the current state calls for. */
+  private scheduleNext(): void {
+    if (!this.running) return;
+    // Clear first: a stop()/start() cycle while a tick is awaiting an API call would otherwise
+    // leave the old chain armed alongside the new one, doubling the poll rate for good.
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.tick();
+    }, this.nextPollIntervalMs());
+  }
+
+  /**
+   * One scheduling path: every tick re-arms exactly one timer with the freshly-computed interval,
+   * rather than switching between a fast and a slow `setInterval` that could both end up running.
+   */
+  private async tick(): Promise<void> {
+    try {
+      await this.pollOnce();
+    } finally {
+      this.scheduleNext();
     }
   }
 }
