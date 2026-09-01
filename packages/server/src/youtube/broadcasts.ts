@@ -1,9 +1,8 @@
 import type { youtube_v3 } from "googleapis";
 import { AppError } from "../core/errors.js";
 import { mapYouTubeError } from "./client.js";
+import { BROADCAST_PARTS, writeBroadcast } from "./broadcastWrite.js";
 import type { BroadcastResource, ResolvedPlan } from "../core/resolve.js";
-
-const BROADCAST_PARTS = ["id", "snippet", "status", "contentDetails"];
 
 // Dedupe noisy warnings across the 60s refresh loop — only log when the situation changes.
 let lastWarnKey: string | null = null;
@@ -366,7 +365,7 @@ export async function getBroadcast(
 
 /**
  * Applies a resolved plan (PRD §3.3, §6):
- *   1. liveBroadcasts.update — full merged broadcast (title/description/privacy + passthrough).
+ *   1. writeBroadcast — the one guarded liveBroadcasts.update path (issue 056).
  *   2. videos.update — snippet.categoryId, if a category was resolved.
  *   3. liveBroadcasts.bind — bind the stream, if a streamBoundId was resolved.
  */
@@ -378,14 +377,7 @@ export async function applyPlan(
   if (!broadcastId)
     throw new AppError("NO_TARGET_FOUND", "Resolved broadcast has no id");
 
-  try {
-    await yt.liveBroadcasts.update({
-      part: BROADCAST_PARTS,
-      requestBody: plan.broadcast as youtube_v3.Schema$LiveBroadcast,
-    });
-  } catch (err) {
-    throw mapYouTubeError(err);
-  }
+  await writeBroadcast(yt, plan.original, plan.broadcast);
 
   if (plan.categoryId !== null) {
     await updateVideoCategory(yt, broadcastId, plan.categoryId);
