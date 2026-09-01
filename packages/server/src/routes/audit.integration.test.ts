@@ -275,4 +275,36 @@ describe("who may read it", () => {
     expect(notable).toHaveLength(1);
     expect(notable[0].action).toBe("created a device token");
   });
+
+  it("finds a notable entry that routine traffic has pushed past the limit", async () => {
+    await asAdmin("/api/dashboard/devices", {
+      method: "POST",
+      body: JSON.stringify({ name: "companion machine" }),
+    });
+    for (let i = 0; i < 5; i += 1) {
+      await asAdmin("/api/dashboard/settings", { method: "PUT", body: JSON.stringify({ x: i }) });
+    }
+
+    // Narrowing has to happen before the cap. Filtering the newest three would report nothing,
+    // while the entry an admin came for is still on disk.
+    const notable = await entries("?notable=1&limit=3");
+    expect(notable).toHaveLength(1);
+    expect(notable[0].action).toBe("created a device token");
+  });
+});
+
+describe("a caller who cases the path differently", () => {
+  it("still records the action", async () => {
+    const target = store.get().accounts.find((a) => a.name === USER.name)!;
+    const res = await asAdmin(`/API/Dashboard/people/${target.id}/role`, {
+      method: "PUT",
+      body: JSON.stringify({ role: "admin" }),
+    });
+    // Express matched it and did the work; the log has to say so.
+    expect(res.status).toBe(200);
+
+    const log = await entries();
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ action: "changed a role", target: target.id, notable: true });
+  });
 });

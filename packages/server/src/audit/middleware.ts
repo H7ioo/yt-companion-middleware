@@ -26,7 +26,10 @@ export interface AuditTrailDeps {
 
 export function auditTrail({ audit, auth }: AuditTrailDeps): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!MUTATING.has(req.method) || !req.path.startsWith("/api/")) {
+    // Lowercased for the prefix test only: Express routes case-insensitively by default, so
+    // `/API/Dashboard/...` reaches the same handler and has to reach the log the same way. The
+    // path stored below is still the one the caller actually used.
+    if (!MUTATING.has(req.method) || !req.path.toLowerCase().startsWith("/api/")) {
       next();
       return;
     }
@@ -75,7 +78,10 @@ export function actorOf(auth: Auth, req: Request): AuditActor {
  * The name is not a secret; the password beside it is, and {@link redact} never lets it through.
  */
 function namedTarget(path: string, body: unknown): { target?: string | null } {
-  if (path !== "/api/auth/login" && path !== "/api/auth/invite") return {};
+  // Lowercased for the same reason the prefix test is: Express does not care about the casing,
+  // so neither can this.
+  const route = path.toLowerCase().replace(/\/+$/, "");
+  if (route !== "/api/auth/login" && route !== "/api/auth/invite") return {};
   const name = (body as { name?: unknown } | null | undefined)?.name;
   return { target: typeof name === "string" ? name : null };
 }

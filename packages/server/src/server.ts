@@ -326,6 +326,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Boo
   return {
     async close() {
       await current?.close();
+      // The trail records after the response has gone, so an append can still be in flight when
+      // the last request finishes. Waiting here is what keeps the final action of a shutdown —
+      // often the interesting one — from being the entry nobody wrote (issue 050).
+      await audit.settled();
     },
   };
 }

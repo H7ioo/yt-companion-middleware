@@ -168,6 +168,18 @@ describe("redaction", () => {
     expect(String(out.title).length).toBeLessThan(500);
   });
 
+  it("masks an endpoint down to its host, because the URL is the credential", () => {
+    // `PUT /api/dashboard/webhook` carries `{url}`, and anyone holding that URL can drive the
+    // notification. The host answers "pointed where"; the path and query are the secret half.
+    const out = redact({ url: "https://hooks.example.test/t/abc-secret-topic?key=zzz" });
+    expect(JSON.stringify(out)).not.toContain("abc-secret-topic");
+    expect(JSON.stringify(out)).not.toContain("zzz");
+    expect(out.url).toBe("https://hooks.example.test/…");
+    expect(redact({ ntfyUrl: "https://ntfy.sh" }).ntfyUrl).toBe("https://ntfy.sh");
+    // Cleared, not set: an empty value is not a secret, and "" is how the routes clear one.
+    expect(redact({ url: "" }).url).toBe("");
+  });
+
   it("does not recurse forever on a cyclic body", () => {
     const body: Record<string, unknown> = { title: "ok" };
     body.self = body;
@@ -193,6 +205,16 @@ describe("what an entry is called", () => {
     });
     expect(describeAction("POST", "/api/setup/disconnect")).toMatchObject({
       action: "disconnected YouTube",
+      notable: true,
+    });
+  });
+
+  it("names a route however the caller cased it", () => {
+    // Express routes case-insensitively by default, so `/API/Dashboard/...` reaches the same
+    // handler. An audit log that only recognises one casing is one a caller can step around.
+    expect(describeAction("put", "/API/Dashboard/people/acc-2/role")).toMatchObject({
+      action: "changed a role",
+      target: "acc-2",
       notable: true,
     });
   });

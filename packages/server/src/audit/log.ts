@@ -126,10 +126,17 @@ export class AuditLog {
     await this.chain.catch(() => undefined);
   }
 
-  /** The entries on disk, newest first, capped at `limit`. */
-  async list(limit = 200): Promise<AuditEntry[]> {
-    const entries = await this.read();
-    return entries.reverse().slice(0, Math.max(0, limit));
+  /**
+   * The entries on disk, newest first, capped at `limit`.
+   *
+   * `notableOnly` narrows *before* the cap, not after. Filtering the newest N would hide a role
+   * change that an evening of cues has pushed past the window — exactly the entry the flag exists
+   * to surface — while retention is still holding on to it.
+   */
+  async list(limit = 200, opts: { notableOnly?: boolean } = {}): Promise<AuditEntry[]> {
+    const entries = (await this.read()).reverse();
+    const matching = opts.notableOnly ? entries.filter((e) => e.notable) : entries;
+    return matching.slice(0, Math.max(0, limit));
   }
 
   /** Drops everything past the retention window (and past the hard cap). Returns what remains. */
@@ -215,6 +222,27 @@ function outcomeOf(status: number): AuditOutcome {
 const SECRET_KEY = /token|secret|password|passphrase|credential|authorization|auth_?key|api_?key/i;
 const REDACTED = "[redacted]";
 
+/**
+ * Keys whose value is an endpoint somebody can post to — the outbound webhook, the ntfy target.
+ * The URL *is* the credential for those: anyone holding it can drive the notification, and the
+ * topic or signing path sits in the part after the host.
+ *
+ * Masked rather than redacted outright, because "pointed the webhook at hooks.example.test"
+ * answers the question an admin came with, and the rest of the URL does not.
+ */
+const URL_KEY = /url|endpoint|webhook|callback|hook/i;
+
+/** An endpoint reduced to scheme and host. A value that is not a URL is redacted whole. */
+function maskUrl(value: unknown): unknown {
+  if (typeof value !== "string" || value.trim() === "") return value;
+  try {
+    const parsed = new URL(value);
+    return parsed.pathname === "/" && !parsed.search ? parsed.origin : `${parsed.origin}/…`;
+  } catch {
+    return REDACTED;
+  }
+}
+
 /** A body reduced to something safe and bounded to store. Null when there is nothing worth keeping. */
 function detailOf(body: unknown): Record<string, unknown> | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
@@ -246,7 +274,9 @@ function walk(value: unknown, depth: number, seen: WeakSet<object>): unknown {
   }
   const out: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, MAX_KEYS)) {
-    out[key] = SECRET_KEY.test(key) ? REDACTED : walk(item, depth + 1, seen);
+    if (SECRET_KEY.test(key)) out[key] = REDACTED;
+    else if (URL_KEY.test(key)) out[key] = maskUrl(item);
+    else out[key] = walk(item, depth + 1, seen);
   }
   return out;
 }
@@ -271,38 +301,38 @@ const ROUTES: ReadonlyArray<{
   notable: boolean;
 }> = [
   // Account and role changes — the entries PRD-15 §3 says matter most.
-  { method: "PUT", pattern: /^\/api\/dashboard\/people\/([^/]+)\/role$/, action: "changed a role", notable: true },
-  { method: "POST", pattern: /^\/api\/dashboard\/people\/invites$/, action: "created an invite", notable: true },
-  { method: "DELETE", pattern: /^\/api\/dashboard\/people\/invites\/([^/]+)$/, action: "cancelled an invite", notable: true },
-  { method: "DELETE", pattern: /^\/api\/dashboard\/people\/([^/]+)\/sessions\/([^/]+)$/, action: "signed a device out", notable: true },
-  { method: "DELETE", pattern: /^\/api\/dashboard\/people\/([^/]+)$/, action: "removed an account", notable: true },
+  { method: "PUT", pattern: /^\/api\/dashboard\/people\/([^/]+)\/role$/i, action: "changed a role", notable: true },
+  { method: "POST", pattern: /^\/api\/dashboard\/people\/invites$/i, action: "created an invite", notable: true },
+  { method: "DELETE", pattern: /^\/api\/dashboard\/people\/invites\/([^/]+)$/i, action: "cancelled an invite", notable: true },
+  { method: "DELETE", pattern: /^\/api\/dashboard\/people\/([^/]+)\/sessions\/([^/]+)$/i, action: "signed a device out", notable: true },
+  { method: "DELETE", pattern: /^\/api\/dashboard\/people\/([^/]+)$/i, action: "removed an account", notable: true },
   // Credentials for machines.
-  { method: "POST", pattern: /^\/api\/dashboard\/devices$/, action: "created a device token", notable: true },
-  { method: "DELETE", pattern: /^\/api\/dashboard\/devices\/([^/]+)$/, action: "revoked a device token", notable: true },
+  { method: "POST", pattern: /^\/api\/dashboard\/devices$/i, action: "created a device token", notable: true },
+  { method: "DELETE", pattern: /^\/api\/dashboard\/devices\/([^/]+)$/i, action: "revoked a device token", notable: true },
   // Sign-in and the invite path into it. The actor on these is anonymous by definition — nobody
   // has a session yet — so the name attempted is carried as the target instead.
-  { method: "POST", pattern: /^\/api\/auth\/login$/, action: "signed in", notable: true },
-  { method: "POST", pattern: /^\/api\/auth\/invite$/, action: "redeemed an invite", notable: true },
-  { method: "POST", pattern: /^\/api\/auth\/logout$/, action: "signed out", notable: false },
-  { method: "POST", pattern: /^\/api\/auth\/reauth$/, action: "renewed a session", notable: true },
+  { method: "POST", pattern: /^\/api\/auth\/login$/i, action: "signed in", notable: true },
+  { method: "POST", pattern: /^\/api\/auth\/invite$/i, action: "redeemed an invite", notable: true },
+  { method: "POST", pattern: /^\/api\/auth\/logout$/i, action: "signed out", notable: false },
+  { method: "POST", pattern: /^\/api\/auth\/reauth$/i, action: "renewed a session", notable: true },
   // The YouTube connection. Getting these wrong loses the channel, not one stream.
-  { method: "POST", pattern: /^\/api\/setup$/, action: "changed the YouTube credentials", notable: true },
-  { method: "POST", pattern: /^\/api\/setup\/oauth\/start$/, action: "connected YouTube", notable: true },
-  { method: "POST", pattern: /^\/api\/setup\/disconnect$/, action: "disconnected YouTube", notable: true },
+  { method: "POST", pattern: /^\/api\/setup$/i, action: "changed the YouTube credentials", notable: true },
+  { method: "POST", pattern: /^\/api\/setup\/oauth\/start$/i, action: "connected YouTube", notable: true },
+  { method: "POST", pattern: /^\/api\/setup\/disconnect$/i, action: "disconnected YouTube", notable: true },
   // Running the show: recorded, because "who changed the title" is a real question, but routine.
-  { method: "POST", pattern: /^\/api(\/dashboard)?\/action\/preset$/, action: "ran a preset", notable: false },
-  { method: "POST", pattern: /^\/api(\/dashboard)?\/action\/update$/, action: "changed the broadcast details", notable: false },
-  { method: "POST", pattern: /^\/api(\/dashboard)?\/action\/privacy$/, action: "changed the privacy", notable: false },
-  { method: "POST", pattern: /^\/api(\/dashboard)?\/action\/undo$/, action: "undid the last change", notable: false },
-  { method: "POST", pattern: /^\/api(\/dashboard)?\/action\/refresh$/, action: "refreshed from YouTube", notable: false },
-  { method: "PUT", pattern: /^\/api\/dashboard\/target$/, action: "changed the go-live target", notable: false },
-  { method: "PUT", pattern: /^\/api\/dashboard\/settings$/, action: "changed the settings", notable: false },
-  { method: "PUT", pattern: /^\/api\/dashboard\/service$/, action: "changed the service switch", notable: false },
-  { method: "POST", pattern: /^\/api\/dashboard\/presets$/, action: "created a preset", notable: false },
-  { method: "PUT", pattern: /^\/api\/dashboard\/presets\/([^/]+)$/, action: "changed a preset", notable: false },
-  { method: "DELETE", pattern: /^\/api\/dashboard\/presets\/([^/]+)$/, action: "deleted a preset", notable: false },
-  { method: "POST", pattern: /^\/api\/dashboard\/presets\/import$/, action: "imported presets", notable: false },
-  { method: "POST", pattern: /^\/api\/dashboard\/fill-request$/, action: "requested a fill", notable: false },
+  { method: "POST", pattern: /^\/api(\/dashboard)?\/action\/preset$/i, action: "ran a preset", notable: false },
+  { method: "POST", pattern: /^\/api(\/dashboard)?\/action\/update$/i, action: "changed the broadcast details", notable: false },
+  { method: "POST", pattern: /^\/api(\/dashboard)?\/action\/privacy$/i, action: "changed the privacy", notable: false },
+  { method: "POST", pattern: /^\/api(\/dashboard)?\/action\/undo$/i, action: "undid the last change", notable: false },
+  { method: "POST", pattern: /^\/api(\/dashboard)?\/action\/refresh$/i, action: "refreshed from YouTube", notable: false },
+  { method: "PUT", pattern: /^\/api\/dashboard\/target$/i, action: "changed the go-live target", notable: false },
+  { method: "PUT", pattern: /^\/api\/dashboard\/settings$/i, action: "changed the settings", notable: false },
+  { method: "PUT", pattern: /^\/api\/dashboard\/service$/i, action: "changed the service switch", notable: false },
+  { method: "POST", pattern: /^\/api\/dashboard\/presets$/i, action: "created a preset", notable: false },
+  { method: "PUT", pattern: /^\/api\/dashboard\/presets\/([^/]+)$/i, action: "changed a preset", notable: false },
+  { method: "DELETE", pattern: /^\/api\/dashboard\/presets\/([^/]+)$/i, action: "deleted a preset", notable: false },
+  { method: "POST", pattern: /^\/api\/dashboard\/presets\/import$/i, action: "imported presets", notable: false },
+  { method: "POST", pattern: /^\/api\/dashboard\/fill-request$/i, action: "requested a fill", notable: false },
 ];
 
 /**

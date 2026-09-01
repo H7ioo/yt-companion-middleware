@@ -35,9 +35,9 @@ export function auditRouter({ audit }: AuditDeps): Router {
     const limit = Number.isFinite(asked) && asked > 0 ? Math.min(asked, MAX_LIMIT) : DEFAULT_LIMIT;
     const notableOnly = req.query.notable === "1" || req.query.notable === "true";
     void audit
-      .list(notableOnly ? MAX_LIMIT : limit)
+      .list(limit, { notableOnly })
       .then((entries) => {
-        res.json({ entries: notableOnly ? entries.filter((e) => e.notable).slice(0, limit) : entries });
+        res.json({ entries });
       })
       .catch(next);
   });
