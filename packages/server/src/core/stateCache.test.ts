@@ -7,6 +7,12 @@ import { JsonStore } from "../storage/jsonStore.js";
 import { StateCache } from "./stateCache.js";
 import { Logger } from "./logger.js";
 import { AppError } from "./errors.js";
+import {
+  FAST_POLL_INTERVAL_MS,
+  FAST_POLL_WINDOW_MS,
+  FAST_PROBE_COST_UNITS,
+} from "./pollCadence.js";
+import { instrumentQuota, QUOTA_COST, QuotaTracker } from "./quota.js";
 
 /** A YouTube client whose broadcast list rejects with `err`, to drive the failure path. */
 function failingClient(err: unknown): youtube_v3.Youtube {
@@ -623,5 +629,139 @@ describe("StateCache active-preset reconciliation", () => {
 
     expect(store.get().cache.activePresetId).toBe("p1");
     expect(store.get().cache.activePresetTitle).toBe("Jumu'ah");
+  });
+});
+
+/**
+ * PRD-14: while a latch is armed and the channel is idle, a poll tick asks one cheap question —
+ * has anything started — instead of re-resolving the whole target. Everything else keeps today's
+ * behaviour exactly, including the cost.
+ */
+describe("StateCache fast probe while armed (issue 054 / PRD-14)", () => {
+  let store: JsonStore;
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-probe-"));
+    store = new JsonStore(path.join(dir, "store.json"));
+    await store.init();
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  /** Records every `liveBroadcasts.list` call so a tick's exact cost can be asserted. */
+  function countingClient(broadcasts: Record<string, youtube_v3.Schema$LiveBroadcast[]>) {
+    const calls: youtube_v3.Params$Resource$Livebroadcasts$List[] = [];
+    const inner = clientWith(broadcasts);
+    const unused = async () => ({ data: {} });
+    const yt = {
+      // update/bind/videos are never called here, but instrumentQuota patches them, so the stub
+      // has to carry the same surface as the real client.
+      liveBroadcasts: {
+        list: (params: youtube_v3.Params$Resource$Livebroadcasts$List) => {
+          calls.push(params);
+          return inner.liveBroadcasts.list(params);
+        },
+        update: unused,
+        bind: unused,
+      },
+      videos: { list: unused, update: unused },
+    } as unknown as youtube_v3.Youtube;
+    return { yt, calls };
+  }
+
+  function cacheFor(yt: youtube_v3.Youtube) {
+    return new StateCache(yt, store, { refreshIntervalMs: 60_000, healthFailureThreshold: 3 });
+  }
+
+  /** Arms a latch pointing at `targetId`, captured `agoMs` in the past. */
+  async function arm(cache: StateCache, targetId: string, agoMs: number) {
+    await cache.setPendingMetadata({
+      payload: { title: "Tonight's show" },
+      targetId,
+      capturedAt: new Date(Date.now() - agoMs).toISOString(),
+    });
+  }
+
+  it("costs exactly what it costs today on an idle channel with no latch", async () => {
+    const { yt, calls } = countingClient({ upcoming: [upcoming("bc1", "Later tonight")] });
+    const cache = cacheFor(yt);
+
+    await cache.pollOnce();
+    const withProbe = calls.length;
+    calls.length = 0;
+    await cache.refresh();
+
+    expect(withProbe).toBe(calls.length);
+  });
+
+  it("asks one cheap question while armed, instead of re-resolving the target", async () => {
+    const { yt, calls } = countingClient({ upcoming: [upcoming("bc1", "Later tonight")] });
+    const cache = cacheFor(yt);
+    await arm(cache, "bc1", 60_000);
+
+    await cache.pollOnce();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].broadcastStatus).toBe("active");
+    expect(cache.nextPollIntervalMs()).toBe(FAST_POLL_INTERVAL_MS);
+  });
+
+  it("hands off to the full refresh the moment the probe sees something on air", async () => {
+    const { yt, calls } = countingClient({ active: [live("the-one-that-aired", "Studio's title")] });
+    const cache = cacheFor(yt);
+    const replayed: unknown[] = [];
+    cache.setReplayHandler(async (p) => void replayed.push(p));
+    await arm(cache, "ghost-we-edited", 60_000);
+
+    await cache.pollOnce();
+
+    // The probe answered "yes", so the refresh ran behind it — more than the probe's one call.
+    expect(calls.length).toBeGreaterThan(1);
+    expect(replayed).toHaveLength(1);
+    expect(store.get().cache.pendingMetadata).toBeNull();
+  });
+
+  it("still replays on the normal interval once the fast window has expired", async () => {
+    // Arming early must never be worse than arming late: past the window the latch stays armed
+    // and the ordinary poll lands it, which is today's behaviour.
+    const { yt } = countingClient({ active: [live("the-one-that-aired", "Studio's title")] });
+    const cache = cacheFor(yt);
+    const replayed: unknown[] = [];
+    cache.setReplayHandler(async (p) => void replayed.push(p));
+    await arm(cache, "ghost-we-edited", FAST_POLL_WINDOW_MS + 60_000);
+
+    expect(cache.nextPollIntervalMs()).toBe(60_000);
+    await cache.pollOnce();
+
+    expect(replayed).toHaveLength(1);
+  });
+
+  it("issues no probe at all with the API switched off", async () => {
+    const { yt, calls } = countingClient({ upcoming: [upcoming("bc1", "Later tonight")] });
+    const cache = cacheFor(yt);
+    await arm(cache, "bc1", 60_000);
+    await store.update((st) => {
+      st.service.apiEnabled = false;
+    });
+
+    await cache.pollOnce();
+
+    expect(calls).toHaveLength(0);
+  });
+
+  it("counts probes in the day's quota rather than hiding them", async () => {
+    // A jump in units on a show day has to have an explanation on the readout.
+    const { yt } = countingClient({ upcoming: [upcoming("bc1", "Later tonight")] });
+    const tracker = new QuotaTracker(store, 10_000);
+    tracker.init();
+    const cache = cacheFor(instrumentQuota(yt, tracker));
+    await arm(cache, "bc1", 60_000);
+
+    await cache.pollOnce();
+
+    expect(tracker.snapshot().used).toBe(QUOTA_COST.read * FAST_PROBE_COST_UNITS);
   });
 });

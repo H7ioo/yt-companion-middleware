@@ -1,11 +1,12 @@
 import type { youtube_v3 } from "googleapis";
 import type { JsonStore } from "../storage/jsonStore.js";
 import type { CacheState, PendingMetadata, TargetConflict } from "../storage/schema.js";
-import { getBroadcast, resolveTarget, toStatus } from "../youtube/broadcasts.js";
+import { getBroadcast, listBroadcasts, resolveTarget, toStatus } from "../youtube/broadcasts.js";
 import { isAuthError, isNetworkError, mapYouTubeError } from "../youtube/client.js";
 import { initialHealth, onFailure, onSuccess, type HealthState } from "./health.js";
 import type { StateEvents } from "./events.js";
 import { categoryForCode, levelForCode, type Logger } from "./logger.js";
+import { isFastWindow, pollIntervalMs, type CadenceInput } from "./pollCadence.js";
 
 /**
  * Holds the state served to Companion feedback endpoints (PRD §5.4). All feedback reads
@@ -75,6 +76,8 @@ function driftConflict(
 export class StateCache {
   private health: HealthState = initialHealth();
   private timer: NodeJS.Timeout | null = null;
+  /** Whether the poll loop is meant to keep re-arming; cleared by stop(). */
+  private running = false;
   /** The refresh currently in flight, if any — see the note on refresh(). */
   private inFlight: Promise<void> | null = null;
   /** Set post-construction via setReplayHandler — see the note there on the runner/cache cycle. */
@@ -456,18 +459,92 @@ export class StateCache {
   }
 
   start(): void {
-    if (this.timer) return;
-    this.timer = setInterval(() => {
-      void this.refresh();
-    }, this.opts.refreshIntervalMs);
+    if (this.running) return;
+    this.running = true;
+    this.scheduleNext();
     // Kick off an immediate refresh so the cache is warm shortly after boot.
     void this.refresh();
   }
 
   stop(): void {
+    this.running = false;
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
+    }
+  }
+
+  /**
+   * How long until the next poll, from the current snapshot. Public so the dashboard and tests
+   * can see the cadence the timer is about to use without waiting for it to fire.
+   */
+  nextPollIntervalMs(): number {
+    return pollIntervalMs(this.cadenceInput());
+  }
+
+  private cadenceInput(): CadenceInput {
+    return {
+      cache: this.snapshot(),
+      apiEnabled: this.store.get().service.apiEnabled,
+      normalIntervalMs: this.opts.refreshIntervalMs,
+      now: Date.now(),
+    };
+  }
+
+  /**
+   * One tick of the poll loop: a cheap probe while a go-live is plausible, a full refresh
+   * otherwise. Separated from the timer so the choice can be tested without waiting on one.
+   */
+  async pollOnce(): Promise<void> {
+    if (isFastWindow(this.cadenceInput())) return this.probe();
+    return this.refresh();
+  }
+
+  /**
+   * The fast tick. Asks one question — is anything active? — for 1 quota unit, against the 3–4 a
+   * full refresh costs. A non-empty answer hands off to refresh(), which resolves the target
+   * properly and drives PRD-12's replay; there is deliberately no targeting logic here.
+   */
+  private async probe(): Promise<void> {
+    // The kill switch is already part of the cadence predicate, but probe() is reachable on its
+    // own and "API off" must mean no YouTube call from any path.
+    if (!this.store.get().service.apiEnabled) return;
+    // A refresh already running asks a strictly better version of the same question. Probing
+    // alongside it would spend a unit to learn something the in-flight run is about to write.
+    if (this.inFlight) return this.inFlight;
+    try {
+      const active = await withTimeout(
+        listBroadcasts(this.yt, { broadcastStatus: "active" }),
+        REFRESH_TIMEOUT_MS,
+      );
+      if (active.length === 0) return;
+    } catch (err) {
+      // Same treatment as a failed refresh: the probe is a real API call, and a probe that
+      // cannot reach YouTube is the same evidence about the connection that a refresh would be.
+      await this.recordFailure(err);
+      return;
+    }
+    await this.refresh();
+  }
+
+  /** Re-arms the single poll timer with the interval the current state calls for. */
+  private scheduleNext(): void {
+    if (!this.running) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.tick();
+    }, this.nextPollIntervalMs());
+  }
+
+  /**
+   * One scheduling path: every tick re-arms exactly one timer with the freshly-computed interval,
+   * rather than switching between a fast and a slow `setInterval` that could both end up running.
+   */
+  private async tick(): Promise<void> {
+    try {
+      await this.pollOnce();
+    } finally {
+      this.scheduleNext();
     }
   }
 }
