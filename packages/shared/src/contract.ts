@@ -403,3 +403,65 @@ export interface AuditEntry {
    */
   notable: boolean;
 }
+
+/**
+ * One row of the broadcast list that answers "which one will air?" (PRD-16 §1, issue 057).
+ *
+ * Deliberately richer than {@link BroadcastCandidate}, which exists to tell two similarly-named
+ * events apart in a picker. This carries the evidence the *airing* decision is made from —
+ * the bound stream and the auto-start flag — because a row that shows a title and a time cannot
+ * explain why YouTube will feed one event and not the other.
+ */
+export interface BroadcastListEntry {
+  id: string;
+  title: string;
+  /** ISO-8601, or null when the broadcast carries no scheduled start. */
+  scheduledStartTime: string | null;
+  privacyStatus: string | null;
+  /** YouTube's lifecycle: `created` (stub), `ready`/`testing` (encoder-bound), `live`. */
+  lifeCycleStatus: string | null;
+  /** The ingestion key this broadcast is attached to, or null when it is attached to none. */
+  boundStreamId: string | null;
+  /** That key's name, falling back to its id when the stream list does not carry it. */
+  boundStreamTitle: string | null;
+  /** `contentDetails.enableAutoStart` — whether the encoder starting is enough to start it. */
+  autoStart: boolean;
+  /** True for a broadcast YouTube reports as `active` — already on air. */
+  isLive: boolean;
+  /** The one that will air, or one of several tied for it. Never more than one unless contested. */
+  willAir: boolean;
+  /** Why this row will or will not air, in words an operator can act on. */
+  reason: string;
+}
+
+/** The broadcast list as `GET /api/dashboard/broadcasts` reports it (issue 057). */
+export interface BroadcastListing {
+  entries: BroadcastListEntry[];
+  /**
+   * The list's headline answer in plain words — which broadcast airs and why, or that none
+   * does. Stated rather than left to be inferred from a highlight: "one row is bolder than the
+   * others" is exactly the kind of answer that sends an operator to Studio to check.
+   */
+  verdict: string;
+  /**
+   * More than one upcoming broadcast qualifies. Both are marked rather than one silently
+   * winning — the app genuinely cannot tell which YouTube will feed, and pretending otherwise
+   * is how a show ends up on the wrong event.
+   */
+  contested: boolean;
+  /** The ingestion key the encoder is understood to push to, or null when it is not known. */
+  encoderStreamId: string | null;
+  encoderStreamTitle: string | null;
+  /**
+   * How that key was arrived at. `setting` is the operator's default binding; `only-key` is a
+   * channel with exactly one ingestion key, where there is nothing else OBS could be pointed
+   * at; `unknown` means several keys exist and none was chosen, so no row can be marked.
+   */
+  encoderSource: "setting" | "only-key" | "unknown";
+  /**
+   * What this listing cost, in YouTube quota units, measured across the calls it just made
+   * rather than assumed. Stated because a list is the kind of thing that gets put on a refresh
+   * interval, and the cost of doing that should be visible before someone does.
+   */
+  quotaUnits: number;
+}

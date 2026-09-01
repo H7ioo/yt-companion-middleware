@@ -2163,3 +2163,132 @@ textarea {
     grid-column: 1 / -1;
   }
 }
+
+/* ---- Rundown: what will air (issue 057) -----------------------------------
+   The one panel in this rack that leads with a sentence rather than a control.
+   Every other panel exists to be operated; this one exists to answer a
+   question, and an answer carried only by "one row looks bolder" is exactly
+   what an operator crosses to Studio to double-check. So the verdict gets the
+   display face, the left edge that already means "this is the line that
+   matters", and the lamp colours the tally rail uses — green when one broadcast
+   will air, amber when the app cannot say. No new colour, no new face: the
+   boldness is the copy, not the paint.
+   ------------------------------------------------------------------------- */
+
+.rundown__cost {
+  align-self: center;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--ink-faint);
+  background: var(--bg-rack);
+  border: var(--seam-line);
+  border-radius: 3px;
+}
+.rundown__verdict {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--bg-inset);
+  border: var(--seam-line);
+  border-left: 3px solid var(--ink-faint);
+  border-radius: var(--radius);
+}
+.rundown__verdict--airs {
+  border-left-color: var(--ready);
+}
+.rundown__verdict--warn {
+  border-left-color: var(--warn);
+}
+
+.rundown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rundown__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-inset);
+  border: var(--seam-line);
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+}
+.rundown__row--airs {
+  border-left-color: var(--ready);
+}
+.rundown__row--contested {
+  border-left-color: var(--warn);
+}
+.rundown__row .lamp {
+  margin-top: 4px;
+}
+.rundown__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.rundown__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rundown__title {
+  font-weight: 600;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.rundown__flag {
+  flex: none;
+  padding: 1px 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 3px;
+}
+.rundown__flag--airs {
+  color: var(--ready);
+  border: 1px solid rgba(41, 211, 152, 0.45);
+}
+.rundown__flag--contested {
+  color: var(--warn);
+  border: 1px solid rgba(255, 176, 32, 0.45);
+}
+.rundown__flag--live {
+  color: var(--live);
+  border: 1px solid rgba(255, 59, 48, 0.45);
+}
+/* The evidence line: separators are drawn, not typed, so a missing fact never leaves a
+   stranded interpunct. */
+.rundown__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--ink-dim);
+  font-size: 12.5px;
+}
+.rundown__facts > span + span::before {
+  content: "·";
+  margin-right: 10px;
+  color: var(--ink-faint);
+}
+.rundown__reason {
+  color: var(--ink-dim);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.rundown__row .patch__id {
+  margin-left: auto;
+  align-self: flex-start;
+}

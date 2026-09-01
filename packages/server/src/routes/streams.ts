@@ -28,11 +28,7 @@ export function streamsRouter(ctx: AppContext): Router {
     try {
       const resp = await ctx.yt.liveStreams.list({ part: ["snippet", "cdn"], mine: true });
       const streams: StreamInfo[] = (resp.data.items ?? [])
-        .map((item) => ({
-          id: item.id!,
-          title: item.snippet?.title ?? item.id!,
-          streamName: item.cdn?.ingestionInfo?.streamName ?? null,
-        }))
+        .map(toStreamInfo)
         .sort((a, b) => a.title.localeCompare(b.title));
       cached = { at: Date.now(), streams };
       res.json(streams);
@@ -42,4 +38,21 @@ export function streamsRouter(ctx: AppContext): Router {
   });
 
   return router;
+}
+
+/**
+ * The contract shape of one ingestion key. Exported because the broadcast list (issue 057) names
+ * the key a broadcast is attached to, and two copies of this mapping would eventually disagree
+ * about what a stream with no title is called.
+ */
+export function toStreamInfo(item: {
+  id?: string | null;
+  snippet?: { title?: string | null } | null;
+  cdn?: { ingestionInfo?: { streamName?: string | null } | null } | null;
+}): StreamInfo {
+  return {
+    id: item.id!,
+    title: item.snippet?.title ?? item.id!,
+    streamName: item.cdn?.ingestionInfo?.streamName ?? null,
+  };
 }
