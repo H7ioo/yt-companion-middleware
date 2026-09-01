@@ -701,6 +701,10 @@ describe("StateCache fast probe while armed (issue 054 / PRD-14)", () => {
     const { yt, calls } = countingClient({ upcoming: [upcoming("bc1", "Later tonight")] });
     const cache = cacheFor(yt);
     await arm(cache, "bc1", 60_000);
+    // The normal interval's full refresh has just run; the ticks between it and the next one
+    // are the ones that probe.
+    await cache.refresh();
+    calls.length = 0;
 
     await cache.pollOnce();
 
@@ -710,11 +714,19 @@ describe("StateCache fast probe while armed (issue 054 / PRD-14)", () => {
   });
 
   it("hands off to the full refresh the moment the probe sees something on air", async () => {
-    const { yt, calls } = countingClient({ active: [live("the-one-that-aired", "Studio's title")] });
+    // Pre-show: a scheduled broadcast, nothing on air yet, and the interval's full refresh
+    // already spent — so this tick is one of the probes between refreshes.
+    const broadcasts: Record<string, youtube_v3.Schema$LiveBroadcast[]> = {
+      upcoming: [upcoming("bc1", "Later tonight")],
+    };
+    const { yt, calls } = countingClient(broadcasts);
     const cache = cacheFor(yt);
     const replayed: unknown[] = [];
     cache.setReplayHandler(async (p) => void replayed.push(p));
     await arm(cache, "ghost-we-edited", 60_000);
+    await cache.refresh();
+    calls.length = 0;
+    broadcasts.active = [live("the-one-that-aired", "Studio's title")]; // the show starts
 
     await cache.pollOnce();
 
@@ -759,9 +771,58 @@ describe("StateCache fast probe while armed (issue 054 / PRD-14)", () => {
     tracker.init();
     const cache = cacheFor(instrumentQuota(yt, tracker));
     await arm(cache, "bc1", 60_000);
+    await cache.refresh();
+    const afterRefresh = tracker.snapshot().used;
 
     await cache.pollOnce();
 
-    expect(tracker.snapshot().used).toBe(QUOTA_COST.read * FAST_PROBE_COST_UNITS);
+    expect(tracker.snapshot().used - afterRefresh).toBe(QUOTA_COST.read * FAST_PROBE_COST_UNITS);
   });
+
+  it("keeps running the full refresh on the normal interval inside the fast window", async () => {
+    // The probe never resolves the target, so if it replaced the full refresh outright, drift
+    // and multiple-upcoming conflicts would go unraised for the whole 30-minute window — the
+    // one stretch of pre-show setup they exist for.
+    const { yt, calls } = countingClient({
+      upcoming: [upcoming("bc1", "Later tonight"), upcoming("bc2", "Also tonight")],
+    });
+    const cache = cacheFor(yt);
+    await arm(cache, "bc1", 60_000);
+
+    await cache.pollOnce();
+
+    expect(calls.length).toBeGreaterThan(1);
+    expect(store.get().cache.targetConflict?.code).toBe("MULTIPLE_UPCOMING");
+    expect(store.get().cache.lastRefreshedAt).not.toBeNull();
+  });
+
+  it("clears the failure counter on a probe that reached YouTube", async () => {
+    // Failures accrue every 10s inside the fast window, so a probe that cannot also *undo* one
+    // would let a brief blip escalate to `offline` six times faster and stay there.
+    let down = true;
+    const flaky = {
+      liveBroadcasts: {
+        list: (params: youtube_v3.Params$Resource$Livebroadcasts$List) => {
+          if (down) return Promise.reject(new Error("connect ECONNREFUSED"));
+          return clientWith({ upcoming: [upcoming("bc1", "Later tonight")] }).liveBroadcasts.list(
+            params,
+          );
+        },
+      },
+    } as unknown as youtube_v3.Youtube;
+    const cache = new StateCache(flaky, store, {
+      refreshIntervalMs: 60_000,
+      healthFailureThreshold: 2,
+    });
+    await arm(cache, "bc1", 60_000);
+
+    await cache.refresh(); // one failure on record, still under the threshold
+    down = false;
+    await cache.pollOnce(); // a probe that succeeds must clear it
+    down = true;
+    await cache.refresh(); // one fresh failure — not the second of a run
+
+    expect(store.get().cache.health).toBe("degraded");
+  });
+
 });

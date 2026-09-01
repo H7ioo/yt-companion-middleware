@@ -42,6 +42,9 @@ units on show days and **zero on quiet ones**.
       never worse than arming late.
 - [x] With the API kill switch off, no probe is issued.
 - [x] Probe calls are counted by the quota tracker.
+- [x] The full refresh still runs on the normal interval inside the fast window, so conflicts and
+      the cache heartbeat are not suspended for 30 minutes.
+- [x] A successful probe clears the failure counter, so health can recover inside the window.
 - [x] No test sleeps on a timer; the interval computation is asserted directly.
 
 ## Blocked by
@@ -63,13 +66,20 @@ carrying the quota arithmetic in their comments. Fast never polls *slower* than
 `StateCache` now runs one self-rearming `setTimeout` instead of a `setInterval`, so a fast and a
 normal cadence can never both be running. Each tick calls the new public `pollOnce()`, which
 probes (`liveBroadcasts.list(broadcastStatus: "active")`, 1 unit) inside the fast window and does
-today's full `refresh()` otherwise. A non-empty probe hands straight off to `refresh()` — no
+today's full `refresh()` otherwise. Probes ride *between* full refreshes rather than replacing
+them: inside the window, the first tick past `REFRESH_INTERVAL_SECONDS` since the last full
+refresh runs one, so conflict detection (`MULTIPLE_UPCOMING`, `SHARED_STREAM_KEY`,
+`TARGET_DRIFT`), out-of-band Studio edits and the `lastRefreshedAt` heartbeat keep working through
+the pre-show half hour they matter most in. A non-empty probe hands straight off to `refresh()` — no
 targeting logic was duplicated, so PRD-12's replay fires through its existing path. A probe that
-cannot reach YouTube goes through `recordFailure`, the same as a failed refresh; a probe raised
+cannot reach YouTube goes through `recordFailure`, and one that reaches it clears the failure
+counter through `recordSuccess` — inside the window failures accrue every 10s, so a probe that
+could only degrade health would let one blip escalate to `offline` six times faster and hold it
+there until the window expired. A probe raised
 while a refresh is already in flight joins that run rather than spending a unit on a worse
 question. `nextPollIntervalMs()` is public so the cadence can be read without waiting on a timer.
 
 Probes are counted by the existing `instrumentQuota` patch, asserted by test. No test sleeps on a
-timer. 994 tests pass.
+timer. 996 tests pass.
 
 Not done here: the real-go-live measurement, which is `issues/055-verify-fast-probe-on-a-real-golive.md`.

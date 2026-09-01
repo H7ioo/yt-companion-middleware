@@ -92,6 +92,16 @@ export class StateCache {
   private firstRefresh = true;
 
   /**
+   * When the last full refresh was started. The fast window replaces most ticks with a 1-unit
+   * probe, but a probe answers only "is anything active?" — it never runs resolveTarget, so on
+   * its own it would suspend conflict detection (MULTIPLE_UPCOMING, SHARED_STREAM_KEY,
+   * TARGET_DRIFT), out-of-band Studio edits and the `lastRefreshedAt` heartbeat for the whole
+   * 30 minutes, during exactly the pre-show setup those were built for. So the normal interval
+   * keeps its full refresh; probes ride between them.
+   */
+  private lastFullRefreshStartedAt = 0;
+
+  /**
    * Bumped every time the active preset is set or cleared. A refresh samples it before its GET and
    * hands it back to reconcileActivePreset, which then knows whether the title it is holding
    * predates the preset now on record.
@@ -171,6 +181,7 @@ export class StateCache {
    */
   refresh(opts: { force?: boolean } = {}): Promise<void> {
     if (this.inFlight && !opts.force) return this.inFlight;
+    this.lastFullRefreshStartedAt = Date.now();
     const prior = this.inFlight;
     const run: Promise<void> = (async () => {
       // Its failure is its own caller's business — runRefresh already recorded it on health.
@@ -258,6 +269,19 @@ export class StateCache {
       }
       await this.recordFailure(mapped);
     }
+  }
+
+  /**
+   * Marks the connection healthy after a call that reached YouTube. `onSuccess` runs
+   * unconditionally — a run of failures still under the threshold leaves health "ok" but the
+   * counter part-way to `offline`, and that counter is exactly what a success has to clear.
+   */
+  private async recordSuccess(): Promise<void> {
+    const wasUnhealthy = this.health.status !== "ok";
+    this.health = onSuccess(this.health);
+    if (!wasUnhealthy) return;
+    this.logRecovery(wasUnhealthy);
+    await this.writeCache({ health: "ok", healthMessage: null });
   }
 
   /**
@@ -496,8 +520,13 @@ export class StateCache {
    * otherwise. Separated from the timer so the choice can be tested without waiting on one.
    */
   async pollOnce(): Promise<void> {
-    if (isFastWindow(this.cadenceInput())) return this.probe();
-    return this.refresh();
+    if (!isFastWindow(this.cadenceInput())) return this.refresh();
+    // The full refresh still runs on its normal interval — a probe is an extra look between
+    // them, never a replacement for one. See lastFullRefreshStartedAt.
+    if (Date.now() - this.lastFullRefreshStartedAt >= this.opts.refreshIntervalMs) {
+      return this.refresh();
+    }
+    return this.probe();
   }
 
   /**
@@ -517,7 +546,14 @@ export class StateCache {
         listBroadcasts(this.yt, { broadcastStatus: "active" }),
         REFRESH_TIMEOUT_MS,
       );
-      if (active.length === 0) return;
+      if (active.length === 0) {
+        // A probe that reached YouTube is the same evidence of a working connection that a
+        // refresh is. Without this, health could only degrade for the whole fast window: one
+        // blip would escalate to `offline` six times faster (failures now accrue every 10s) and
+        // stay red until the window expired.
+        await this.recordSuccess();
+        return;
+      }
     } catch (err) {
       // Same treatment as a failed refresh: the probe is a real API call, and a probe that
       // cannot reach YouTube is the same evidence about the connection that a refresh would be.
@@ -530,6 +566,9 @@ export class StateCache {
   /** Re-arms the single poll timer with the interval the current state calls for. */
   private scheduleNext(): void {
     if (!this.running) return;
+    // Clear first: a stop()/start() cycle while a tick is awaiting an API call would otherwise
+    // leave the old chain armed alongside the new one, doubling the poll rate for good.
+    if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.tick();
