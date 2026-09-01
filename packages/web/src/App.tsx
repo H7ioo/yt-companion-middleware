@@ -551,9 +551,14 @@ export function App() {
           />
         ) : null}
 
-        {/* What YouTube will actually feed when the encoder starts — read-only, and above the
-            edit target because "which one airs" is the question that comes first (issue 057). */}
-        <BroadcastList apiEnabled={state ? state.apiEnabled : null} />
+        {/* What YouTube will actually feed when the encoder starts, and — since issue 058 — the
+            second surface for the same edit-target pin the picker below writes. Above it because
+            "which one airs" is the question that comes first (issue 057). */}
+        <BroadcastList
+          apiEnabled={state ? state.apiEnabled : null}
+          pin={state?.targetPin ?? null}
+          onPinned={refreshSession}
+        />
 
         {/* Which broadcast every action below writes to. Placed above the presets because it
             governs where all of them land (PRD-12 / the pinned-target work). */}

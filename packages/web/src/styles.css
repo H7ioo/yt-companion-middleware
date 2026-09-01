@@ -2292,3 +2292,63 @@ textarea {
   margin-left: auto;
   align-self: flex-start;
 }
+
+/* ---- The rundown row as a patch point (issue 058) --------------------------
+   Selecting a row sets the edit-target pin — the same state the patch bay
+   below writes, surfaced twice rather than twice invented. So the pin borrows
+   the patch bay's blue and leaves the left edge alone: the edge already means
+   "this is what airs", and airing and targeted are two different facts that an
+   operator has to be able to read at once. Blue wash and a mono chip for
+   "where my actions land", coloured edge for "what YouTube will feed".
+   ------------------------------------------------------------------------- */
+
+.rundown__pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  margin: -12px 0 -12px -14px;
+  padding: 12px 0 12px 14px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.rundown__pick:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+.rundown__pick:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+.rundown__row:has(.rundown__pick:hover:not(:disabled)) {
+  border-color: var(--seam-bright);
+}
+.rundown__row--pinned {
+  background: rgba(76, 141, 255, 0.07);
+  border-color: rgba(76, 141, 255, 0.45);
+}
+.rundown__flag--pinned {
+  color: var(--accent);
+  border: 1px solid rgba(76, 141, 255, 0.45);
+}
+
+/* The pin and the airing marker pointing at different broadcasts is the one
+   state where both halves of this panel look right and the pair is wrong, so
+   it gets said in words. Amber: nothing is broken, the aim is. */
+.rundown__disagree {
+  margin: -6px 0 14px;
+  padding: 10px 14px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg-inset);
+  border: var(--seam-line);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius);
+}
