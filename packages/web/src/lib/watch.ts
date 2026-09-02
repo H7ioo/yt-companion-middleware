@@ -4,12 +4,14 @@ import type { FeedbackStatus } from "../api.js";
  * What the panel can offer for the broadcast on air (issue 065, PRD-16 §4).
  *
  * `waiting` is not a failure: nothing is on air, or the broadcast on air cannot be named. Both
- * are ordinary states of an idle channel, and neither is anything an operator acts on.
+ * are ordinary states, but they are not the same state to an operator — one is an idle channel
+ * and the other is a live show the app has momentarily lost the name of — so `why` carries the
+ * difference through to the copy instead of flattening it.
  */
 export type Watch =
   | { kind: "player"; embedUrl: string; watchUrl: string }
   | { kind: "studio"; studioUrl: string; why: string }
-  | { kind: "waiting" };
+  | { kind: "waiting"; why: string };
 
 /** YouTube's privacy values that permit an embed. Anything else is Studio's problem, not ours. */
 const EMBEDDABLE = new Set(["public", "unlisted"]);
@@ -27,7 +29,21 @@ const EMBEDDABLE = new Set(["public", "unlisted"]);
  * link nobody needed; guessing wrong in the other is a broken frame during a show.
  */
 export function describeWatch(status: FeedbackStatus): Watch {
-  if (!status.isLive || !status.broadcastId) return { kind: "waiting" };
+  if (!status.isLive) {
+    return {
+      kind: "waiting",
+      why: "Nothing is on air. Once the show starts, the audience's view can be played here.",
+    };
+  }
+  // Live with no id: the last status read said the show is up but did not name it — a refresh
+  // failure, or a restart mid-show before the first refresh lands. Saying "nothing is on air"
+  // here contradicts the rail, which is still reading Live from the same status.
+  if (!status.broadcastId) {
+    return {
+      kind: "waiting",
+      why: "The show is on air, but the app does not have the broadcast's id yet, so it cannot open the audience's view. It will appear at the next refresh.",
+    };
+  }
   const id = status.broadcastId;
   if (!EMBEDDABLE.has(status.privacyStatus ?? "")) {
     return {
@@ -41,7 +57,9 @@ export function describeWatch(status: FeedbackStatus): Watch {
   }
   return {
     kind: "player",
-    embedUrl: `https://www.youtube.com/embed/${id}`,
+    // The press is the operator's own play gesture, so the frame starts playing rather than
+    // making them find YouTube's button inside it.
+    embedUrl: `https://www.youtube.com/embed/${id}?autoplay=1`,
     watchUrl: `https://www.youtube.com/watch?v=${id}`,
   };
 }

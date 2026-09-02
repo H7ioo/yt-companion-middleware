@@ -15,7 +15,7 @@ describe("describeWatch (issue 065)", () => {
   it("offers the player for a public broadcast that is on air", () => {
     expect(describeWatch(status())).toMatchObject({
       kind: "player",
-      embedUrl: "https://www.youtube.com/embed/bc1",
+      embedUrl: "https://www.youtube.com/embed/bc1?autoplay=1",
     });
   });
 
@@ -44,8 +44,15 @@ describe("describeWatch (issue 065)", () => {
     expect(describeWatch(status({ privacyStatus: null })).kind).toBe("studio");
   });
 
-  // Live with no id happens after a refresh failure, where the status is the last one read.
-  it("offers nothing when the broadcast on air has no id to link to", () => {
-    expect(describeWatch(status({ broadcastId: null })).kind).toBe("waiting");
+  // Live with no id happens after a refresh failure, or a restart mid-show before the first
+  // refresh lands. The rail is reading Live from this same status, so the panel must not answer
+  // "nothing is on air" — that is the app disagreeing with itself in front of the operator.
+  it("says the show is on air but unnamed, rather than calling the channel idle", () => {
+    const idle = describeWatch(status({ isLive: false }));
+    const unnamed = describeWatch(status({ broadcastId: null }));
+
+    expect(unnamed.kind).toBe("waiting");
+    expect(unnamed).toMatchObject({ why: expect.stringMatching(/on air/i) });
+    expect(unnamed).not.toMatchObject({ why: idle.kind === "waiting" ? idle.why : "" });
   });
 });

@@ -51,9 +51,7 @@ export function WatchPanel({ status }: Props) {
       </div>
       <div className="panel__body">
         {watch.kind === "waiting" ? (
-          <p className="empty">
-            Nothing is on air. Once the show starts, the audience's view can be played here.
-          </p>
+          <p className="empty">{watch.why}</p>
         ) : watch.kind === "studio" ? (
           <>
             <p className="watch__lede">{watch.why}</p>
@@ -66,7 +64,7 @@ export function WatchPanel({ status }: Props) {
             <iframe
               src={watch.embedUrl}
               title="The broadcast as viewers see it"
-              allow="fullscreen"
+              allow="autoplay; fullscreen"
               allowFullScreen
             />
           </div>
@@ -76,7 +74,7 @@ export function WatchPanel({ status }: Props) {
           </button>
         )}
 
-        {watch.kind === "waiting" ? null : <Caveats />}
+        {watch.kind === "player" ? <Caveats /> : null}
       </div>
     </section>
   );
@@ -84,7 +82,9 @@ export function WatchPanel({ status }: Props) {
 
 /**
  * The two facts that make this panel actively misleading if they go unsaid — stated before the
- * press, and kept on screen while it plays, because that is when they are believed.
+ * press, and kept on screen while it plays, because that is when they are believed. Both are
+ * about the frame this panel can run, so neither is said on the Studio branch, where the panel
+ * plays nothing and the operator watches in a tab of their own.
  */
 function Caveats() {
   return (

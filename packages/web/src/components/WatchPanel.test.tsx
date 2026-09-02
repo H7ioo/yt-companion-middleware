@@ -24,7 +24,17 @@ describe("WatchPanel (issue 065)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /play/i }));
 
-    expect(frame()?.getAttribute("src")).toBe("https://www.youtube.com/embed/bc1");
+    expect(frame()?.getAttribute("src")).toBe("https://www.youtube.com/embed/bc1?autoplay=1");
+  });
+
+  // One press, not two: the operator asked for the view, so they should not have to find
+  // YouTube's own play button inside the frame to get it.
+  it("starts the frame playing off the operator's press", () => {
+    render(<WatchPanel status={status()} />);
+    fireEvent.click(screen.getByRole("button", { name: /play/i }));
+
+    expect(frame()?.getAttribute("src")).toContain("autoplay=1");
+    expect(frame()?.getAttribute("allow")).toContain("autoplay");
   });
 
   // The two things that make the feature misleading if left unsaid, said before the press —
@@ -48,6 +58,23 @@ describe("WatchPanel (issue 065)", () => {
     expect(
       screen.getByRole("link", { name: /studio/i }).getAttribute("href"),
     ).toBe("https://studio.youtube.com/video/bc1/livestreaming");
+  });
+
+  // Nothing plays here on the Studio branch, so the delay and the encoder cost describe a frame
+  // that is not on screen and cannot be put there.
+  it("keeps the frame's caveats off the Studio branch", () => {
+    render(<WatchPanel status={status({ privacyStatus: "private" })} />);
+    expect(screen.queryByText(/encoder/i)).toBeNull();
+    expect(screen.queryByText(/behind/i)).toBeNull();
+  });
+
+  // The rail reads Live from this same status. A panel saying "nothing is on air" beside it is
+  // the app contradicting itself mid-show.
+  it("does not call the channel idle while the show is up but unnamed", () => {
+    render(<WatchPanel status={status({ broadcastId: null })} />);
+    expect(frame()).toBeNull();
+    expect(screen.getByText(/on air/i)).toBeTruthy();
+    expect(screen.queryByText(/Nothing is on air/i)).toBeNull();
   });
 
   it("offers no player at all while nothing is on air", () => {
