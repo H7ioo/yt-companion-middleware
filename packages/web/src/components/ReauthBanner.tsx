@@ -34,7 +34,9 @@ export function ReauthBanner({ canAdminister, onReconnected, onOpenSettings, fla
   }, [canAdminister]);
 
   // Until the status lands, assume the in-app flow is unavailable so we never dead-end a click.
-  const inApp = status ? describeConnection(status).editable : false;
+  // Only `in-app` reconnects here: a headless host's credentials are replaceable too, but by
+  // pasting a token into a form, which belongs in Settings and not in a one-button banner.
+  const inApp = status ? describeConnection(status).mode === "in-app" : false;
 
   const reconnect = async () => {
     if (!inApp) {

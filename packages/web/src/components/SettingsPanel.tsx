@@ -28,14 +28,15 @@ interface Props {
   onClose: () => void;
 }
 
-type Busy = "idle" | "connecting" | "waiting" | "disconnecting";
+type Busy = "idle" | "connecting" | "waiting" | "saving" | "disconnecting";
 
 /**
  * Settings page (issue 014 / PRD-03 §3): a Connection section (status, active flow,
  * Connect / Reconnect / Disconnect) alongside the app defaults, reachable any time — not just on
  * first run. Reads the connection state as booleans from `/api/setup/status`; secrets never arrive
- * here. On a headless/Docker host, or when credentials come from env/CLI, the connection is
- * read-only and shows guidance instead of buttons. A user — as opposed to an admin — reads the
+ * here. A headless/Docker host has no browser to run consent in, so it gets the paste form instead
+ * of the one-click buttons — the credentials are still the app's own to replace. Only env/CLI
+ * credentials are read-only, because those live outside the store. A user — as opposed to an admin — reads the
  * same connection state and is offered none of the controls (issue 045): changing the channel is
  * how a deployment loses it, and a button that always answers 403 is worse than no button.
  */
@@ -53,6 +54,9 @@ export function SettingsPanel({
   const [showOwn, setShowOwn] = useState(false);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  // Pasted credentials for a headless host (`manual` mode). All three are re-entered: the server
+  // never sends a saved secret back, so there is nothing to prefill.
+  const [refreshToken, setRefreshToken] = useState("");
   // Who else is here (issue 045). Empty on a deployment with no accounts, which is what hides the
   // section on desktop and LAN installs — there are no roles there to manage.
   const [people, setPeople] = useState<Person[]>([]);
@@ -310,6 +314,33 @@ export function SettingsPanel({
     }
   };
 
+  // Headless host (`manual` mode): no browser to drive consent, so a refresh token minted by the
+  // CLI script is pasted here. This is the only in-app way to replace credentials that have gone
+  // stale — a revoked or wrong-channel token fails with `invalid_grant` and no retry will fix it.
+  const saveManual = async () => {
+    setBusy("saving");
+    try {
+      await api.setup.save({
+        clientId: clientId.trim(),
+        clientSecret: clientSecret.trim(),
+        refreshToken: refreshToken.trim(),
+      });
+      setBusy("waiting");
+      // The server restarts to rebuild the YouTube client. `configured` is already true here (the
+      // stale credentials counted too), so wait for it to answer again rather than for a flag flip.
+      await settle(() => true);
+      await loadStatus();
+      setClientId("");
+      setClientSecret("");
+      setRefreshToken("");
+      flash("Credentials saved — the connection was rebuilt");
+    } catch (e) {
+      flash((e as Error).message, "err");
+    } finally {
+      setBusy("idle");
+    }
+  };
+
   const disconnect = async () => {
     if (!confirm("Disconnect this YouTube channel? The saved sign-in is discarded and the app returns to setup.")) {
       return;
@@ -359,7 +390,7 @@ export function SettingsPanel({
                 <p className="empty conn__guidance">
                   Only an admin can change the YouTube connection.
                 </p>
-              ) : view.editable ? (
+              ) : view.mode === "in-app" ? (
                 <div className="settings__actions">
                   {view.connected ? (
                     <>
@@ -384,6 +415,103 @@ export function SettingsPanel({
                     </button>
                   )}
                 </div>
+              ) : view.mode === "manual" ? (
+                // Headless/Docker: the credentials are stored here and are ours to replace, but
+                // there is no system browser to run consent in — so they are pasted.
+                <>
+                  <p className="empty conn__guidance">
+                    This host can't open a browser for Google's consent screen, so credentials are
+                    entered here. Run{" "}
+                    <span className="mono">node packages/server/scripts/get-refresh-token.mjs</span>{" "}
+                    to mint a refresh token, picking the right channel at the consent screen, then
+                    paste all three below — the saved values are never sent back to this page, so
+                    there is nothing to prefill.
+                  </p>
+                  <p className="empty conn__guidance">
+                    A connection saved here wins over{" "}
+                    <span className="mono">YT_CLIENT_ID</span> /{" "}
+                    <span className="mono">YT_CLIENT_SECRET</span> /{" "}
+                    <span className="mono">YT_REFRESH_TOKEN</span> in the environment: those are
+                    read only when nothing is stored. Editing the environment while this section
+                    says Connected changes nothing. Disconnect first if the environment should win.
+                  </p>
+                  <form
+                    className="settings__own"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void saveManual();
+                    }}
+                  >
+                    <div className="field">
+                      <label htmlFor="man-client-id">Client ID</label>
+                      <input
+                        id="man-client-id"
+                        className="mono"
+                        value={clientId}
+                        placeholder="xxxxxxxx.apps.googleusercontent.com"
+                        onChange={(e) => setClientId(e.target.value)}
+                        disabled={working}
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="man-client-secret">Client secret</label>
+                      <input
+                        id="man-client-secret"
+                        className="mono"
+                        type="password"
+                        value={clientSecret}
+                        placeholder="GOCSPX-…"
+                        onChange={(e) => setClientSecret(e.target.value)}
+                        disabled={working}
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="man-refresh-token">Refresh token</label>
+                      <input
+                        id="man-refresh-token"
+                        className="mono"
+                        type="password"
+                        value={refreshToken}
+                        placeholder="1//…"
+                        onChange={(e) => setRefreshToken(e.target.value)}
+                        disabled={working}
+                      />
+                    </div>
+                    <div className="settings__actions">
+                      <button
+                        className="btn btn--primary btn--sm"
+                        type="submit"
+                        disabled={
+                          working ||
+                          !clientId.trim() ||
+                          !clientSecret.trim() ||
+                          !refreshToken.trim()
+                        }
+                      >
+                        {busy === "saving"
+                          ? "Saving…"
+                          : busy === "waiting"
+                            ? "Rebuilding the connection…"
+                            : view.connected
+                              ? "Replace credentials"
+                              : "Save credentials"}
+                      </button>
+                      {view.connected ? (
+                        <button
+                          className="btn btn--sm btn--danger"
+                          type="button"
+                          onClick={disconnect}
+                          disabled={working}
+                        >
+                          {busy === "disconnecting" ? "Disconnecting…" : "Disconnect"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </form>
+                  <a className="settings__link" href="/guide" target="_blank" rel="noreferrer">
+                    Where do I get these?
+                  </a>
+                </>
               ) : (
                 <p className="empty conn__guidance">
                   This connection is managed outside the app — set{" "}
@@ -397,7 +525,7 @@ export function SettingsPanel({
                 </p>
               )}
 
-              {view.editable && canAdminister ? (
+              {view.mode === "in-app" && canAdminister ? (
                 <>
                   <button
                     className="settings__disclosure"
