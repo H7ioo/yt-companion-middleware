@@ -39,8 +39,8 @@ const props = {
 describe("AdHocModal target badge", () => {
   /**
    * The badge is the operator's last check before writing a title to a public broadcast, so it
-   * has to name the resource that will actually be written. It used to say "the persistent
-   * container" whenever idle — a thing YouTube deleted in 2020 (issue 066).
+   * has to name the resource that will actually be written. It used to name the retired
+   * "persistent container" whenever idle — a thing YouTube deleted in 2020 (issue 066). [retired]
    */
   it("names the next upcoming broadcast when nothing is on air", () => {
     render(<AdHocModal {...props} state={state()} />);

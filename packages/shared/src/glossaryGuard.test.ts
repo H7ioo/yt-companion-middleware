@@ -20,6 +20,10 @@ import { describe, expect, it } from "vitest";
  * A comment that has to quote the phrase to explain why it went away marks its line `[retired]`.
  * That exemption is per-line and visible in the diff, so quoting it is a deliberate act rather
  * than something a reviewer has to notice.
+ *
+ * The scan runs over the whole file rather than line by line: the phrase reads the same to an
+ * operator whether or not a formatter wrapped it across two lines, so `\s+` in the pattern has to
+ * be allowed to cross a newline.
  */
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -35,7 +39,7 @@ const USER_FACING = [
   "companion-module/companion/HELP.md",
 ];
 
-const BANNED = /persistent\s+(broadcast\s+)?container/i;
+const BANNED = /persistent\s+(broadcast\s+)?container/gi;
 
 function filesUnder(target: string): string[] {
   const abs = path.join(repoRoot, target);
@@ -51,15 +55,18 @@ describe("retired vocabulary", () => {
   it("says 'persistent container' on no surface an operator reads", () => {
     const offenders = USER_FACING.flatMap(filesUnder)
       .filter((f) => !f.endsWith("glossaryGuard.test.ts"))
-      .flatMap((f) =>
-        readFileSync(f, "utf8")
-          .split("\n")
-          .flatMap((line, i) =>
-            BANNED.test(line) && !line.includes("[retired]")
-              ? [`${path.relative(repoRoot, f)}:${i + 1}`]
-              : [],
-          ),
-      );
+      .flatMap((f) => {
+        const text = readFileSync(f, "utf8");
+        const lines = text.split("\n");
+        return [...text.matchAll(BANNED)].flatMap((m) => {
+          const first = text.slice(0, m.index).split("\n").length - 1;
+          const last = first + m[0].split("\n").length - 1;
+          const exempt = lines
+            .slice(first, last + 1)
+            .some((line) => line.includes("[retired]"));
+          return exempt ? [] : [`${path.relative(repoRoot, f)}:${first + 1}`];
+        });
+      });
     expect(offenders).toEqual([]);
   });
 });

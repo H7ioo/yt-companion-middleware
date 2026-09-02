@@ -55,7 +55,9 @@
           <p>
             Nothing on air and nothing scheduled? The action fails cleanly with
             <code>NO_TARGET_FOUND</code> rather than creating a broadcast you
-            did not ask for.
+            did not ask for. One exception: a channel old enough to still own
+            one of YouTube's pre-2020 default broadcasts falls back to that,
+            and the edit lands there instead of failing.
           </p>
 
           <div class="callout tip">
