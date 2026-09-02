@@ -52,9 +52,17 @@ Done: `AGENTS.md` gained a `## Branching and stacked PRs (hard rule)` section. N
 in the repo claimed unconditional auto-retargeting, so this was write-it-correctly, as the scope
 note predicted.
 
-One correction to the premise: the GitHub record does **not** show PR #4 being closed by a deleted
-base. PR #4 (`feat/companion-module-arabic-images`) merged into `main` on 2026-07-08 and its head
-branch was deleted three seconds later; no PR in this repo has ever had a base other than `main`,
-and the only CLOSED PR is #19, the deliberate CI canary. The section therefore cites #4 for what the
-record does show — auto-delete-on-merge is on here — rather than asserting a closure that did not
-happen.
+Two corrections to the premise above, both checked against the record:
+
+- **The retargeting claim is backwards, not wrong.** GitHub *does* retarget open children when the
+  parent PR merges and its head branch is deleted afterwards — that is documented behaviour. The
+  case that closes a child is a base branch deleted *without* its PR merging. The section is written
+  for that failure mode.
+- **Auto-delete-on-merge is off here.** `gh api repos/:owner/:repo --jq .delete_branch_on_merge`
+  returns `false`; PR #4's branch disappearing three seconds after merge was a manual
+  `--delete-branch`, not a repo setting. The section cites #4 for that, and names the setting by
+  saying it is off.
+
+The GitHub record also does not show PR #4 being closed by a deleted base: it merged into `main` on
+2026-07-08, no PR in this repo has ever had a base other than `main`, and the only CLOSED PR is #19,
+the deliberate CI canary.
