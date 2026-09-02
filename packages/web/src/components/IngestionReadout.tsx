@@ -34,7 +34,10 @@ interface Props {
 export function IngestionReadout({ apiEnabled, ingestion }: Props) {
   const paused = apiEnabled === false;
   const [fresh, setFresh] = useState<Readout | null>(null);
-  const [note, setNote] = useState<string | null>(null);
+  // The server's "nothing to read, and here is why", stamped with when it was learned — so a
+  // push that later carries a genuinely newer reading takes the panel back, while a push of the
+  // reading the note has already superseded does not.
+  const [note, setNote] = useState<{ why: string; at: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -49,8 +52,12 @@ export function IngestionReadout({ apiEnabled, ingestion }: Props) {
     setError(null);
     try {
       const report: IngestionReport = await api.ingestion.read();
+      // Both halves, every time. An answer of "there is nothing to read, and here is why" is a
+      // *newer* fact than the reading on screen — keeping the old one because the new answer
+      // happens to be empty is how a deleted key goes on saying "Receiving video", with the
+      // button that just told us otherwise looking like it did nothing.
       setFresh(report.readout);
-      setNote(report.unavailable);
+      setNote(report.unavailable ? { why: report.unavailable, at: Date.now() } : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not read the ingestion status.");
     } finally {
@@ -82,8 +89,8 @@ export function IngestionReadout({ apiEnabled, ingestion }: Props) {
           </p>
         ) : error ? (
           <p className="empty">{error}</p>
-        ) : note && !current ? (
-          <p className="empty">{note}</p>
+        ) : note && !(current && Date.parse(current.checkedAt) > note.at) ? (
+          <p className="empty">{note.why}</p>
         ) : current ? (
           <Reading readout={current} />
         ) : (

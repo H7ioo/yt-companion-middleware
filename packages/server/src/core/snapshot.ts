@@ -97,9 +97,14 @@ export function changeSignature(s: DashboardState): string {
     // Pinning or clearing changes where the next action lands, so it has to reach the dashboard
     // immediately rather than waiting for the next refresh to move something else.
     s.targetPin?.id ?? null,
-    // The state and the key it is about, not `checkedAt`: a reading re-taken every minute with
-    // the same answer is the 60s heartbeat again, and pushing it would wake every subscriber for
-    // nothing. A changed answer, or a changed key, is what a surface has to redraw for.
-    s.ingestion ? [s.ingestion.streamId, s.ingestion.state] : null,
+    // The state, the key it is about, and `checkedAt` bucketed to the minute. The state alone
+    // would never push an unchanged answer — and the whole readout turns on its age: the panel
+    // prints "read 4 minutes ago" and the Companion feedback exposes `ingestion_checked_at`, so a
+    // stamp that freezes at "just now" while the server re-reads every minute is precisely the
+    // "the encoder is fine, look, it says receiving" mistake this readout exists to prevent.
+    // Bucketing keeps it to the poll cadence rather than a push per millisecond of jitter.
+    s.ingestion
+      ? [s.ingestion.streamId, s.ingestion.state, Math.floor(Date.parse(s.ingestion.checkedAt) / 60_000)]
+      : null,
   ]);
 }

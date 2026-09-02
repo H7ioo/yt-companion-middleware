@@ -33,6 +33,7 @@ function ctxFor(over: {
   streamId?: string | null;
   apiEnabled?: boolean;
   write?: ReturnType<typeof writeCache>;
+  held?: { streamId: string } | null;
 }): Partial<AppContext> {
   return {
     yt: over.yt,
@@ -40,6 +41,7 @@ function ctxFor(over: {
       get: () => ({
         defaults: { defaultStreamBoundId: over.streamId === undefined ? "S1" : over.streamId },
         service: { apiEnabled: over.apiEnabled ?? true },
+        cache: { ingestion: over.held === undefined ? null : over.held },
       }),
     },
     cache: { writeCache: over.write ?? writeCache() },
@@ -116,6 +118,28 @@ describe("GET /api/dashboard/ingestion", () => {
     expect(body.unavailable).toMatch(/no longer/i);
     // The call was made, so it is still charged for honestly.
     expect(body.quotaUnits).toBe(1);
+  });
+
+  it("drops a cached reading about a key that has gone away, rather than pushing it on as current", async () => {
+    // Without this the dashboard and every Companion key keep being pushed the last good reading
+    // about a deleted key — green all evening, on a key that no longer exists.
+    const write = writeCache();
+    const m = await mount(ctxFor({ write, held: { streamId: "S1" }, yt: fakeYt([]) }));
+    close = m.close;
+
+    await fetch(m.url);
+    expect(write).toHaveBeenCalledWith({ ingestion: null });
+  });
+
+  it("leaves alone a cached reading about a different key than the dangling default", async () => {
+    // The poll loop prefers the key the airing broadcast is bound to; a dangling *default* says
+    // nothing about that reading, and clearing it would blank a panel that is currently right.
+    const write = writeCache();
+    const m = await mount(ctxFor({ write, held: { streamId: "BOUND" }, yt: fakeYt([]) }));
+    close = m.close;
+
+    await fetch(m.url);
+    expect(write).not.toHaveBeenCalled();
   });
 
   it("refuses while the API master switch is off, spending nothing", async () => {

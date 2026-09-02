@@ -107,6 +107,35 @@ describe("IngestionReadout", () => {
 });
 
 describe("IngestionReadout freshness", () => {
+  it("replaces a stale reading with the explanation when the key has gone away", async () => {
+    // The key was deleted after the last push. Pressing Check now must not leave "Receiving
+    // video" on screen with the button looking like it did nothing.
+    read.mockResolvedValue({
+      readout: null,
+      unavailable: "The default ingestion key is no longer one of this channel's keys.",
+      quotaUnits: 1,
+    });
+    render(<IngestionReadout apiEnabled ingestion={readout()} />);
+    fireEvent.click(screen.getByRole("button", { name: /check now/i }));
+    await waitFor(() => expect(screen.getByText(/no longer one of this channel/)).toBeTruthy());
+    expect(screen.queryByText("Receiving video")).toBeNull();
+  });
+
+  it("steps aside for a push that is genuinely newer than the explanation", async () => {
+    read.mockResolvedValue({ readout: null, unavailable: "No key set.", quotaUnits: 0 });
+    const { rerender } = render(<IngestionReadout apiEnabled ingestion={null} />);
+    fireEvent.click(screen.getByRole("button", { name: /check now/i }));
+    await waitFor(() => expect(screen.getByText("No key set.")).toBeTruthy());
+    // The operator set a key and the loop read it: newer than the note, so it wins.
+    rerender(
+      <IngestionReadout
+        apiEnabled
+        ingestion={readout({ checkedAt: new Date(Date.now() + 5_000).toISOString() })}
+      />,
+    );
+    expect(screen.getByText("Receiving video")).toBeTruthy();
+  });
+
   it("keeps the newer reading when a push and an on-demand check disagree", async () => {
     // The poll loop's reading is a minute old; the operator presses Check now and gets a newer one.
     const pushed = readout({

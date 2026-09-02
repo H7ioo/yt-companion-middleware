@@ -47,6 +47,12 @@ export function ingestionRouter(ctx: AppContext): Router {
       if (!snapshot) {
         // The setting names a key the channel does not have — deleted, or belonging to another
         // channel. The same fact the broadcast list calls a dangling default, said the same way.
+        // Any cached reading about *this* key is now known to be about a key that is gone, so it
+        // is dropped rather than left to be pushed to the dashboard and Companion as current.
+        // A reading about a different key (the bound one the poll loop prefers) is left alone.
+        if (ctx.store.get().cache?.ingestion?.streamId === streamId) {
+          await ctx.cache.writeCache({ ingestion: null });
+        }
         res.json({
           ...unavailable(
             `The default ingestion key (“${streamId}”) is no longer one of this channel's keys — it was deleted, or it belongs to another channel. Pick the key OBS pushes to in Settings.`,

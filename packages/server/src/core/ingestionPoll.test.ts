@@ -12,12 +12,12 @@ import { FAST_POLL_WINDOW_MS } from "./pollCadence.js";
  * is allowed to spend a quota unit* — so these tests count `liveStreams.list` calls rather than
  * asserting the reading itself (that is `youtube/ingestion.test.ts`).
  */
-function client(opts: { live: boolean; streamStatus?: string }) {
-  const streams = vi.fn(async () => ({
+function client(opts: { live: boolean; streamStatus?: string; boundStreamId?: string | null }) {
+  const streams = vi.fn(async (params: { id?: string[] }) => ({
     data: {
       items: [
         {
-          id: "S1",
+          id: params.id?.[0] ?? "S1",
           snippet: { title: "Main key" },
           status: { streamStatus: opts.streamStatus ?? "active", healthStatus: { status: "good" } },
         },
@@ -28,7 +28,10 @@ function client(opts: { live: boolean; streamStatus?: string }) {
     id: "B1",
     snippet: { title: "Tonight" },
     status: { privacyStatus: "public", lifeCycleStatus: opts.live ? "live" : "ready" },
-    contentDetails: { boundStreamId: "S1", enableAutoStart: true },
+    contentDetails: {
+      boundStreamId: opts.boundStreamId === undefined ? "S1" : opts.boundStreamId,
+      enableAutoStart: true,
+    },
   };
   const yt = {
     liveBroadcasts: {
@@ -104,18 +107,34 @@ describe("ingestion reading on the poll loop (issue 059)", () => {
     expect(streams).not.toHaveBeenCalled();
   });
 
-  it("spends nothing when no default key is set — there is no key to ask about", async () => {
+  it("spends nothing when there is no key to ask about at all", async () => {
     await store.update((s) => {
       s.defaults.defaultStreamBoundId = null;
     });
-    const { yt, streams } = client({ live: true });
+    const { yt, streams } = client({ live: true, boundStreamId: null });
     await cacheFor(yt).refresh();
     expect(streams).not.toHaveBeenCalled();
     expect(store.get().cache.ingestion).toBeNull();
   });
 
-  it("clears a reading about a key that is no longer the default, rather than showing it as current", async () => {
-    const { yt } = client({ live: true });
+  it("reads the key the airing broadcast is bound to, not the one named as the default", async () => {
+    // The mismatch willAir.ts models: the show is bound to a different key than Settings names.
+    // Reporting on the default here answers a question nobody asked — green while nothing is
+    // arriving for tonight, or red while the show is perfectly fine.
+    const { yt, streams } = client({ live: true, boundStreamId: "BOUND" });
+    await cacheFor(yt).refresh();
+    expect(streams).toHaveBeenCalledWith(expect.objectContaining({ id: ["BOUND"] }));
+    expect(store.get().cache.ingestion?.streamId).toBe("BOUND");
+  });
+
+  it("falls back to the default key when nothing is bound — the pre-show case", async () => {
+    const { yt, streams } = client({ live: true, boundStreamId: null });
+    await cacheFor(yt).refresh();
+    expect(streams).toHaveBeenCalledWith(expect.objectContaining({ id: ["S1"] }));
+  });
+
+  it("clears a reading about a key that is no longer the one in play, rather than showing it as current", async () => {
+    const { yt } = client({ live: true, boundStreamId: null });
     const cache = cacheFor(yt);
     await cache.writeCache({
       ingestion: {
@@ -132,6 +151,61 @@ describe("ingestion reading on the poll loop (issue 059)", () => {
     });
     await cache.refresh();
     expect(store.get().cache.ingestion).toBeNull();
+  });
+
+  it("expires a reading the loop has stopped re-reading, so no key sits green all night", async () => {
+    // The show ended: not live, no latch, so no unit is spent — and without expiry the last
+    // reading taken before the credits rolled would stay "receiving" until morning.
+    const { yt, streams } = client({ live: false, boundStreamId: null });
+    const cache = cacheFor(yt);
+    await cache.writeCache({
+      ingestion: {
+        streamId: "S1",
+        streamTitle: "Main key",
+        streamStatus: "active",
+        healthStatus: "good",
+        issues: [],
+        checkedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+      },
+    });
+    await cache.refresh();
+    expect(streams).not.toHaveBeenCalled();
+    expect(store.get().cache.ingestion).toBeNull();
+  });
+
+  it("keeps a manual check alive across the next idle tick — the operator paid for that answer", async () => {
+    const { yt } = client({ live: false, boundStreamId: null });
+    const cache = cacheFor(yt);
+    await cache.writeCache({
+      ingestion: {
+        streamId: "S1",
+        streamTitle: "Main key",
+        streamStatus: "active",
+        healthStatus: "good",
+        issues: [],
+        checkedAt: new Date().toISOString(),
+      },
+    });
+    await cache.refresh();
+    expect(store.get().cache.ingestion?.streamId).toBe("S1");
+  });
+
+  it("keeps a hung ingestion read out of health — it must not trip the refresh watchdog", async () => {
+    // A socket that opens and never answers. The reading rides outside the 20s watchdog that
+    // guards the refresh itself, so health stays on what the refresh's own calls proved.
+    const { yt } = client({ live: true });
+    (yt.liveStreams.list as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise(() => {}),
+    );
+    const cache = cacheFor(yt);
+    const done = await Promise.race([
+      cache.refresh().then(() => "refreshed"),
+      new Promise((r) => setTimeout(() => r("hung"), 200)),
+    ]);
+    expect(done).toBe("hung");
+    // The refresh's own calls all landed, so health is green and the status is current.
+    expect(store.get().cache.health).toBe("ok");
+    expect(store.get().cache.status.title).toBe("Tonight");
   });
 
   it("keeps a failed ingestion read out of health — the refresh itself reached YouTube", async () => {
