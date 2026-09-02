@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { SetupStatus } from "../api.js";
 import { ReauthBanner } from "./ReauthBanner.js";
 
@@ -31,12 +31,12 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-function banner(canAdminister: boolean) {
+function banner(canAdminister: boolean, onOpenSettings: () => void = () => {}) {
   return render(
     <ReauthBanner
       canAdminister={canAdminister}
       onReconnected={() => {}}
-      onOpenSettings={() => {}}
+      onOpenSettings={onOpenSettings}
       flash={() => {}}
     />,
   );
@@ -56,4 +56,25 @@ it("tells a user who can fix it, and offers no button that would refuse them", a
 it("still says the connection is what broke", () => {
   banner(false);
   expect(screen.getByText(/youtube connection lost/i)).toBeTruthy();
+});
+
+// A headless host stores its own credentials, so the connection is editable — but not from here:
+// replacing them means pasting a token into a form, which is Settings' job. The banner must route
+// there rather than firing a consent flow this host cannot run.
+it("routes to settings on a host with no browser to run consent in", async () => {
+  status.mockResolvedValue({
+    configured: true,
+    hasClientId: true,
+    hasClientSecret: true,
+    hasRefreshToken: true,
+    activeFlow: "override",
+    canConnect: false,
+    hasBundledClient: false,
+    redirectUri: "http://127.0.0.1:8723/oauth/callback",
+  } as SetupStatus);
+  const open = vi.fn();
+  banner(true, open);
+  const button = await screen.findByRole("button", { name: /reconnect in settings/i });
+  fireEvent.click(button);
+  expect(open).toHaveBeenCalled();
 });

@@ -35,10 +35,20 @@ const revokeMachine = vi.fn<(id: string) => Promise<{ device: DeviceTokenSummary
 const graceOf = vi.fn<() => Promise<GraceReadout>>();
 const listAudit =
   vi.fn<(opts?: { limit?: number; notable?: boolean }) => Promise<{ entries: AuditEntry[] }>>();
+const saveCreds =
+  vi.fn<
+    (c: { clientId: string; clientSecret: string; refreshToken: string }) => Promise<{
+      ok: boolean;
+      restarting: boolean;
+    }>
+  >();
 
 vi.mock("../api.js", () => ({
   api: {
-    setup: { status: () => status() },
+    setup: {
+      status: () => status(),
+      save: (c: { clientId: string; clientSecret: string; refreshToken: string }) => saveCreds(c),
+    },
     people: {
       list: () => listPeople(),
       setRole: (id: string, role: Person["role"]) => setRole(id, role),
@@ -153,6 +163,8 @@ beforeEach(() => {
   revokeMachine.mockReset();
   graceOf.mockReset();
   listAudit.mockReset();
+  saveCreds.mockReset();
+  saveCreds.mockResolvedValue({ ok: true, restarting: true });
   listMachines.mockResolvedValue({ tokens: [] });
   graceOf.mockResolvedValue(grace());
   listAudit.mockResolvedValue({ entries: [] });
@@ -173,6 +185,77 @@ describe("the connection card", () => {
     expect(screen.queryByRole("button", { name: /reconnect/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /disconnect/i })).toBeNull();
     expect(screen.queryByText(/use my own google client/i)).toBeNull();
+  });
+
+  // A headless host cannot open a browser for Google's consent screen, but its credentials still
+  // live in the app's store — env vars are ignored while they do. Before this, the card told the
+  // operator to edit the environment, which the server does not read, and a stale refresh token
+  // was unfixable from the UI.
+  describe("on a headless host with stored credentials", () => {
+    const headless = () =>
+      status.mockResolvedValue(setupStatus({ canConnect: false, activeFlow: "override" }));
+
+    it("offers the paste form instead of env guidance", async () => {
+      headless();
+      panel(true);
+      expect(await screen.findByLabelText(/refresh token/i)).toBeTruthy();
+      expect(screen.getByLabelText(/client id/i)).toBeTruthy();
+      expect(screen.getByLabelText(/client secret/i)).toBeTruthy();
+      expect(screen.queryByText(/managed outside the app/i)).toBeNull();
+      expect(screen.getByRole("button", { name: /disconnect/i })).toBeTruthy();
+    });
+
+    it("says that a stored connection beats the environment", async () => {
+      headless();
+      panel(true);
+      expect(await screen.findByText(/wins over/i)).toBeTruthy();
+    });
+
+    it("saves all three credentials, so a stale refresh token can be replaced", async () => {
+      headless();
+      const flash = vi.fn();
+      panel(true, flash);
+      fireEvent.change(await screen.findByLabelText(/client id/i), {
+        target: { value: "406591.apps.googleusercontent.com" },
+      });
+      fireEvent.change(screen.getByLabelText(/client secret/i), {
+        target: { value: "GOCSPX-secret" },
+      });
+      fireEvent.change(screen.getByLabelText(/refresh token/i), { target: { value: "1//new" } });
+      fireEvent.click(screen.getByRole("button", { name: /replace credentials/i }));
+      await waitFor(() =>
+        expect(saveCreds).toHaveBeenCalledWith({
+          clientId: "406591.apps.googleusercontent.com",
+          clientSecret: "GOCSPX-secret",
+          refreshToken: "1//new",
+        }),
+      );
+    });
+
+    it("will not submit a partly filled form", async () => {
+      headless();
+      panel(true);
+      fireEvent.change(await screen.findByLabelText(/client id/i), { target: { value: "abc" } });
+      expect(
+        (screen.getByRole("button", { name: /replace credentials/i }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      expect(saveCreds).not.toHaveBeenCalled();
+    });
+
+    it("still shows a user no way to change it", async () => {
+      headless();
+      panel(false);
+      expect(await screen.findByText(/only an admin can change/i)).toBeTruthy();
+      expect(screen.queryByLabelText(/refresh token/i)).toBeNull();
+    });
+  });
+
+  it("keeps env/CLI credentials read-only — the store is not what backs them", async () => {
+    status.mockResolvedValue(setupStatus({ canConnect: false, activeFlow: "env" }));
+    panel(true);
+    expect(await screen.findByText(/managed outside the app/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/refresh token/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /disconnect/i })).toBeNull();
   });
 
   it("leaves the app defaults to both roles — they shape the show, not the channel", async () => {
