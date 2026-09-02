@@ -14,6 +14,7 @@ import {
 } from "../api.js";
 import { describeConnection } from "../lib/connection.js";
 import { CategorySelect } from "./CategorySelect.js";
+import { StreamBindingField } from "./StreamBindingField.js";
 import { useEscape } from "../lib/useEscape.js";
 
 interface Props {
@@ -326,11 +327,6 @@ export function SettingsPanel({
       setBusy("idle");
     }
   };
-
-  const streamKnown =
-    settings.defaultStreamBoundId == null ||
-    streams.length === 0 ||
-    streams.some((s) => s.id === settings.defaultStreamBoundId);
 
   return (
     <div className="overlay" onClick={busy === "idle" ? onClose : undefined}>
@@ -844,34 +840,17 @@ export function SettingsPanel({
                 onChange={(value) => onSaveSettings({ ...settings, defaultCategory: value })}
               />
             </div>
-            <div className="field">
-              <label htmlFor="set-def-stream">Default stream binding</label>
-              <input
-                id="set-def-stream"
-                list="set-def-stream-list"
-                defaultValue={settings.defaultStreamBoundId ?? ""}
-                placeholder="stream id / key"
-                aria-invalid={!streamKnown}
-                onBlur={(e) =>
-                  onSaveSettings({ ...settings, defaultStreamBoundId: e.target.value.trim() || null })
-                }
-              />
-              <datalist id="set-def-stream-list">
-                {streams.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.title}
-                    {s.streamName ? ` · ${s.streamName}` : ""}
-                  </option>
-                ))}
-              </datalist>
-              {!streamKnown ? (
-                <p className="field-warn">
-                  ⚠ No live stream on this channel has that ID — updates that rely on the default binding will fail.
-                </p>
-              ) : null}
-            </div>
+            <StreamBindingField
+              id="set-def-stream"
+              label="Default stream binding"
+              value={settings.defaultStreamBoundId}
+              streams={streams}
+              onCommit={(next) => onSaveSettings({ ...settings, defaultStreamBoundId: next })}
+            />
           </div>
-          <p className="empty">Changes save when you leave a field.</p>
+          <p className="empty">
+            The category saves when you leave the field; the stream binding asks first.
+          </p>
         </section>
       </div>
     </div>

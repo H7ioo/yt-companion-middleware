@@ -104,6 +104,22 @@ describe("writing and reading entries", () => {
     expect((await log.list()).map((e) => e.outcome)).toEqual(["failed", "refused"]);
   });
 
+  it("keeps the new stream binding, so a change of it can be answered for (issue 051)", async () => {
+    const log = open();
+    await log.append({
+      actor: person,
+      method: "PUT",
+      path: "/api/dashboard/settings",
+      status: 200,
+      body: { defaultCategory: "20", defaultStreamBoundId: "stream-B" },
+    });
+    const [entry] = await log.list();
+    expect(entry.action).toBe("changed the settings");
+    // The confirmation in the dashboard stops a mis-click; this is what answers "who repointed
+    // it, and to what" a week later, when the show has already gone nowhere.
+    expect(entry.detail).toMatchObject({ defaultStreamBoundId: "stream-B" });
+  });
+
   it("survives a corrupt line rather than losing the whole log", async () => {
     const log = open();
     await log.append({ actor: person, method: "POST", path: "/api/action/undo", status: 200 });

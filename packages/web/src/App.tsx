@@ -24,6 +24,7 @@ import { PresetForm } from "./components/PresetForm.js";
 import { PresetFillModal } from "./components/PresetFillModal.js";
 import { AdHocModal } from "./components/AdHocModal.js";
 import { CategorySelect } from "./components/CategorySelect.js";
+import { StreamBindingField } from "./components/StreamBindingField.js";
 import { ActivityPanel } from "./components/ActivityPanel.js";
 import { UpdateBanner } from "./components/UpdateBanner.js";
 import { WhatsNewModal } from "./components/WhatsNewModal.js";
@@ -787,44 +788,19 @@ export function App() {
                   }
                 />
               </div>
-              <div className="field">
-                <label htmlFor="def-stream">Default stream binding</label>
-                <input
-                  id="def-stream"
-                  list="def-stream-list"
-                  defaultValue={settings.defaultStreamBoundId ?? ""}
-                  placeholder="stream id / key"
-                  aria-invalid={
-                    settings.defaultStreamBoundId != null &&
-                    streams.length > 0 &&
-                    !streams.some((s) => s.id === settings.defaultStreamBoundId)
-                  }
-                  onBlur={(e) =>
-                    saveSettings({
-                      ...settings,
-                      defaultStreamBoundId: e.target.value.trim() || null,
-                    })
-                  }
-                />
-                <datalist id="def-stream-list">
-                  {streams.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.title}
-                      {s.streamName ? ` · ${s.streamName}` : ""}
-                    </option>
-                  ))}
-                </datalist>
-                {settings.defaultStreamBoundId != null &&
-                streams.length > 0 &&
-                !streams.some((s) => s.id === settings.defaultStreamBoundId) ? (
-                  <p className="field-warn">
-                    ⚠ No live stream on this channel has that ID — updates that
-                    rely on the default binding will fail.
-                  </p>
-                ) : null}
-              </div>
+              <StreamBindingField
+                id="def-stream"
+                label="Default stream binding"
+                value={settings.defaultStreamBoundId}
+                streams={streams}
+                onCommit={(next) =>
+                  saveSettings({ ...settings, defaultStreamBoundId: next })
+                }
+              />
             </div>
-            <p className="empty">Changes save when you leave a field.</p>
+            <p className="empty">
+              The category saves when you leave the field; the stream binding asks first.
+            </p>
           </div>
         </section>
 

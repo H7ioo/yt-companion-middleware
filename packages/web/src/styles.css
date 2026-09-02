@@ -621,6 +621,46 @@ textarea {
   border-top: var(--seam-line);
 }
 
+/* ---- Binding confirmation (issue 051) ------------------------------------- */
+
+/* Narrower than a working modal: this one asks a single yes/no question. */
+.binding-confirm {
+  max-width: 440px;
+}
+.binding-confirm__body {
+  padding: 16px 20px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+.binding-confirm__body > p {
+  margin: 0 0 12px;
+}
+/* From/to as a two-column ledger, so the change reads as a change rather than as prose. */
+.binding-confirm__diff {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 12px 14px;
+  border: var(--seam-line);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+}
+.binding-confirm__diff dt {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  align-self: center;
+}
+.binding-confirm__diff dd {
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
 /* ---- Fill popup: live resolved-output readout (the signature element) ----- */
 
 .fill-preview {

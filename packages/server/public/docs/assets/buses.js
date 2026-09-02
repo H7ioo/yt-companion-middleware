@@ -100,7 +100,7 @@ window.BUSES = [
       { m:"GET", path:"/api/dashboard/settings", cost:"local", auth:true,
         desc:"Current default category and default stream binding." },
       { m:"PUT", path:"/api/dashboard/settings", cost:"local", auth:true,
-        desc:"Set the app-level defaults that presets inherit when a field is blank.",
+        desc:"Set the app-level defaults that presets inherit when a field is blank. The dashboard asks for confirmation before it changes <code>defaultStreamBoundId</code> — a wrong binding sends the show nowhere and looks like nothing at all; this raw route is the way past that, so read the id back before you send it.",
         body:[
           {k:"defaultCategory", t:"text", hint:"category id, or blank to clear"},
           {k:"defaultStreamBoundId", t:"text", hint:"stream id, or blank to clear"},
