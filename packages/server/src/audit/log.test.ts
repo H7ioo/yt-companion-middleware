@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { AuditLog, RETENTION_DAYS, describeAction, redact } from "./log.js";
+import { forgetSecrets, rememberSecret } from "../core/secrets.js";
 
 /**
  * The durable audit log (issue 050, PRD-15 §3). Three properties carry the whole slice: it
@@ -240,5 +241,33 @@ describe("what an entry is called", () => {
       target: null,
       notable: false,
     });
+  });
+});
+
+// Issue 067: the audit log lives in the data directory beside store.json, and it names people and
+// the things they did. It is not the refresh token, but it is not public either, and the directory
+// it shares with the store must not be widened by the log's own mkdir.
+describe.skipIf(process.platform === "win32")("file permissions", () => {
+  it("creates its directory 0700 and its file 0600", async () => {
+    const nested = path.join(dir, "data");
+    const log = new AuditLog(path.join(nested, "audit.log"), { now: () => now });
+    await log.append({ actor: person, method: "POST", path: "/api/auth/login", status: 200 });
+    await log.settled();
+
+    expect(((await fs.stat(nested)).mode & 0o777).toString(8)).toBe("700");
+    expect(((await fs.stat(log.path)).mode & 0o777).toString(8)).toBe("600");
+  });
+});
+
+// Issue 067: redaction by key covers a body whose shape is known. A live credential value can still
+// arrive under a key nobody thought to name — echoed back inside a message, pasted into a field —
+// and the audit log is on disk for ninety days.
+describe("credential values, whatever key they arrive under", () => {
+  it("never writes a live credential down, even under an innocent key", () => {
+    forgetSecrets();
+    rememberSecret("1//a-live-refresh-token");
+    const out = redact({ note: "reconnect failed for 1//a-live-refresh-token" });
+    expect(out.note).toBe("reconnect failed for [redacted]");
+    forgetSecrets();
   });
 });

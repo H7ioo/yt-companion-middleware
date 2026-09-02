@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AuditActor, AuditEntry, AuditOutcome } from "@app/shared";
+import { SECRET_DIR_MODE, SECRET_FILE_MODE, tighten, writeSecretFile } from "../storage/secretFiles.js";
+import { scrubSecrets } from "../core/secrets.js";
 
 export type { AuditActor, AuditEntry, AuditOutcome } from "@app/shared";
 
@@ -94,8 +96,17 @@ export class AuditLog {
     };
 
     await this.run(async () => {
-      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-      await fs.appendFile(this.filePath, `${JSON.stringify(entry)}\n`, "utf8");
+      // The data directory is shared with store.json, so this mkdir has to create it as secret
+      // material too — otherwise an audit write after the directory was recreated would widen it
+      // back to 0755 and quietly undo the store's lockdown (issue 067).
+      const dir = path.dirname(this.filePath);
+      await fs.mkdir(dir, { recursive: true, mode: SECRET_DIR_MODE });
+      await tighten(dir, SECRET_DIR_MODE);
+      await fs.appendFile(this.filePath, `${JSON.stringify(entry)}\n`, {
+        encoding: "utf8",
+        mode: SECRET_FILE_MODE,
+      });
+      await tighten(this.filePath, SECRET_FILE_MODE);
       await this.sweep();
     });
     return entry;
@@ -194,7 +205,7 @@ export class AuditLog {
       // Same atomic dance as the store: write beside it, then rename over it, so a crash mid-trim
       // leaves the untrimmed log rather than half a log.
       const tmp = `${this.filePath}.tmp`;
-      await fs.writeFile(tmp, kept.map((e) => `${JSON.stringify(e)}\n`).join(""), "utf8");
+      await writeSecretFile(tmp, kept.map((e) => `${JSON.stringify(e)}\n`).join(""));
       await fs.rename(tmp, this.filePath);
     }
     return kept.length;
@@ -261,7 +272,11 @@ export function redact(body: Record<string, unknown>): Record<string, unknown> {
 
 function walk(value: unknown, depth: number, seen: WeakSet<object>): unknown {
   if (typeof value === "string") {
-    return value.length > MAX_STRING ? `${value.slice(0, MAX_STRING)}…` : value;
+    // Redaction by key handles a body whose shape is known. This handles the rest: a live
+    // credential echoed back inside a message, or pasted into a field nobody named "token"
+    // (issue 067). Scrubbed before truncation, so a token cannot survive as a prefix.
+    const safe = scrubSecrets(value);
+    return safe.length > MAX_STRING ? `${safe.slice(0, MAX_STRING)}…` : safe;
   }
   if (value === null || typeof value !== "object") return value;
   if (depth >= MAX_DEPTH) return "[…]";

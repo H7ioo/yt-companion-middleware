@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { emptyStore, storeSchema, type Store } from "./schema.js";
+import { SECRET_DIR_MODE, SECRET_FILE_MODE, tighten, writeSecretFile } from "./secretFiles.js";
 
 /**
  * A JSON-file store with atomic writes and in-process write serialization.
@@ -23,7 +24,11 @@ export class JsonStore {
 
   /** Load from disk (seeding an empty store on first boot) and cache in memory. */
   async init(): Promise<Store> {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+    const dir = path.dirname(this.filePath);
+    await fs.mkdir(dir, { recursive: true, mode: SECRET_DIR_MODE });
+    // Also tightens a directory and store left loose by a version that predates issue 067.
+    await tighten(dir, SECRET_DIR_MODE);
+    await tighten(this.filePath, SECRET_FILE_MODE);
     try {
       const raw = await fs.readFile(this.filePath, "utf8");
       this.cache = storeSchema.parse(JSON.parse(raw));
@@ -66,7 +71,7 @@ export class JsonStore {
 
   private async persist(store: Store): Promise<void> {
     const json = JSON.stringify(store, null, 2);
-    await fs.writeFile(this.tmpPath, json, "utf8");
+    await writeSecretFile(this.tmpPath, json);
     await fs.rename(this.tmpPath, this.filePath);
   }
 }
