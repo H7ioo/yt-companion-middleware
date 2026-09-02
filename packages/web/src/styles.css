@@ -2326,12 +2326,19 @@ textarea {
   outline-offset: 2px;
   border-radius: var(--radius);
 }
+/* Every border here is set edge by edge, never with the `border-color` shorthand: the left edge
+   carries "this is what airs" and these two carry "this is where my actions land", and a
+   shorthand later in the file quietly repaints the edge it was meant to leave alone. */
 .rundown__row:has(.rundown__pick:hover:not(:disabled)) {
-  border-color: var(--seam-bright);
+  border-top-color: var(--seam-bright);
+  border-right-color: var(--seam-bright);
+  border-bottom-color: var(--seam-bright);
 }
 .rundown__row--pinned {
   background: rgba(76, 141, 255, 0.07);
-  border-color: rgba(76, 141, 255, 0.45);
+  border-top-color: rgba(76, 141, 255, 0.45);
+  border-right-color: rgba(76, 141, 255, 0.45);
+  border-bottom-color: rgba(76, 141, 255, 0.45);
 }
 .rundown__flag--pinned {
   color: var(--accent);

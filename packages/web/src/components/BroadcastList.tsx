@@ -100,17 +100,6 @@ export function BroadcastList({ apiEnabled, pin, onPinned }: Props) {
               {listing.quotaUnits} quota units
             </span>
           ) : null}
-          {pin ? (
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={() => void choose(null)}
-              disabled={saving}
-              title="Stop targeting a chosen broadcast and let the app pick"
-            >
-              Choose automatically
-            </button>
-          ) : null}
           <button
             type="button"
             className="btn btn--ghost btn--sm"
@@ -151,32 +140,80 @@ export function BroadcastList({ apiEnabled, pin, onPinned }: Props) {
             ) : null}
 
             {listing ? (
-              listing.entries.length === 0 ? (
-                <p className="patch__empty">
-                  No upcoming or live broadcasts on the channel. Schedule one in YouTube Studio,
-                  or go live.
-                </p>
-              ) : (
-                <div role="radiogroup" aria-label="Broadcast to target">
-                  <ul className="rundown">
-                    {listing.entries.map((e) => (
-                      <Row
-                        key={e.id}
-                        entry={e}
-                        contested={listing.contested}
-                        pinned={pin?.id === e.id}
-                        disabled={saving}
-                        onSelect={() => void choose(e)}
-                      />
-                    ))}
-                  </ul>
-                </div>
-              )
+              <div role="radiogroup" aria-label="Broadcast to target">
+                <ul className="rundown">
+                  {/* Letting the app choose is a row in the same group, not a button off to the
+                      side: it is one of the answers to "which broadcast do actions write to", and
+                      as an outside control it left the group with nothing checked whenever no pin
+                      was set — the state most installs sit in. Listed even when the channel has
+                      no broadcasts, because a pin on a deleted one still needs a way back. */}
+                  <AutomaticRow
+                    selected={pin === null}
+                    disabled={saving}
+                    onSelect={() => void choose(null)}
+                  />
+                  {listing.entries.map((e) => (
+                    <Row
+                      key={e.id}
+                      entry={e}
+                      contested={listing.contested}
+                      pinned={pin?.id === e.id}
+                      disabled={saving}
+                      onSelect={() => void choose(e)}
+                    />
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {listing && listing.entries.length === 0 ? (
+              <p className="patch__empty">
+                No upcoming or live broadcasts on the channel. Schedule one in YouTube Studio,
+                or go live.
+              </p>
             ) : null}
           </>
         )}
       </div>
     </section>
+  );
+}
+
+/** The "let the app decide" answer, sitting in the same group as the broadcasts it competes with. */
+function AutomaticRow({
+  selected,
+  disabled,
+  onSelect,
+}: {
+  selected: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <li className={`rundown__row${selected ? " rundown__row--pinned" : ""}`}>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={selected}
+        className="rundown__pick"
+        disabled={disabled}
+        onClick={onSelect}
+        title="Let the app rank the waiting broadcasts and edit the one closest to going live"
+      >
+        <span className="lamp lamp--idle" aria-hidden="true" />
+        <span className="rundown__meta">
+          <span className="rundown__head">
+            <span className="rundown__title">Choose automatically</span>
+            {selected ? (
+              <span className="rundown__flag rundown__flag--pinned">Target</span>
+            ) : null}
+          </span>
+          <span className="rundown__facts">
+            <span>Edits whichever broadcast is closest to going live.</span>
+          </span>
+        </span>
+      </button>
+    </li>
   );
 }
 
@@ -271,6 +308,20 @@ function Disagreement({
   const airing = listing.entries.filter((e) => e.willAir);
   if (airing.length === 0 || airing.some((e) => e.id === pin.id)) return null;
   const others = airing.map((e) => `“${e.title}”`).join(" and ");
+  // A live broadcast is not merely "what will air" — it is where the server sends every action,
+  // pin or no pin (`resolveTarget` returns the active broadcast before it ever reads the pin).
+  // So the warning has to be the opposite one: the edit lands on the broadcast on air, not on
+  // the one the operator picked.
+  const live = airing.filter((e) => e.isLive);
+  if (live.length > 0) {
+    const onAir = live.map((e) => `“${e.title}”`).join(" and ");
+    return (
+      <p className="rundown__disagree" role="status">
+        Actions target “{name}”, but {onAir} {live.length > 1 ? "are" : "is"} on air — edits
+        go to the live broadcast until it ends, not to “{name}”.
+      </p>
+    );
+  }
   return (
     <p className="rundown__disagree" role="status">
       Actions target “{name}”, but {others} {airing.length > 1 ? "are" : "is"} what will air.

@@ -177,18 +177,40 @@ describe("BroadcastList", () => {
     const onPinned = vi.fn();
     render(<BroadcastList apiEnabled pin={pinned({ id: "stray", label: "Leftover" })} onPinned={onPinned} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /choose automatically/i }));
+    fireEvent.click(await screen.findByRole("radio", { name: /choose automatically/i }));
 
     await waitFor(() => expect(pin).toHaveBeenCalledWith(null, null));
     await waitFor(() => expect(onPinned).toHaveBeenCalled());
   });
 
-  it("offers nothing to clear when no pin is set", async () => {
+  it("checks the automatic row when nothing is pinned, so the group always has an answer", async () => {
     list.mockResolvedValue({ ...listing(), entries: [entry({ id: "stray", title: "Leftover" })] });
     render(<BroadcastList apiEnabled pin={null} onPinned={() => {}} />);
 
-    await screen.findByText("Leftover");
-    expect(screen.queryByRole("button", { name: /choose automatically/i })).toBeNull();
+    const auto = await screen.findByRole("radio", { name: /choose automatically/i });
+    expect(auto.getAttribute("aria-checked")).toBe("true");
+    expect(
+      screen.getByRole("radio", { name: /Leftover/ }).getAttribute("aria-checked"),
+    ).toBe("false");
+  });
+
+  it("keeps a way back to automatic when the channel lists nothing", async () => {
+    // A pin on a deleted broadcast is exactly when the operator needs this row, and it is also
+    // when the list has no other rows to offer.
+    list.mockResolvedValue(listing({ entries: [] }));
+    render(<BroadcastList apiEnabled pin={pinned({ id: "gone", label: "Last week" })} onPinned={() => {}} />);
+
+    const auto = await screen.findByRole("radio", { name: /choose automatically/i });
+    expect(auto.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByText(/No upcoming or live broadcasts/)).toBeTruthy();
+  });
+
+  it("offers no pinning at all while the API is paused", async () => {
+    // The write itself would land, but the state re-read behind it is refused while paused, so
+    // the panel would go on showing a pin the server no longer holds.
+    render(<BroadcastList apiEnabled={false} pin={pinned()} onPinned={() => {}} />);
+
+    expect(screen.queryByRole("radio")).toBeNull();
   });
 
   it("says so when the pinned broadcast is not the one that will air", async () => {
@@ -226,6 +248,25 @@ describe("BroadcastList", () => {
     const note = await screen.findByRole("status");
     expect(note.textContent).toContain("Last week");
     expect(note.textContent).toMatch(/no longer on the channel|not in this list/i);
+  });
+
+  it("says the live broadcast takes the edits, not the pinned one", async () => {
+    // The server resolves a live broadcast before it ever reads the pin, so the usual "editing
+    // your pick changes nothing viewers see" is exactly backwards here: the edit lands on air.
+    list.mockResolvedValue(
+      listing({
+        entries: [
+          entry({ id: "on-air", title: "Tonight", isLive: true, willAir: true }),
+          entry({ id: "stray", title: "Leftover" }),
+        ],
+      }),
+    );
+    render(<BroadcastList apiEnabled pin={pinned({ id: "stray", label: "Leftover" })} onPinned={() => {}} />);
+
+    const note = await screen.findByRole("status");
+    expect(note.textContent).toContain("Tonight");
+    expect(note.textContent).toMatch(/on air/i);
+    expect(note.textContent).not.toMatch(/will not change what viewers see/);
   });
 
   it("will not let a live broadcast be picked, because actions already edit it", async () => {
