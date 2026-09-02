@@ -44,3 +44,26 @@ None — the permission and logging work can start immediately. The docs half si
 ## User stories addressed
 
 None directly — it discharges the threat-model decision recorded in issue 042.
+
+## Note — 2026-09-02
+
+Landed on `feat/067-refresh-token-at-rest-hardening`. All five acceptance criteria are met.
+
+Two things found while building, worth carrying forward:
+
+- **Create-time modes are not enough on their own.** `mkdir` ignores its `mode` for a directory that
+  already exists and `writeFile` ignores its `mode` for a file that already exists, so every
+  deployment made before this change would have kept `0755`/`0644` silently. Both writers now
+  `chmod` explicitly on init. The same trap bites the atomic write: the temp file is renamed *over*
+  the real file, so a `.tmp` left by a crash donates its mode to `store.json` — covered by a test.
+- **`AuditLog` widened the data directory.** It re-`mkdir`s the directory on every append, so an
+  audit write after the directory was recreated would have undone the store's lockdown. Fixed.
+
+Deliberately out of scope, needs its own issue:
+
+- **Pre-existing flake in `routes/api.integration.test.ts`.** `afterEach`'s `fs.rm` races the
+  audit middleware's fire-and-forget `record()`, giving an intermittent
+  `ENOTEMPTY: rmdir` on a random test (~1 run in 2, on `main` as well as here — verified by
+  stashing). `AuditLog.settled()` already exists for exactly this; the test setup does not await it.
+- **Backup handling is documented in `docs/data-security.md`, not next to the tunnel setup**, which
+  does not exist yet. Issue 053 should link the two when it lands.

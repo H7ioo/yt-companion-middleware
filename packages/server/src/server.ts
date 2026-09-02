@@ -156,8 +156,13 @@ async function bootOnce(
       get: (_t, prop) => activeClient[prop as keyof youtube_v3.Youtube],
     });
     applyCredentials = (newCreds) => {
+      // Through resolveCredentials rather than straight off `newCreds`, because that is where the
+      // scrubber is kept current (issue 067). Building the client here directly would leave the
+      // scrubber holding the *previous* token after an in-app reconnect — the one case the
+      // registration exists for.
+      const nextCreds = resolveCredentials(config, newCreds);
       activeClient = instrumentQuota(
-        createYouTubeClient({ ...config, youtube: newCreds }),
+        createYouTubeClient({ ...config, youtube: nextCreds }),
         quota,
       );
       // Re-evaluate health immediately so a successful reconnect clears an auth_error banner.

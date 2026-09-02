@@ -1,3 +1,5 @@
+import { scrubSecrets } from "./secrets.js";
+
 /** Error codes from PRD §7. Action endpoints always return HTTP 200 with these in the body. */
 export type ErrorCode =
   | "NO_TARGET_FOUND"
@@ -70,8 +72,11 @@ export interface ErrorBody {
 
 export function toErrorBody(err: unknown): ErrorBody {
   if (err instanceof AppError) {
-    return { success: false, error: { code: err.code, message: err.message } };
+    return { success: false, error: { code: err.code, message: scrubSecrets(err.message) } };
   }
-  const message = err instanceof Error ? err.message : String(err);
+  // Scrubbed because this branch is the one that carries text this repo did not write: a message
+  // from googleapis or from Node, which can quote the request it failed on — credentials and all
+  // (issue 067).
+  const message = scrubSecrets(err instanceof Error ? err.message : String(err));
   return { success: false, error: { code: "YOUTUBE_ERROR", message } };
 }

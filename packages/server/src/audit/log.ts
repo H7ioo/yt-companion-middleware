@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AuditActor, AuditEntry, AuditOutcome } from "@app/shared";
+import { SECRET_DIR_MODE, SECRET_FILE_MODE, tighten, writeSecretFile } from "../storage/secretFiles.js";
+import { scrubSecrets } from "../core/secrets.js";
 
 export type { AuditActor, AuditEntry, AuditOutcome } from "@app/shared";
 
@@ -59,6 +61,8 @@ export class AuditLog {
   /** Serializes appends and trims, so a sweep can never interleave with a write. */
   private chain: Promise<unknown> = Promise.resolve();
   private lastTrimAt = 0;
+  /** Whether {@link AuditLog.prepareFile} has already run for this process. */
+  private prepared = false;
 
   constructor(filePath: string, opts: { now?: () => number; retentionDays?: number } = {}) {
     this.filePath = filePath;
@@ -94,11 +98,38 @@ export class AuditLog {
     };
 
     await this.run(async () => {
-      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-      await fs.appendFile(this.filePath, `${JSON.stringify(entry)}\n`, "utf8");
+      await this.prepareFile();
+      await fs.appendFile(this.filePath, `${JSON.stringify(entry)}\n`, {
+        encoding: "utf8",
+        mode: SECRET_FILE_MODE,
+      });
       await this.sweep();
     });
     return entry;
+  }
+
+  /**
+   * Creates the data directory and tightens both it and the log to secret-material modes — once.
+   *
+   * The data directory is shared with store.json, so this has to create it as secret material
+   * too: an audit write after the directory was recreated would otherwise widen it back to 0755
+   * and quietly undo the store's lockdown (issue 067).
+   *
+   * Once, not per append, because `tighten` warns on a mount this process cannot chmod. Per
+   * append that is two console lines for every cue of the evening, which buries the rest of the
+   * log in the one situation where the operator most needs to read it. Runs inside the write
+   * chain, so it cannot race the append it precedes.
+   */
+  private async prepareFile(): Promise<void> {
+    if (this.prepared) return;
+    const dir = path.dirname(this.filePath);
+    await fs.mkdir(dir, { recursive: true, mode: SECRET_DIR_MODE });
+    await tighten(dir, SECRET_DIR_MODE);
+    // Tightens a log left loose by a version that predates issue 067; `appendFile`'s own mode
+    // only applies when it creates the file. Marked prepared only once all of it has landed, so
+    // a directory that genuinely could not be created is retried on the next append.
+    await tighten(this.filePath, SECRET_FILE_MODE);
+    this.prepared = true;
   }
 
   /**
@@ -152,7 +183,13 @@ export class AuditLog {
   private async read(): Promise<AuditEntry[]> {
     let raw: string;
     try {
-      raw = await fs.readFile(this.filePath, "utf8");
+      // Scrubbed on the way in as well as on the way out (issue 067). Write-path scrubbing only
+      // covers entries this build wrote: a log carried over from before that change, or written
+      // in a window where the scrubber had not been told the live token, still holds plaintext,
+      // and the retention window is 90 days long. Scrubbing the raw text is safe — the
+      // replacement contains no JSON metacharacter — and it reaches `sweep` too, so the next trim
+      // rewrites the file without the credential.
+      raw = scrubSecrets(await fs.readFile(this.filePath, "utf8"));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw err;
@@ -194,7 +231,7 @@ export class AuditLog {
       // Same atomic dance as the store: write beside it, then rename over it, so a crash mid-trim
       // leaves the untrimmed log rather than half a log.
       const tmp = `${this.filePath}.tmp`;
-      await fs.writeFile(tmp, kept.map((e) => `${JSON.stringify(e)}\n`).join(""), "utf8");
+      await writeSecretFile(tmp, kept.map((e) => `${JSON.stringify(e)}\n`).join(""));
       await fs.rename(tmp, this.filePath);
     }
     return kept.length;
@@ -261,7 +298,11 @@ export function redact(body: Record<string, unknown>): Record<string, unknown> {
 
 function walk(value: unknown, depth: number, seen: WeakSet<object>): unknown {
   if (typeof value === "string") {
-    return value.length > MAX_STRING ? `${value.slice(0, MAX_STRING)}…` : value;
+    // Redaction by key handles a body whose shape is known. This handles the rest: a live
+    // credential echoed back inside a message, or pasted into a field nobody named "token"
+    // (issue 067). Scrubbed before truncation, so a token cannot survive as a prefix.
+    const safe = scrubSecrets(value);
+    return safe.length > MAX_STRING ? `${safe.slice(0, MAX_STRING)}…` : safe;
   }
   if (value === null || typeof value !== "object") return value;
   if (depth >= MAX_DEPTH) return "[…]";

@@ -1,5 +1,6 @@
 import { config as loadEnv } from "dotenv";
 import path from "node:path";
+import { rememberSecret } from "./core/secrets.js";
 import type { CredentialsState } from "./storage/schema.js";
 
 loadEnv();
@@ -108,11 +109,17 @@ export function resolveCredentials(
   config: AppConfig,
   stored: CredentialsState,
 ): AppConfig["youtube"] {
-  return {
+  const creds = {
     clientId: stored.clientId || config.youtube.clientId,
     clientSecret: stored.clientSecret || config.youtube.clientSecret,
     refreshToken: stored.refreshToken || config.youtube.refreshToken,
   };
+  // The one place the effective values are decided — at boot and again on a hot re-apply after
+  // reconnecting — so it is the one place that can keep the scrubber current (issue 067).
+  // Registering anywhere else leaves it holding the previous token after a reconnect.
+  rememberSecret(creds.clientSecret);
+  rememberSecret(creds.refreshToken);
+  return creds;
 }
 
 /** True when all three YouTube credentials are present, so the API client can be built. */

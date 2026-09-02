@@ -3,6 +3,8 @@
 export type { LogEntry, LogLevel, LogCategory } from "@app/shared";
 import type { LogEntry, LogLevel, LogCategory } from "@app/shared";
 
+import { scrubSecrets } from "./secrets.js";
+
 const DEFAULT_CAPACITY = 200;
 
 /** A log line to record — the timestamp is stamped by the buffer, so callers omit it. */
@@ -26,7 +28,10 @@ export class Logger {
       level: input.level,
       category: input.category,
       code: input.code ?? null,
-      message: input.message,
+      // Producers push whatever text they have, including a YouTube error that quoted the request
+      // (issue 067). The feed is read on screen and pasted into tickets, so it is scrubbed here —
+      // once, at the one place every entry passes through — rather than at each producer.
+      message: scrubSecrets(input.message),
     };
     this.buffer.push(entry);
     if (this.buffer.length > this.capacity) {

@@ -69,6 +69,12 @@ node packages/server/scripts/get-refresh-token.mjs   # prints YT_REFRESH_TOKEN f
 Then open `http://<host>:8080` for the dashboard: create presets, set the default category and
 stream binding, and generate an API token.
 
+**Treat the data directory as secret.** The refresh token is stored there in plaintext, so whoever
+can read that directory — or a backup of it — owns the channel. The server locks the directory and
+its files down on every boot, but backups, snapshots and the account that runs it are yours to get
+right: [`docs/data-security.md`](docs/data-security.md), which also carries the what-to-do-first
+runbook for a suspected compromise.
+
 ### 3. Put it on the Stream Deck
 
 Companion talks to the middleware through the **Companion module** shipped in this repo. It holds a
