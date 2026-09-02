@@ -478,10 +478,17 @@ describe("toStatus", () => {
   it("reads title and privacy, and treats a live lifecycle as live", () => {
     expect(
       toStatus({
+        id: "b1",
         snippet: { title: "Show" },
         status: { privacyStatus: "public", lifeCycleStatus: "live" },
       }),
-    ).toEqual({ title: "Show", privacyStatus: "public", isLive: true });
+    ).toEqual({ broadcastId: "b1", title: "Show", privacyStatus: "public", isLive: true });
+  });
+
+  // The id is what a watch link is built from (issue 065): "public and live" says a player may
+  // be embedded, and says nothing about which video to embed.
+  it("carries the broadcast id, so a surface can link to the video it describes", () => {
+    expect(toStatus({ id: "abc123" }).broadcastId).toBe("abc123");
   });
 
   it("treats liveStarting as live", () => {
@@ -492,6 +499,7 @@ describe("toStatus", () => {
 
   it("treats a ready (not-yet-live) broadcast as not live, defaulting missing fields to null", () => {
     expect(toStatus({ status: { lifeCycleStatus: "ready" } })).toEqual({
+      broadcastId: null,
       title: null,
       privacyStatus: null,
       isLive: false,

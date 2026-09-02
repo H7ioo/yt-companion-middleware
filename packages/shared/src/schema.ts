@@ -131,13 +131,25 @@ export type IngestionSnapshot = z.infer<typeof ingestionSnapshotSchema>;
 export const cacheSchema = z.object({
   status: z
     .object({
+      /**
+       * The broadcast this status describes, or null when there is none. A watch or Studio link
+       * is built from it (issue 065); null the moment the channel goes idle, because a link to
+       * last night's show reads as this evening's.
+       */
+      broadcastId: z.string().nullable().default(null),
       title: z.string().nullable(),
       privacyStatus: z.string().nullable(),
       isLive: z.boolean(),
       // True when the channel has no active or persistent broadcast (idle, not an error).
       noTarget: z.boolean().default(false),
     })
-    .default({ title: null, privacyStatus: null, isLive: false, noTarget: false }),
+    .default({
+      broadcastId: null,
+      title: null,
+      privacyStatus: null,
+      isLive: false,
+      noTarget: false,
+    }),
   activePresetId: z.string().nullable().default(null),
   /**
    * The title the active preset actually wrote (templates already resolved). A refresh compares
@@ -408,7 +420,13 @@ export const storeSchema = z.object({
   service: serviceSchema.default({ apiEnabled: true }),
   targetPin: targetPinSchema.nullable().default(null),
   cache: cacheSchema.default({
-    status: { title: null, privacyStatus: null, isLive: false, noTarget: false },
+    status: {
+      broadcastId: null,
+      title: null,
+      privacyStatus: null,
+      isLive: false,
+      noTarget: false,
+    },
     activePresetId: null,
     health: "ok",
     healthMessage: null,

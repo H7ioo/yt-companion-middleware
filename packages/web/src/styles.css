@@ -2466,3 +2466,52 @@ textarea {
   font-size: 12px;
   color: var(--ink-faint);
 }
+
+/* ---- Audience view (embedded player, issue 065) -------------------------- */
+/* A monitor in the rack: the picture sits in the same inset well every other reading does, so
+   it reads as one more instrument rather than a window onto another site. Nothing here is
+   loaded until it is asked for, so the resting state is a control and two warnings. */
+
+.watch__frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  overflow: hidden;
+  background: #000;
+  border: var(--seam-line);
+  border-radius: var(--radius);
+}
+.watch__frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.watch__lede {
+  margin: 0 0 10px;
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+/* The two facts that make a delayed picture dangerous. Kept on screen while it plays — the
+   moment they are needed is the moment the picture is convincing. */
+.watch__caveats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.watch__caveats li {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  background: var(--bg-inset);
+  border-left: 2px solid var(--seam-bright);
+  border-radius: 3px;
+}
+.watch__caveats strong {
+  color: var(--ink);
+  font-weight: 600;
+}

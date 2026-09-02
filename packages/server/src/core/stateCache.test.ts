@@ -275,7 +275,13 @@ describe("StateCache pending-metadata replay", () => {
     const cache = cacheFor({ upcoming: [upcoming("tonight", "tonight")] });
     await store.update((s) => {
       s.cache.lastTargetId = "yesterdays-show";
-      s.cache.status = { title: "x", privacyStatus: "public", isLive: false, noTarget: false };
+      s.cache.status = {
+        broadcastId: "yesterdays-show",
+        title: "x",
+        privacyStatus: "public",
+        isLive: false,
+        noTarget: false,
+      };
     });
 
     await cache.refresh();
@@ -825,4 +831,41 @@ describe("StateCache fast probe while armed (issue 054 / PRD-14)", () => {
     expect(store.get().cache.health).toBe("degraded");
   });
 
+});
+
+describe("StateCache broadcast identity (issue 065)", () => {
+  let store: JsonStore;
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-id-"));
+    store = new JsonStore(path.join(dir, "store.json"));
+    await store.init();
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("carries the id of the broadcast the status describes", async () => {
+    const cache = new StateCache(clientWith({ active: [live("bc1", "Tonight")] }), store, {
+      refreshIntervalMs: 60_000,
+      healthFailureThreshold: 3,
+    });
+    await cache.refresh();
+
+    expect(cache.snapshot().status.broadcastId).toBe("bc1");
+  });
+
+  // An id that outlives the broadcast it named is worse than none: it is what a watch link would
+  // still be built from after the show ended.
+  it("forgets the id when the channel has no broadcast at all", async () => {
+    const cache = new StateCache(clientWith({}), store, {
+      refreshIntervalMs: 60_000,
+      healthFailureThreshold: 3,
+    });
+    await cache.refresh();
+
+    expect(cache.snapshot().status).toMatchObject({ broadcastId: null, noTarget: true });
+  });
 });

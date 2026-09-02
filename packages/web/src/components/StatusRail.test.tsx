@@ -12,7 +12,7 @@ afterEach(cleanup);
 const PINNED_AT = "2026-08-30T10:00:00.000Z";
 
 const state = (over: Partial<DashboardState> = {}): DashboardState => ({
-  status: { title: "Friday service", privacyStatus: "unlisted", isLive: false, noTarget: false },
+  status: { broadcastId: "bc1", title: "Friday service", privacyStatus: "unlisted", isLive: false, noTarget: false },
   activePresetId: null,
   displayLabel: "Custom",
   slugPng: null,
@@ -66,7 +66,7 @@ describe("StatusRail", () => {
   describe("broadcast state", () => {
     it("names the live state from the canonical glossary", () => {
       render(
-        <StatusRail {...props} state={state({ status: { title: "Friday service", privacyStatus: "public", isLive: true, noTarget: false } })} />,
+        <StatusRail {...props} state={state({ status: { broadcastId: "bc1", title: "Friday service", privacyStatus: "public", isLive: true, noTarget: false } })} />,
       );
 
       expect(screen.getByText(BROADCAST_STATE.live.label)).toBeDefined();
@@ -82,7 +82,7 @@ describe("StatusRail", () => {
 
     it("tells the operator where to go when there is no broadcast at all", () => {
       render(
-        <StatusRail {...props} state={state({ status: { title: null, privacyStatus: null, isLive: false, noTarget: true } })} />,
+        <StatusRail {...props} state={state({ status: { broadcastId: null, title: null, privacyStatus: null, isLive: false, noTarget: true } })} />,
       );
 
       expect(screen.getByText("No broadcast — create or go live on YouTube")).toBeDefined();
@@ -92,7 +92,7 @@ describe("StatusRail", () => {
   describe("the Target readout says how the target was chosen, not what it is", () => {
     it("reads None when there is no target", () => {
       render(
-        <StatusRail {...props} state={state({ status: { title: null, privacyStatus: null, isLive: false, noTarget: true } })} />,
+        <StatusRail {...props} state={state({ status: { broadcastId: null, title: null, privacyStatus: null, isLive: false, noTarget: true } })} />,
       );
 
       expect(targetReadout()).toBe("None");
@@ -103,7 +103,7 @@ describe("StatusRail", () => {
         <StatusRail
           {...props}
           state={state({
-            status: { title: "x", privacyStatus: "public", isLive: true, noTarget: false },
+            status: { broadcastId: "bc1", title: "x", privacyStatus: "public", isLive: true, noTarget: false },
             targetPin: { id: "pin1", label: "Pinned one", pinnedAt: PINNED_AT },
           })}
         />,
