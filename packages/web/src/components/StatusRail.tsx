@@ -123,7 +123,7 @@ export function StatusRail({
           <span className="readout__label">Target</span>
           <span className="readout__value">
             {/* Names how the target was chosen, not what kind of container it is. The old copy
-                said "Persistent container" whenever idle — a thing YouTube stopped creating on
+                said "Persistent container" [retired] whenever idle — a thing YouTube stopped creating on
                 2020-09-01, and never the actual answer. What matters to the operator is whether
                 they picked this broadcast or the app did. */}
             {noTarget
