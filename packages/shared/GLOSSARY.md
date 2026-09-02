@@ -27,6 +27,18 @@ Consumed via `describeBroadcastState(status)`. Distinct from health: a healthy a
 | `live` | **On Air** | LIVE |
 | `idle` | **Idle** | IDLE |
 
+## Target
+
+Consumed via `describeTarget(status)` / `TARGET_GLOSSARY`. Names the *resource* an edit lands on —
+a different question from what the stream is doing (broadcast state) and from how the target was
+chosen (the dashboard's Target readout, which says pinned vs automatic).
+
+| Key | Label |
+|---|---|
+| `live` | The broadcast on air |
+| `upcoming` | The next upcoming broadcast |
+| `none` | No broadcast |
+
 ## Actions
 
 Consumed via `ACTION_GLOSSARY`. These are the operator actions from PRD-07 §2 (#10).
@@ -44,5 +56,9 @@ Consumed via `ACTION_GLOSSARY`. These are the operator actions from PRD-07 §2 (
 
 - Live state is **On Air** (not "on air" / "Live" / "Standby"'s opposite).
 - Not-live state is **Idle** (not "Standby").
+- The idle target is **the next upcoming broadcast**, never a "persistent container" [retired]:
+  YouTube stopped auto-creating those on 2020-09-01 and deleted them, and a guard test
+  (`src/glossaryGuard.test.ts`) fails the build if the phrase returns to an operator-facing
+  surface (issue 066).
 - The state refresh is **Refresh from YouTube** (not "Refresh cache" / "Refresh"); the list
   refresh is **Refresh lists**. The two never share a name.

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { describeTarget } from "@app/shared";
 import type { Category, DashboardState, PrivacyStatus, StreamInfo } from "../api.js";
 import { CategorySelect } from "./CategorySelect.js";
 import { StreamSelect } from "./StreamSelect.js";
@@ -42,6 +43,9 @@ export function AdHocModal({
   useEscape(onCancel);
 
   const live = state?.status.isLive ?? false;
+  // Named from the glossary, not here: this badge is the last thing read before a title is
+  // written to a public broadcast, and it must say which broadcast that is (issue 066).
+  const target = describeTarget({ isLive: live, noTarget: state?.status.noTarget ?? false });
   const staleBinding = isStaleBinding(streamBoundId, streams);
 
   const submit = async (e: React.FormEvent) => {
@@ -70,7 +74,11 @@ export function AdHocModal({
         <div className="panel__body">
           <span className="target-badge">
             <span className={`lamp ${live ? "lamp--live" : "lamp--ready"}`} />
-            {live ? "Will update the ACTIVE live stream" : "Will update the persistent container"}
+            {/* With no target the modal must not promise a write it cannot make, so it states
+                the situation instead of naming a broadcast that does not exist. */}
+            {target.kind === "none"
+              ? target.meaning
+              : `Will update ${target.label.toLowerCase()}`}
           </span>
           <div className="field">
             <label htmlFor="ah-title">Title</label>

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { TARGET_GLOSSARY } from "@app/shared";
 import { AppError, toErrorBody } from "./errors.js";
 
 describe("AppError", () => {
   it("falls back to the default message for a code when none is given", () => {
     const err = new AppError("NO_TARGET_FOUND");
     expect(err.code).toBe("NO_TARGET_FOUND");
-    expect(err.message).toBe("No active broadcast and no persistent container found");
+    // The message is the glossary's word for "nothing to edit", not a restatement of it: the
+    // old copy named a "persistent container" YouTube deleted in 2020 (issue 066).
+    expect(err.message).toBe(TARGET_GLOSSARY.none.meaning);
   });
 
   it("keeps an explicit message over the default", () => {

@@ -1,3 +1,5 @@
+import { TARGET_GLOSSARY } from "@app/shared";
+
 import { scrubSecrets } from "./secrets.js";
 
 /** Error codes from PRD §7. Action endpoints always return HTTP 200 with these in the body. */
@@ -24,7 +26,10 @@ export type ErrorCode =
   | "SERVER_ERROR";
 
 const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
-  NO_TARGET_FOUND: "No active broadcast and no persistent container found",
+  // Worded once, in the glossary. The old text named a "persistent container" [retired] — a resource
+  // YouTube stopped creating on 2020-09-01 and deleted, so the error sent the operator looking
+  // for a thing that cannot exist instead of at the real cause: nothing is scheduled (issue 066).
+  NO_TARGET_FOUND: TARGET_GLOSSARY.none.meaning,
   YOUTUBE_AUTH_ERROR: "YouTube API rejected the request due to token issues",
   YOUTUBE_QUOTA_EXCEEDED: "YouTube API quota exceeded, try again later",
   INVALID_PRESET: "Preset not found",

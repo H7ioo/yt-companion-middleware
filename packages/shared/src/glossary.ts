@@ -242,3 +242,51 @@ function ingestionState({ streamStatus, healthStatus }: IngestionStatusFields): 
   }
   return "unknown";
 }
+
+/**
+ * The target slice of the glossary: what an edit is about to land on.
+ *
+ * This exists to kill "persistent container" [retired] (issue 066). YouTube stopped auto-creating those
+ * default containers on 2020-09-01 and deleted the ones that existed, so on any channel enabled
+ * for live since then the phrase named nothing — while the app was in fact editing the next
+ * upcoming broadcast. Copy that misnames the target is worse than none: an operator who believes
+ * edits land on a permanent container has no reason to check which broadcast is actually next.
+ *
+ * Distinct from {@link BROADCAST_STATE}, which names what the stream is *doing*. This names the
+ * *resource* being written, which is the question "will my title land on the right thing?".
+ * Distinct again from the dashboard's Target readout, which names how the target was *chosen*
+ * (pinned by the operator, or picked automatically).
+ */
+export type TargetKind = "live" | "upcoming" | "none";
+
+export interface TargetTerm {
+  /** Display name for the resource an edit lands on ("The next upcoming broadcast"). */
+  label: string;
+  /** One plain-language sentence: which broadcast, and why that one. */
+  meaning: string;
+}
+
+export const TARGET_GLOSSARY: Record<TargetKind, TargetTerm> = {
+  live: {
+    label: "The broadcast on air",
+    meaning: "A stream is active, so edits land on the broadcast currently airing.",
+  },
+  upcoming: {
+    label: "The next upcoming broadcast",
+    meaning:
+      "Nothing is on air, so edits land on the next scheduled broadcast — the one you pinned, or the one the app picked.",
+  },
+  none: {
+    label: "No broadcast",
+    meaning:
+      "This channel has nothing on air and nothing scheduled, so there is nothing to edit — create a broadcast or go live on YouTube first.",
+  },
+};
+
+/** Resolve what an edit would land on from the cached status flags (issue 066). */
+export function describeTarget(
+  status: BroadcastStatusFlags,
+): TargetTerm & { kind: TargetKind } {
+  const kind: TargetKind = status.noTarget ? "none" : status.isLive ? "live" : "upcoming";
+  return { kind, ...TARGET_GLOSSARY[kind] };
+}

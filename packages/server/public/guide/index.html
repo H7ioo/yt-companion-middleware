@@ -41,9 +41,9 @@
           </p>
           <ul>
             <li>
-              <strong>Idle</strong> — no live stream. Edits land on your
-              channel's persistent broadcast container (the default "upcoming"
-              broadcast).
+              <strong>Idle</strong> — no live stream. Edits land on the next
+              upcoming broadcast: the one you pinned, or the one the app picked
+              as most likely to air next.
             </li>
             <li>
               <strong>On Air</strong> — a stream is active. Edits land on the
@@ -53,8 +53,9 @@
             </li>
           </ul>
           <p>
-            Brand-new channel with no container at all? The action fails cleanly
-            with <code>NO_TARGET_FOUND</code> rather than inventing one.
+            Nothing on air and nothing scheduled? The action fails cleanly with
+            <code>NO_TARGET_FOUND</code> rather than creating a broadcast you
+            did not ask for.
           </p>
 
           <div class="callout tip">
