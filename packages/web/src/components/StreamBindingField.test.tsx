@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { StreamInfo } from "../api.js";
 import { StreamBindingField } from "./StreamBindingField.js";
 
@@ -109,5 +109,47 @@ describe("StreamBindingField (issue 051)", () => {
       <StreamBindingField id="def-stream" label="Default stream binding" value={"b"} streams={streams} onCommit={commit} />,
     );
     expect(field().value).toBe("b");
+  });
+
+  it("shows the saved binding again when the save does not take", async () => {
+    // saveSettings swallows a refused save and leaves the settings untouched, so a confirmed
+    // change that the server rejected must not leave the field reading an id nobody holds.
+    commit.mockResolvedValue(undefined);
+    renderField("a");
+    typeAndLeave("b");
+    fireEvent.click(screen.getByRole("button", { name: /change the binding/i }));
+    expect(commit).toHaveBeenCalledWith("b");
+    await waitFor(() => expect(field().value).toBe("a"));
+  });
+
+  it("takes focus into the question and keeps Tab inside it", () => {
+    renderField("a");
+    typeAndLeave("b");
+    const cancelBtn = screen.getByRole("button", { name: /cancel/i });
+    const confirmBtn = screen.getByRole("button", { name: /change the binding/i });
+    // Focus starts in the dialog, not on the control the overlay is covering.
+    expect(document.activeElement).toBe(cancelBtn);
+    confirmBtn.focus();
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    expect(document.activeElement).toBe(cancelBtn);
+    fireEvent.keyDown(document.body, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(confirmBtn);
+  });
+
+  it("does not let a click outside reach the modal it sits inside", () => {
+    const onOutsideClick = vi.fn();
+    render(
+      <div onClick={onOutsideClick}>
+        <StreamBindingField id="def-stream" label="Default stream binding" value={"a"} streams={streams} onCommit={commit} />
+      </div>,
+    );
+    typeAndLeave("b");
+    // The mousedown that blurs the field is often on the settings panel's backdrop; its click lands
+    // a moment later and used to close the panel and the question together, dropping the change.
+    fireEvent.click(document.body);
+    expect(onOutsideClick).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(commit).not.toHaveBeenCalled();
+    expect(field().value).toBe("a");
   });
 });
