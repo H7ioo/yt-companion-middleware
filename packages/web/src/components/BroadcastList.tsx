@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type BroadcastListEntry, type BroadcastListing } from "../api.js";
+import { api, type BroadcastListEntry, type BroadcastListing, type TargetPin } from "../api.js";
 
 interface Props {
   /**
@@ -11,6 +11,14 @@ interface Props {
    * paused install, before the state that would have said so arrived.
    */
   apiEnabled: boolean | null;
+  /**
+   * The pinned edit target, straight from dashboard state — the same value the Edit target panel
+   * renders (issue 058). Held as a prop rather than as this panel's own copy on purpose: the pin
+   * is one concept surfaced twice, and a local copy is how two surfaces start disagreeing.
+   */
+  pin: TargetPin | null;
+  /** Refetches dashboard state, so the picker and the rail follow a pin set from here. */
+  onPinned: () => void;
 }
 
 /**
@@ -25,8 +33,14 @@ interface Props {
  *
  * Read on demand, never polled: a list refreshed on an interval costs more quota than the single
  * target the background loop already tracks, so the cost is stated and the operator asks.
+ *
+ * Selecting a row sets the **edit-target pin** (issue 058) — the same state the Edit target panel
+ * writes, not a second one. The list is the better place to choose from, because it carries the
+ * evidence the choice turns on; the pin stays the one answer to "which broadcast do my actions
+ * apply to", and this panel says so out loud when the operator's choice and the airing marker
+ * point at different broadcasts.
  */
-export function BroadcastList({ apiEnabled }: Props) {
+export function BroadcastList({ apiEnabled, pin, onPinned }: Props) {
   // Read once, at the top: `false` and `null` differ in what the panel says, but not in whether
   // it may spend quota.
   const paused = apiEnabled === false;
@@ -34,6 +48,7 @@ export function BroadcastList({ apiEnabled }: Props) {
   const [listing, setListing] = useState<BroadcastListing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -48,6 +63,25 @@ export function BroadcastList({ apiEnabled }: Props) {
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  /**
+   * Selecting a row **sets the pin** — it does not open a second notion of "the chosen
+   * broadcast" (issue 058, PRD-16 §8). The listing is deliberately not re-read afterwards: the
+   * channel has not changed, only where this app writes, and a re-read would spend the panel's
+   * three quota units on every pick.
+   */
+  async function choose(entry: BroadcastListEntry | null) {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.target.pin(entry?.id ?? null, entry?.title ?? null);
+      onPinned();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save the target.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -97,6 +131,8 @@ export function BroadcastList({ apiEnabled }: Props) {
               <p className="patch__empty">Reading the channel…</p>
             )}
 
+            {listing ? <Disagreement listing={listing} pin={pin} /> : null}
+
             {listing && listing.encoderSource === "only-key" ? (
               <p className="patch__lede">
                 Read against “{listing.encoderStreamTitle}”, the channel's only ingestion key.
@@ -104,18 +140,37 @@ export function BroadcastList({ apiEnabled }: Props) {
             ) : null}
 
             {listing ? (
-              listing.entries.length === 0 ? (
-                <p className="patch__empty">
-                  No upcoming or live broadcasts on the channel. Schedule one in YouTube Studio,
-                  or go live.
-                </p>
-              ) : (
+              <div role="radiogroup" aria-label="Broadcast to target">
                 <ul className="rundown">
+                  {/* Letting the app choose is a row in the same group, not a button off to the
+                      side: it is one of the answers to "which broadcast do actions write to", and
+                      as an outside control it left the group with nothing checked whenever no pin
+                      was set — the state most installs sit in. Listed even when the channel has
+                      no broadcasts, because a pin on a deleted one still needs a way back. */}
+                  <AutomaticRow
+                    selected={pin === null}
+                    disabled={saving}
+                    onSelect={() => void choose(null)}
+                  />
                   {listing.entries.map((e) => (
-                    <Row key={e.id} entry={e} contested={listing.contested} />
+                    <Row
+                      key={e.id}
+                      entry={e}
+                      contested={listing.contested}
+                      pinned={pin?.id === e.id}
+                      disabled={saving}
+                      onSelect={() => void choose(e)}
+                    />
                   ))}
                 </ul>
-              )
+              </div>
+            ) : null}
+
+            {listing && listing.entries.length === 0 ? (
+              <p className="patch__empty">
+                No upcoming or live broadcasts on the channel. Schedule one in YouTube Studio,
+                or go live.
+              </p>
             ) : null}
           </>
         )}
@@ -124,38 +179,154 @@ export function BroadcastList({ apiEnabled }: Props) {
   );
 }
 
-function Row({ entry, contested }: { entry: BroadcastListEntry; contested: boolean }) {
+/** The "let the app decide" answer, sitting in the same group as the broadcasts it competes with. */
+function AutomaticRow({
+  selected,
+  disabled,
+  onSelect,
+}: {
+  selected: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <li className={`rundown__row${selected ? " rundown__row--pinned" : ""}`}>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={selected}
+        className="rundown__pick"
+        disabled={disabled}
+        onClick={onSelect}
+        title="Let the app rank the waiting broadcasts and edit the one closest to going live"
+      >
+        <span className="lamp lamp--idle" aria-hidden="true" />
+        <span className="rundown__meta">
+          <span className="rundown__head">
+            <span className="rundown__title">Choose automatically</span>
+            {selected ? (
+              <span className="rundown__flag rundown__flag--pinned">Target</span>
+            ) : null}
+          </span>
+          <span className="rundown__facts">
+            <span>Edits whichever broadcast is closest to going live.</span>
+          </span>
+        </span>
+      </button>
+    </li>
+  );
+}
+
+interface RowProps {
+  entry: BroadcastListEntry;
+  contested: boolean;
+  /** True when this is the broadcast actions write to — the pin, not the airing marker. */
+  pinned: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}
+
+function Row({ entry, contested, pinned, disabled, onSelect }: RowProps) {
   const marked = entry.willAir;
   return (
     <li
-      className={`rundown__row${marked ? ` rundown__row--${contested && !entry.isLive ? "contested" : "airs"}` : ""}`}
+      className={`rundown__row${marked ? ` rundown__row--${contested && !entry.isLive ? "contested" : "airs"}` : ""}${pinned ? " rundown__row--pinned" : ""}`}
       aria-label={entry.title}
     >
-      <span
-        className={`lamp ${entry.isLive ? "lamp--live" : marked ? (contested ? "lamp--warn" : "lamp--ready") : "lamp--idle"}`}
-        aria-hidden="true"
-      />
-      <span className="rundown__meta">
-        <span className="rundown__head">
-          <span className="rundown__title">{entry.title}</span>
-          {entry.isLive ? (
-            <span className="rundown__flag rundown__flag--live">On air</span>
-          ) : marked ? (
-            <span className={`rundown__flag rundown__flag--${contested ? "contested" : "airs"}`}>
-              {contested ? "Competing" : "Will air"}
-            </span>
-          ) : null}
+      <button
+        type="button"
+        role="radio"
+        aria-checked={pinned}
+        className="rundown__pick"
+        disabled={disabled || entry.isLive}
+        onClick={onSelect}
+        title={
+          entry.isLive
+            ? "On air — actions edit the live broadcast whatever is targeted"
+            : "Send this app's actions to this broadcast"
+        }
+      >
+        <span
+          className={`lamp ${entry.isLive ? "lamp--live" : marked ? (contested ? "lamp--warn" : "lamp--ready") : "lamp--idle"}`}
+          aria-hidden="true"
+        />
+        <span className="rundown__meta">
+          <span className="rundown__head">
+            <span className="rundown__title">{entry.title}</span>
+            {pinned ? (
+              <span className="rundown__flag rundown__flag--pinned">Target</span>
+            ) : null}
+            {entry.isLive ? (
+              <span className="rundown__flag rundown__flag--live">On air</span>
+            ) : marked ? (
+              <span className={`rundown__flag rundown__flag--${contested ? "contested" : "airs"}`}>
+                {contested ? "Competing" : "Will air"}
+              </span>
+            ) : null}
+          </span>
+          <span className="rundown__facts">
+            <span>{when(entry.scheduledStartTime)}</span>
+            <span>{entry.boundStreamTitle ?? "No ingestion key"}</span>
+            <span>{entry.autoStart ? "Auto-start on" : "Auto-start off"}</span>
+            <span>{PRIVACY[entry.privacyStatus ?? ""] ?? "Privacy unknown"}</span>
+          </span>
+          {entry.reason ? <span className="rundown__reason">{entry.reason}</span> : null}
         </span>
-        <span className="rundown__facts">
-          <span>{when(entry.scheduledStartTime)}</span>
-          <span>{entry.boundStreamTitle ?? "No ingestion key"}</span>
-          <span>{entry.autoStart ? "Auto-start on" : "Auto-start off"}</span>
-          <span>{PRIVACY[entry.privacyStatus ?? ""] ?? "Privacy unknown"}</span>
-        </span>
-        {entry.reason ? <span className="rundown__reason">{entry.reason}</span> : null}
-      </span>
+      </button>
       <span className="patch__id mono">{entry.id}</span>
     </li>
+  );
+}
+
+/**
+ * The one thing a list and a pin can say at the same time that is worse than either alone:
+ * **your actions are going somewhere other than what is about to air** (issue 058). Said out
+ * loud, because both halves look correct on their own — the marker is right, the pin is right,
+ * and only the pair is wrong.
+ *
+ * Silent when they agree, when nothing is pinned, and when nothing qualifies to air: the verdict
+ * above already carries the last case, and repeating it here would train the operator to skip
+ * this line on the night it matters.
+ */
+function Disagreement({
+  listing,
+  pin,
+}: {
+  listing: BroadcastListing;
+  pin: TargetPin | null;
+}) {
+  if (!pin) return null;
+  const name = pin.label ?? pin.id;
+  if (!listing.entries.some((e) => e.id === pin.id)) {
+    return (
+      <p className="rundown__disagree" role="status">
+        Actions target “{name}”, which is no longer on the channel. Pick a row below, or choose
+        automatically.
+      </p>
+    );
+  }
+  const airing = listing.entries.filter((e) => e.willAir);
+  if (airing.length === 0 || airing.some((e) => e.id === pin.id)) return null;
+  const others = airing.map((e) => `“${e.title}”`).join(" and ");
+  // A live broadcast is not merely "what will air" — it is where the server sends every action,
+  // pin or no pin (`resolveTarget` returns the active broadcast before it ever reads the pin).
+  // So the warning has to be the opposite one: the edit lands on the broadcast on air, not on
+  // the one the operator picked.
+  const live = airing.filter((e) => e.isLive);
+  if (live.length > 0) {
+    const onAir = live.map((e) => `“${e.title}”`).join(" and ");
+    return (
+      <p className="rundown__disagree" role="status">
+        Actions target “{name}”, but {onAir} {live.length > 1 ? "are" : "is"} on air — edits
+        go to the live broadcast until it ends, not to “{name}”.
+      </p>
+    );
+  }
+  return (
+    <p className="rundown__disagree" role="status">
+      Actions target “{name}”, but {others} {airing.length > 1 ? "are" : "is"} what will air.
+      Editing “{name}” will not change what viewers see.
+    </p>
   );
 }
 
