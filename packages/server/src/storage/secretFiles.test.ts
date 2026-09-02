@@ -35,3 +35,25 @@ describe.skipIf(process.platform === "win32")("tightening a path we do not own",
     expect(String(warn.mock.calls[0])).toContain(file);
   });
 });
+
+// Issue 067 follow-up. The warn-and-carry-on above was written for EPERM/EACCES only; every other
+// code was rethrown. `tighten` now runs inside JsonStore.init, so a rethrow is a failed boot — and
+// a read-only mount (EROFS) or a filesystem with no mode bits (ENOTSUP) would turn a deployment
+// that booted yesterday into one that will not start, over a chmod nobody asked for.
+describe.skipIf(process.platform === "win32")("tightening a path that cannot take a mode", () => {
+  it.each([["EROFS"], ["ENOTSUP"], ["EIO"]])("warns rather than failing the boot on %s", async (code) => {
+    const file = path.join(dir, "store.json");
+    await fs.writeFile(file, "{}", "utf8");
+    vi.spyOn(fs, "chmod").mockRejectedValue(Object.assign(new Error(code), { code }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(tighten(file, SECRET_FILE_MODE)).resolves.toBeUndefined();
+    expect(String(warn.mock.calls[0])).toContain(code);
+  });
+
+  it("stays silent about a path that is simply not there yet", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(tighten(path.join(dir, "nope.json"), SECRET_FILE_MODE)).resolves.toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+  });
+});

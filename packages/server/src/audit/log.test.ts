@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -26,6 +26,8 @@ beforeEach(async () => {
   now = Date.UTC(2026, 7, 31);
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
+  forgetSecrets();
   await fs.rm(dir, { recursive: true, force: true });
 });
 
@@ -269,5 +271,75 @@ describe("credential values, whatever key they arrive under", () => {
     const out = redact({ note: "reconnect failed for 1//a-live-refresh-token" });
     expect(out.note).toBe("reconnect failed for [redacted]");
     forgetSecrets();
+  });
+});
+
+// Issue 067 follow-up. `tighten` warns on a mount this process cannot chmod, and the mode work
+// used to sit in the per-append path — so on such a mount that is two console lines for every cue
+// of the evening, burying the log in exactly the situation the operator most needs to read it.
+describe.skipIf(process.platform === "win32")("permission work on a mount we do not own", () => {
+  it("complains once, not once per audited request", async () => {
+    const log = open();
+    vi.spyOn(fs, "chmod").mockRejectedValue(Object.assign(new Error("EPERM"), { code: "EPERM" }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    for (let i = 0; i < 5; i++) {
+      await log.append({ actor: person, method: "POST", path: "/api/action/go-live", status: 200 });
+    }
+    await log.settled();
+
+    // Two paths get tightened — the directory and the file — and each is worth saying once.
+    expect(warn.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+});
+
+// Issue 067 follow-up. Scrubbing on the write path only protects entries this build wrote. A log
+// carried over from before that change — or written in the window where the scrubber had not yet
+// been told the live token — still holds the plaintext, and retention keeps it for ninety days.
+describe("a credential already on disk", () => {
+  it("does not serve a plaintext token to the audit viewer", async () => {
+    const token = "1//a-live-refresh-token";
+    // Written the way a previous version did: no scrubber registered, so it lands in the clear.
+    forgetSecrets();
+    const log = open();
+    await log.append({
+      actor: person,
+      method: "POST",
+      path: "/api/setup/credentials",
+      status: 200,
+      body: { note: `reconnect failed for ${token}` },
+    });
+    await log.settled();
+    expect(await fs.readFile(log.path, "utf8")).toContain(token);
+
+    // The process now knows what the live token is — as it does from the next boot onwards.
+    rememberSecret(token);
+    const [entry] = await open().list();
+    expect(JSON.stringify(entry)).not.toContain(token);
+    expect((entry.detail as Record<string, unknown>).note).toBe("reconnect failed for [redacted]");
+  });
+
+  it("rewrites the credential out of the file on the next trim", async () => {
+    const token = "1//a-live-refresh-token";
+    forgetSecrets();
+    const log = open();
+    await log.append({
+      actor: person,
+      method: "POST",
+      path: "/api/setup/credentials",
+      status: 200,
+      body: { note: `token ${token}` },
+    });
+    // An entry old enough to be swept, so the trim actually rewrites the file.
+    now -= (RETENTION_DAYS + 1) * DAY;
+    const stale = open("audit.log");
+    await stale.append({ actor: person, method: "POST", path: "/api/action/go-live", status: 200 });
+    await stale.settled();
+
+    rememberSecret(token);
+    now += (RETENTION_DAYS + 1) * DAY;
+    await open().trim();
+
+    expect(await fs.readFile(path.join(dir, "audit.log"), "utf8")).not.toContain(token);
   });
 });

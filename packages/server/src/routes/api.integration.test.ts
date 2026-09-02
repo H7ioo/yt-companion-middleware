@@ -207,6 +207,10 @@ async function boot(): Promise<Harness> {
       for (const client of wss.clients) client.terminate();
       await new Promise<void>((r) => wss.close(() => r()));
       await new Promise<void>((r) => server.close(() => r()));
+      // Audit entries are recorded from a response that has already been sent, so the last one is
+      // still in flight when the request returns. Without this the rm below races it and fails
+      // with ENOTEMPTY — the audit write recreates the file under the directory being removed.
+      await audit.settled();
       await fs.rm(dir, { recursive: true, force: true });
     },
   };

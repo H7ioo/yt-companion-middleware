@@ -35,8 +35,11 @@ by an older version:
 | `store.json` | `0600` | Only the service user may read it. |
 | `audit.log` | `0600` | It names people and what they did. |
 
-Credential values are also scrubbed out of the activity feed, the audit log, and any error message
-that reaches a browser — so a screenshot or a pasted error cannot leak what the file protects.
+Credential values are also scrubbed out of the activity feed, the audit log, the health message
+served by `/api/feedback/health` and posted to webhooks, and any error message that reaches a
+browser — so a screenshot or a pasted error cannot leak what the file protects. The audit log is
+scrubbed as it is read as well as as it is written, so an entry left in the clear by an older
+version is never served, and is rewritten out of the file at the next retention trim.
 
 **Run the server as its own user.** The modes above are only worth something if the account that
 owns them is not shared. Do not run it as a login account you also use for anything else.
@@ -44,8 +47,9 @@ owns them is not shared. Do not run it as a login account you also use for anyth
 **Docker.** `docker-compose.yml` bind-mounts `./data` into the container, so the `0700` lands on the
 host directory too — expect `./data` to stop being readable by your ordinary login user after the
 first boot. That is the point. If you run the container as a user that does not own that directory,
-the server logs a `could not set permissions` warning and starts anyway rather than refusing to
-boot; the file is then only as protected as the mount you gave it, so fix the ownership.
+the server logs a `could not set permissions` warning **once** and starts anyway rather than
+refusing to boot — the same for a read-only or mode-less mount. The file is then only as protected
+as the mount you gave it, so fix the ownership.
 
 ## Backups and snapshots are secret too
 

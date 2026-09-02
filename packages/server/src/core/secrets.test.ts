@@ -72,3 +72,34 @@ describe("registering the live credentials", () => {
     expect(scrubSecrets("token=1//another-refresh-token")).toBe("token=[redacted]");
   });
 });
+
+// Issue 067 follow-up. The claim above — "at boot and again on a hot re-apply" — was only half
+// true: server.ts's applyCredentials built the client straight off the new credentials and never
+// went through resolveCredentials, so after an in-app reconnect the scrubber still held the
+// previous token and had never seen the live one. That is precisely the case the registration
+// exists for, so it is the case worth pinning.
+describe("re-registering after a reconnect", () => {
+  it("scrubs the token that replaced the one it was booted with", () => {
+    forgetSecrets();
+    const config = { youtube: { clientId: "", clientSecret: "", refreshToken: "" } };
+    const boot = {
+      clientId: "client-id",
+      clientSecret: "boot-client-secret-value",
+      refreshToken: "1//boot-refresh-token",
+    };
+    resolveCredentials(config as never, boot as never);
+
+    // What the reconnect hands applyCredentials, which now routes through here too.
+    resolveCredentials(config as never, {
+      clientId: "client-id",
+      clientSecret: "fresh-client-secret-value",
+      refreshToken: "1//fresh-refresh-token",
+    } as never);
+
+    expect(scrubSecrets("token=1//fresh-refresh-token")).toBe("token=[redacted]");
+    expect(scrubSecrets("secret=fresh-client-secret-value")).toBe("secret=[redacted]");
+    // The old one stays registered: it is still valid at Google until it is revoked, so it is
+    // still worth keeping out of a log.
+    expect(scrubSecrets("token=1//boot-refresh-token")).toBe("token=[redacted]");
+  });
+});

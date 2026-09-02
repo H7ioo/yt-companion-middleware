@@ -34,18 +34,17 @@ export async function tighten(target: string, mode: number): Promise<void> {
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") return;
-    // A path this process may not chmod — a bind mount owned by another uid is the usual reason.
-    // Worth shouting about, because the file is then as open as whoever mounted it left it. Not
-    // worth refusing to boot over: a server that will not start on show night is the more
-    // expensive failure, and the operator can still fix the mount.
-    if (code === "EPERM" || code === "EACCES") {
-      console.warn(
-        `[storage] could not set permissions on ${target} (${code}). It may be readable by other ` +
-          `users — see docs/data-security.md. Check the ownership of the data directory.`,
-      );
-      return;
-    }
-    throw err;
+    // A path this process cannot chmod — a bind mount owned by another uid, a read-only mount
+    // (EROFS), a filesystem with no mode bits to set (ENOTSUP on some network and container
+    // mounts). Worth shouting about, because the file is then as open as whoever mounted it left
+    // it. Never worth refusing to boot over: a server that will not start on show night is the
+    // more expensive failure, and the operator can still fix the mount. No code is rethrown for
+    // the same reason — this runs inside JsonStore.init, so a rethrow *is* a failed boot.
+    console.warn(
+      `[storage] could not set permissions on ${target} (${code ?? "unknown error"}). It may be ` +
+        `readable by other users — see docs/data-security.md. Check the ownership of the data ` +
+        `directory.`,
+    );
   }
 }
 

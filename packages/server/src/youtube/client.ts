@@ -1,6 +1,7 @@
 import { google, type youtube_v3 } from "googleapis";
 import type { AppConfig } from "../config.js";
 import { AppError } from "../core/errors.js";
+import { scrubSecrets } from "../core/secrets.js";
 
 /**
  * Builds an authenticated YouTube Data API client from the server-side OAuth refresh
@@ -35,12 +36,20 @@ const NETWORK_ERROR_CODES = new Set([
 export function mapYouTubeError(err: unknown): AppError {
   if (err instanceof AppError) return err;
 
-  const anyErr = err as {
+  const rawErr = err as {
     code?: number | string;
     status?: number;
     response?: { status?: number; data?: { error?: { errors?: Array<{ reason?: string }> } } };
     message?: string;
   };
+  // Scrubbed here, at the one place upstream text becomes an AppError, rather than at each of the
+  // dozen call sites (issue 067). googleapis quotes the request it failed on, and this message
+  // travels a long way: into `healthMessage`, which is persisted to store.json, returned by the
+  // unauthenticated GET /api/feedback/health, and posted to webhooks.
+  const anyErr =
+    typeof rawErr?.message === "string"
+      ? { ...rawErr, message: scrubSecrets(rawErr.message) }
+      : rawErr;
 
   // A transport-level failure carries a string code and no HTTP response — classify it before
   // any status math (Number("ECONNREFUSED") is NaN and would fall through to YOUTUBE_ERROR).

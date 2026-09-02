@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mapYouTubeError, isAuthError, isNetworkError } from "./client.js";
 import { AppError } from "../core/errors.js";
+import { forgetSecrets, rememberSecret, scrubSecrets } from "../core/secrets.js";
 
 /** A GaxiosError-shaped object with a status and optional reason list. */
 function ytError(status: number, reasons: string[] = [], message = "boom") {
@@ -79,5 +80,38 @@ describe("isAuthError", () => {
     expect(isAuthError(new AppError("YOUTUBE_AUTH_ERROR"))).toBe(true);
     expect(isAuthError(new AppError("YOUTUBE_QUOTA_EXCEEDED"))).toBe(false);
     expect(isAuthError(new Error("plain"))).toBe(false);
+  });
+});
+
+// Issue 067 follow-up. logger.ts and errors.ts scrub on the way out, but healthMessage takes
+// neither route: it is `mapYouTubeError(err).message`, persisted to store.json and served by the
+// *unauthenticated* GET /api/feedback/health, plus the dashboard snapshot and every webhook
+// payload. Scrubbing where the upstream text becomes an AppError covers all of them at once.
+describe("upstream error text that quoted the credentials", () => {
+  it("carries no live credential into the message every consumer reads", () => {
+    forgetSecrets();
+    const token = "1//a-live-refresh-token";
+    rememberSecret(token);
+
+    const mapped = mapYouTubeError(ytError(401, ["authError"], `invalid_grant for ${token}`));
+
+    expect(mapped.code).toBe("YOUTUBE_AUTH_ERROR");
+    expect(mapped.message).toBe("invalid_grant for [redacted]");
+    expect(scrubSecrets(mapped.message)).toBe(mapped.message);
+    forgetSecrets();
+  });
+
+  it("scrubs a transport failure's message too", () => {
+    forgetSecrets();
+    rememberSecret("s3cret-client-secret-value");
+
+    const mapped = mapYouTubeError({
+      code: "ECONNREFUSED",
+      message: "connect ECONNREFUSED while sending s3cret-client-secret-value",
+    });
+
+    expect(mapped.code).toBe("NETWORK_ERROR");
+    expect(mapped.message).not.toContain("s3cret-client-secret-value");
+    forgetSecrets();
   });
 });
