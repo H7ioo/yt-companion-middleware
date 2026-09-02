@@ -76,6 +76,9 @@ export function resolveDisplayLabel(store: JsonStore, activePresetId: string | n
 export function changeSignature(s: DashboardState): string {
   const quotaBucket = s.quota.limit > 0 ? Math.floor((s.quota.used / s.quota.limit) * 100) : 0;
   return JSON.stringify([
+    // The broadcast, not just its title: two broadcasts can carry the same one, and the player
+    // (issue 065) links to whichever this names.
+    s.status.broadcastId,
     s.status.title,
     s.status.privacyStatus,
     s.status.isLive,

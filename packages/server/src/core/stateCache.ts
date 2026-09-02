@@ -274,7 +274,13 @@ export class StateCache {
         this.health = onSuccess(this.health);
         this.logRecovery(wasUnhealthy);
         await this.writeCache({
-          status: { title: null, privacyStatus: null, isLive: false, noTarget: true },
+          status: {
+            broadcastId: null,
+            title: null,
+            privacyStatus: null,
+            isLive: false,
+            noTarget: true,
+          },
           health: "ok",
           healthMessage: null,
           lastRefreshedAt: new Date().toISOString(),

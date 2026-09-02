@@ -41,6 +41,11 @@ export interface StreamInfo {
 
 /** The cached, Companion-facing status view of the current broadcast. */
 export interface FeedbackStatus {
+  /**
+   * The broadcast this status is about, or null when the channel has none. Carried so a surface
+   * can link to the video it is describing (issue 065) rather than inferring one from a title.
+   */
+  broadcastId: string | null;
   title: string | null;
   privacyStatus: string | null;
   isLive: boolean;

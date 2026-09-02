@@ -8,7 +8,7 @@ const NOW = Date.parse("2026-09-01T20:00:00.000Z");
 /** A cache snapshot with a latch armed `agoMs` ago, on an idle channel. */
 function armed(agoMs: number, isLive = false): CacheState {
   return {
-    status: { title: "on air", privacyStatus: "public", isLive, noTarget: false },
+    status: { broadcastId: "bc1", title: "on air", privacyStatus: "public", isLive, noTarget: false },
     activePresetId: null,
     activePresetTitle: null,
     activePresetTargetId: null,

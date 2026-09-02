@@ -19,6 +19,7 @@ import { TargetConflictBanner } from "./components/TargetConflictBanner.js";
 import { TargetPicker } from "./components/TargetPicker.js";
 import { BroadcastList } from "./components/BroadcastList.js";
 import { IngestionReadout } from "./components/IngestionReadout.js";
+import { WatchPanel } from "./components/WatchPanel.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { PresetForm } from "./components/PresetForm.js";
 import { PresetFillModal } from "./components/PresetFillModal.js";
@@ -569,6 +570,12 @@ export function App() {
           apiEnabled={state ? state.apiEnabled : null}
           ingestion={state?.ingestion ?? null}
         />
+
+        {/* The audience's own view, on request — "is it out, and does it look right" (issue
+            065). Directly under Signal in, and never instead of it: the embed is a delayed
+            picture, and the panel that answers "is video arriving right now" has to be the one
+            read first. */}
+        {state ? <WatchPanel status={state.status} /> : null}
 
         {/* Which broadcast every action below writes to. Placed above the presets because it
             governs where all of them land (PRD-12 / the pinned-target work). */}

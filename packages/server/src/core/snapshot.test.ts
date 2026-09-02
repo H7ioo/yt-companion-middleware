@@ -24,7 +24,7 @@ function preset(over: Partial<Preset> = {}): Preset {
 
 function state(over: Partial<DashboardState> = {}): DashboardState {
   return {
-    status: { title: "T", privacyStatus: "public", isLive: false, noTarget: false },
+    status: { broadcastId: "bc1", title: "T", privacyStatus: "public", isLive: false, noTarget: false },
     activePresetId: null,
     displayLabel: "Custom",
     slugPng: null,
@@ -53,7 +53,37 @@ describe("changeSignature", () => {
 
   it("changes when a visible field moves (isLive)", () => {
     expect(changeSignature(state())).not.toBe(
-      changeSignature(state({ status: { title: "T", privacyStatus: "public", isLive: true, noTarget: false } })),
+      changeSignature(
+        state({
+          status: {
+            broadcastId: "bc1",
+            title: "T",
+            privacyStatus: "public",
+            isLive: true,
+            noTarget: false,
+          },
+        }),
+      ),
+    );
+  });
+
+  // The handover a title-only signature cannot see: with an auto-start encoder YouTube mints a
+  // fresh broadcast moments before air, and two broadcasts can carry the same title. A surface
+  // that links to the video — the embedded player (issue 065) — would go on pointing at the
+  // broadcast that never aired until something else happened to move the signature.
+  it("changes when the broadcast itself changes under an identical title", () => {
+    expect(changeSignature(state())).not.toBe(
+      changeSignature(
+        state({
+          status: {
+            broadcastId: "bc2",
+            title: "T",
+            privacyStatus: "public",
+            isLive: false,
+            noTarget: false,
+          },
+        }),
+      ),
     );
   });
 

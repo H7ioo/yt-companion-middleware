@@ -490,6 +490,8 @@ export function toStatus(
     b.status as { lifeCycleStatus?: string } | null | undefined
   )?.lifeCycleStatus;
   return {
+    /** What a watch or Studio link is built from (issue 065) — never shown as an id. */
+    broadcastId: (b.id as string | undefined) ?? null,
     title: (b.snippet?.title as string | undefined) ?? null,
     privacyStatus: (b.status?.privacyStatus as string | undefined) ?? null,
     isLive: lifeCycle === "live" || lifeCycle === "liveStarting",
