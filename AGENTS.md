@@ -39,6 +39,23 @@ above). Never tag on autopilot.
 
 Full end-to-end flow, semver guidance, and the checklist: [`RELEASING.md`](RELEASING.md).
 
+## Branching and stacked PRs (hard rule)
+
+A branch is finished by opening a PR and filling in *How to test* — never by merging locally.
+
+**Delete-on-merge and stacking are incompatible.** This repo deletes the head branch on merge (PR #4
+merged 2026-07-08 and its branch was gone three seconds later). GitHub only retargets a child PR
+onto the parent's base when the parent merges **and the parent's branch still exists**; when the
+branch is deleted, GitHub **closes** the child instead and its review thread goes with it. So:
+either keep the parent branch alive until every child has merged, or do not stack.
+
+- **Retarget the child by hand before merging the parent** — `gh pr edit <n> --base main`. It is the
+  reliable move whatever the repo's delete setting says.
+- **Recovery, if it already happened:** reopen the closed PR only if its head branch still exists
+  (`gh pr reopen <n>`, restoring the branch first if GitHub offers it). Otherwise recover the
+  commits from the local branch or `git reflog`, push them again, and open a fresh PR against
+  `main`. The old review thread does not come back.
+
 ## General
 
 - Conventional Commits. End commit messages with the `Co-Authored-By` trailer used across the repo.
