@@ -18,6 +18,7 @@ import { FirewallGuidance } from "./components/FirewallGuidance.js";
 import { TargetConflictBanner } from "./components/TargetConflictBanner.js";
 import { TargetPicker } from "./components/TargetPicker.js";
 import { BroadcastList } from "./components/BroadcastList.js";
+import { IngestionReadout } from "./components/IngestionReadout.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { PresetForm } from "./components/PresetForm.js";
 import { PresetFillModal } from "./components/PresetFillModal.js";
@@ -558,6 +559,14 @@ export function App() {
           apiEnabled={state ? state.apiEnabled : null}
           pin={state?.targetPin ?? null}
           onPinned={refreshSession}
+        />
+
+        {/* Whether video is actually arriving, right above the list it explains: "nothing will
+            air" and "nothing is arriving" are different faults with different fixes, and seeing
+            them together is what stops a Studio trip to work out which one this is (issue 059). */}
+        <IngestionReadout
+          apiEnabled={state ? state.apiEnabled : null}
+          ingestion={state?.ingestion ?? null}
         />
 
         {/* Which broadcast every action below writes to. Placed above the presets because it

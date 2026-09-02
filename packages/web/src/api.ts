@@ -31,6 +31,9 @@ export type {
   BroadcastCandidate,
   BroadcastListing,
   BroadcastListEntry,
+  IngestionReadout,
+  IngestionReport,
+  IngestionState,
   SessionInfo,
   Person,
   InviteSummary,
@@ -58,6 +61,7 @@ import type {
   TargetPin,
   BroadcastCandidate,
   BroadcastListing,
+  IngestionReport,
   SessionInfo,
   Person,
   InviteSummary,
@@ -263,6 +267,10 @@ export const api = {
   /** The read-only answer to "which broadcast will actually air?" (issue 057). */
   broadcasts: {
     list: () => req<BroadcastListing>("/api/dashboard/broadcasts"),
+  },
+  /** What YouTube is seeing on the default ingestion key, read live — 1 quota unit (issue 059). */
+  ingestion: {
+    read: () => req<IngestionReport>("/api/dashboard/ingestion"),
   },
   /** Which broadcast actions edit — the operator's choice, or null to choose automatically. */
   target: {

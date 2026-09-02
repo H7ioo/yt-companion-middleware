@@ -7,6 +7,7 @@ import { initialHealth, onFailure, onSuccess, type HealthState } from "./health.
 import type { StateEvents } from "./events.js";
 import { categoryForCode, levelForCode, type Logger } from "./logger.js";
 import { isFastWindow, pollIntervalMs, type CadenceInput } from "./pollCadence.js";
+import { readIngestion } from "../youtube/ingestion.js";
 
 /**
  * Holds the state served to Companion feedback endpoints (PRD §5.4). All feedback reads
@@ -240,6 +241,7 @@ export class StateCache {
       // replay itself fails; the replay writes the cache again on success.
       await this.replayPendingIfNeeded(previous, target);
       await this.noteGoLive(target);
+      await this.refreshIngestion();
     } catch (err) {
       const mapped = mapYouTubeError(err);
       // An idle channel with no active/persistent broadcast is an expected state, not a
@@ -265,10 +267,59 @@ export class StateCache {
           // reconcileActivePreset hold on to a preset that names one.
           ...this.reconcileActivePreset(null, presetEpoch, null),
         });
+        await this.refreshIngestion();
         return;
       }
       await this.recordFailure(mapped);
     }
+  }
+
+  /**
+   * Reads what YouTube is seeing on the default ingestion key, and caches it (issue 059).
+   *
+   * Cached rather than read per request because every Companion feedback is served from this
+   * cache at zero quota, and a feedback that reached out to YouTube on each poll would cost more
+   * than the whole rest of the module put together.
+   *
+   * The cost is paid only when the answer can matter: while a broadcast is live, and inside the
+   * same armed window the fast probe uses — the pre-show "is it stuck on preparing?" gap. At one
+   * unit per full refresh that is ~60 units an hour on a show night, against 10,000 a day. Idle at
+   * three in the afternoon it spends nothing, which is the state the app is in most of its life.
+   *
+   * A failure here is swallowed on purpose: the refresh that just ran *did* reach YouTube, and
+   * letting a secondary read degrade health would report a working connection as broken.
+   */
+  private async refreshIngestion(): Promise<void> {
+    const streamId = this.store.get().defaults.defaultStreamBoundId;
+    // No key named, so there is nothing to ask about — and any reading still held is about a key
+    // the operator has since stopped calling the default. Stale is tolerable, wrong is not.
+    if (!streamId) {
+      if (this.snapshot().ingestion) await this.writeCache({ ingestion: null });
+      return;
+    }
+    if (!this.ingestionWorthReading()) return;
+    try {
+      const snapshot = await withTimeout(
+        readIngestion(this.yt, streamId, new Date().toISOString()),
+        REFRESH_TIMEOUT_MS,
+      );
+      await this.writeCache({ ingestion: snapshot });
+    } catch (err) {
+      // Not recordFailure: see the note above. Logged at debug level only — a mid-show panel
+      // filling with "could not read ingestion" would bury the entries that matter.
+      console.warn("[stateCache] ingestion read failed:", err);
+    }
+  }
+
+  /**
+   * Whether an ingestion reading is worth a quota unit right now: something is on air, or a latch
+   * is armed and still inside the fast window. The same predicate the poll cadence uses, so the
+   * readout is fresh exactly while the app is already looking hard, and free the rest of the time.
+   */
+  private ingestionWorthReading(): boolean {
+    if (!this.store.get().service.apiEnabled) return false;
+    if (this.snapshot().status.isLive) return true;
+    return isFastWindow(this.cadenceInput());
   }
 
   /**

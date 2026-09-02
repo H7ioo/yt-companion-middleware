@@ -35,6 +35,7 @@ const FEEDBACK_IDS = [
 	'target_conflict',
 	'health_state',
 	'health_color',
+	'ingestion_state',
 	'active_preset',
 	'link_down',
 ]
@@ -423,6 +424,10 @@ class YtMiddlewareInstance extends InstanceBase {
 			{ variableId: 'undo_label', name: 'Undo target label' },
 			{ variableId: 'target_conflict', name: 'Target conflict code (blank when unambiguous)' },
 			{ variableId: 'target_conflict_message', name: 'Target conflict explanation' },
+			{ variableId: 'ingestion_state', name: 'Signal in (receiving/problems/no-data/unknown)' },
+			{ variableId: 'ingestion_label', name: 'Signal in, in words ("Receiving video")' },
+			{ variableId: 'ingestion_key', name: 'Ingestion key the reading is about' },
+			{ variableId: 'ingestion_checked_at', name: 'When the signal was last read (ISO)' },
 			{ variableId: 'last_error', name: 'Last action error (code + message)' },
 			{ variableId: 'dashboard_url', name: 'Dashboard base URL' },
 			{ variableId: 'link', name: 'Server link (connected/connecting/disconnected)' },
@@ -527,6 +532,28 @@ class YtMiddlewareInstance extends InstanceBase {
 				defaultStyle: { bgcolor: COMPANION_COLORS.linkDown, color: combineRgb(255, 255, 255) },
 				options: [],
 				callback: () => isLinkDown(this.link),
+			},
+			ingestion_state: {
+				type: 'boolean',
+				name: 'Signal in is…',
+				description:
+					'True when YouTube\'s view of the ingestion key matches the selected state — is video actually arriving? This is the mid-show "is it stuck on preparing?" question, answered on a key. It is not health: the middleware can be perfectly connected to YouTube while nothing at all is arriving from the encoder. Amber by default, because the states worth putting on a key are the ones that are not "receiving".',
+				defaultStyle: { bgcolor: COMPANION_COLORS.apiOff, color: combineRgb(0, 0, 0) },
+				options: [
+					{
+						type: 'dropdown',
+						id: 'which',
+						label: 'Signal in',
+						default: 'no-data',
+						choices: [
+							{ id: 'receiving', label: 'Receiving video' },
+							{ id: 'problems', label: 'Arriving with problems' },
+							{ id: 'no-data', label: 'Nothing arriving' },
+							{ id: 'unknown', label: 'Not known' },
+						],
+					},
+				],
+				callback: (fb) => this.latest?.ingestion?.state === fb.options.which,
 			},
 			active_preset: {
 				type: 'boolean',

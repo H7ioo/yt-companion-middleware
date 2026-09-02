@@ -11,6 +11,7 @@ import { categoriesRouter } from "./routes/categories.js";
 import { streamsRouter } from "./routes/streams.js";
 import { targetRouter } from "./routes/target.js";
 import { broadcastsRouter } from "./routes/broadcasts.js";
+import { ingestionRouter } from "./routes/ingestion.js";
 import { webhookRouter } from "./routes/webhook.js";
 import { serviceRouter } from "./routes/service.js";
 import { logsRouter } from "./routes/logs.js";
@@ -220,6 +221,7 @@ export function mountApiRoutes(app: Express, ctx: AppContext): void {
   app.use("/api/dashboard/streams", streamsRouter(ctx));
   app.use("/api/dashboard/target", targetRouter(ctx));
   app.use("/api/dashboard/broadcasts", broadcastsRouter(ctx));
+  app.use("/api/dashboard/ingestion", ingestionRouter(ctx));
   app.use("/api/dashboard/webhook", webhookRouter(ctx));
   app.use("/api/dashboard/service", serviceRouter(ctx));
   app.use("/api/dashboard/logs", logsRouter(ctx));

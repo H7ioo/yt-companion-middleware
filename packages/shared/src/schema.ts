@@ -97,6 +97,36 @@ export const pendingMetadataSchema = z.object({
 });
 export type PendingMetadata = z.infer<typeof pendingMetadataSchema>;
 
+/**
+ * What YouTube says it is seeing on one ingestion key, read from `liveStreams.list` (issue 059).
+ *
+ * The raw values are carried rather than the resolved state: the classification is a pure function
+ * in the shared glossary ({@link describeIngestion}), and persisting its *output* would freeze
+ * yesterday's mapping into the store the first time that function is corrected.
+ */
+export const ingestionSnapshotSchema = z.object({
+  /** The key this reading is about — a reading is meaningless without it. */
+  streamId: z.string(),
+  streamTitle: z.string().nullable().default(null),
+  /** `status.streamStatus`: active | created | error | inactive | ready. */
+  streamStatus: z.string().nullable().default(null),
+  /** `status.healthStatus.status`: good | ok | bad | noData. */
+  healthStatus: z.string().nullable().default(null),
+  /** YouTube's own configuration complaints, verbatim — the actionable half of "problems". */
+  issues: z
+    .array(
+      z.object({
+        severity: z.string().nullable().default(null),
+        reason: z.string().nullable().default(null),
+        description: z.string().nullable().default(null),
+      }),
+    )
+    .default([]),
+  /** When this reading was taken. A stale reading is still worth showing — labelled as stale. */
+  checkedAt: z.string(),
+});
+export type IngestionSnapshot = z.infer<typeof ingestionSnapshotSchema>;
+
 /** Cached status/health state served to Companion feedback endpoints (PRD §5.4). */
 export const cacheSchema = z.object({
   status: z
@@ -134,6 +164,12 @@ export const cacheSchema = z.object({
   pendingMetadata: pendingMetadataSchema.nullable().default(null),
   /** Id of the last resolved target, so a change while idle can be spotted as drift. */
   lastTargetId: z.string().nullable().default(null),
+  /**
+   * The last ingestion reading for the default ingestion key (issue 059), or null when none has
+   * been taken. Cached rather than read per request so the Companion feedback keeps the zero-quota
+   * promise every other feedback makes — the poll loop refreshes it, and only when it can matter.
+   */
+  ingestion: ingestionSnapshotSchema.nullable().default(null),
 });
 export type CacheState = z.infer<typeof cacheSchema>;
 

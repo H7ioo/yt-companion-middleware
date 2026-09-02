@@ -33,6 +33,31 @@ export function mapVariables(state, presets = []) {
     undo_label: s.undo?.label ?? '',
     target_conflict: s.targetConflict?.code ?? '',
     target_conflict_message: s.targetConflict?.message ?? '',
+    ...ingestionVariables(s),
+  };
+}
+
+/**
+ * The ingestion readout as Companion variables (issue 059) — is video actually arriving at
+ * YouTube on the key OBS pushes to?
+ *
+ * The state and its label are taken from the frame as-is rather than derived here. The middleware
+ * resolves them from the shared glossary before pushing, and a classifier duplicated in this
+ * module — which is bundled standalone and cannot import that glossary — is a copy that would
+ * drift the first time the mapping is corrected.
+ *
+ * `ingestion_checked_at` is not decoration: "receiving video" from twenty minutes ago is a fact
+ * about twenty minutes ago, and a key that shows the state without the stamp is a key that says
+ * the encoder is fine while OBS sits disconnected.
+ * @param {Record<string, any> | undefined} state
+ */
+export function ingestionVariables(state) {
+  const ingestion = state?.ingestion ?? null;
+  return {
+    ingestion_state: ingestion?.state ?? '',
+    ingestion_label: ingestion?.label ?? '',
+    ingestion_key: ingestion?.streamTitle ?? '',
+    ingestion_checked_at: ingestion?.checkedAt ?? '',
   };
 }
 

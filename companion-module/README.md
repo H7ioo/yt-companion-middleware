@@ -182,6 +182,7 @@ Image feedbacks are the reason this module exists; boolean feedbacks recolour ke
 | **Busy** | boolean | While an action is in progress. Default: blue bg. |
 | **API disabled** | boolean | When the kill switch is off. Default: amber bg, black text. |
 | **Health state is…** | boolean | When `health` equals the dropdown value (`ok`/`degraded`/`auth_error`). Default: amber bg. |
+| **Signal in is…** | boolean | When YouTube's view of the ingestion key equals the dropdown value (`receiving` / `problems` / `no-data` / `unknown`) — is video actually arriving? Not health: the middleware can be reaching YouTube fine while the encoder is pushing nothing. Default: amber bg, black text. |
 | **Active preset is…** | boolean | When the dropdown-selected preset is the active one — highlights the applied preset’s key. Default: violet bg. |
 | **Server unreachable (no live link)** | boolean | Whenever the module is not holding the state socket — connecting, reconnecting or given up. Default: magenta bg. Distinct from `offline` health, which is the *server* saying it cannot reach YouTube; this one means the module cannot reach the server, so every reading on the deck is stale and every press lands nowhere. |
 

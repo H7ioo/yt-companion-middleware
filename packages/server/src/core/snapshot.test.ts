@@ -33,6 +33,7 @@ function state(over: Partial<DashboardState> = {}): DashboardState {
     healthMessage: null,
     lastRefreshedAt: "2026-07-03T00:00:00.000Z",
     targetPin: null,
+    ingestion: null,
     busy: false,
     quota: { date: "2026-07-03", used: 0, limit: 10000, remaining: 10000 },
     undo: null,

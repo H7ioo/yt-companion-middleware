@@ -139,3 +139,106 @@ export const TARGET_CONFLICT_GLOSSARY: Record<TargetConflict["code"], TargetConf
     remedy: "Pick the broadcast to edit again, or clear the pin to go back to automatic.",
   },
 };
+
+/**
+ * The ingestion slice of the glossary: is video actually arriving at YouTube right now?
+ * (PRD-16 §3, issue 059.)
+ *
+ * This is the readout that replaces the single most common mid-show Studio trip — "is it stuck on
+ * preparing?" — and it is deliberately its own vocabulary rather than a health state. Health
+ * answers "can this app reach YouTube"; this answers "can YouTube see the encoder". The two are
+ * independent in both directions: a perfectly healthy app watches a stream nothing is arriving on,
+ * and an app that has lost its own connection says nothing at all about what OBS is pushing.
+ *
+ * It is also not the embedded player (issue 065). That is the audience's delayed view; this is the
+ * live signal, and conflating them is how an operator concludes the stream is fine because a
+ * twenty-second-old frame is still playing.
+ */
+export type IngestionState = "receiving" | "problems" | "no-data" | "unknown";
+
+export interface IngestionTerm {
+  /** Display name for the state ("Receiving video"). */
+  label: string;
+  /** One plain-language sentence: what YouTube is seeing, in the operator's terms. */
+  meaning: string;
+  /** The Companion key colour this state lights, named for the guide table. */
+  keyColor: "Green" | "Yellow" | "Grey" | "Red";
+  /** What the operator does about it, in one sentence. */
+  remedy: string;
+}
+
+export const INGESTION_GLOSSARY: Record<IngestionState, IngestionTerm> = {
+  receiving: {
+    label: "Receiving video",
+    meaning: "YouTube is getting the encoder's video on this key right now.",
+    keyColor: "Green",
+    remedy: "Nothing to do — the encoder is through.",
+  },
+  problems: {
+    label: "Arriving with problems",
+    meaning:
+      "Video is reaching YouTube on this key, but YouTube is unhappy with it — bitrate, frame rate or a dropped connection.",
+    keyColor: "Yellow",
+    remedy: "Check the encoder's bitrate and network before the show; viewers may see buffering.",
+  },
+  "no-data": {
+    label: "Nothing arriving",
+    meaning: "YouTube is seeing no video on this key — the encoder is not pushing, or is pushing somewhere else.",
+    keyColor: "Red",
+    remedy: "Start the encoder, and check it is pushing to this key rather than another one.",
+  },
+  unknown: {
+    label: "Not known",
+    meaning: "YouTube has not said what it is seeing on this key — nothing has been read yet, or it answered with something this app does not recognise.",
+    keyColor: "Grey",
+    remedy: "Re-check, and if it persists open YouTube Studio for the authoritative answer.",
+  },
+};
+
+/** The raw ingestion fields, exactly as `liveStreams.list` reports them. */
+export interface IngestionStatusFields {
+  /** `status.streamStatus`: active | created | error | inactive | ready. */
+  streamStatus: string | null;
+  /** `status.healthStatus.status`: good | ok | bad | noData. */
+  healthStatus: string | null;
+}
+
+/**
+ * Resolves the canonical ingestion state from YouTube's two raw fields, and hands back the copy
+ * for it so a surface needs one call rather than a classify-then-look-up pair.
+ *
+ * Pure and total: an unrecognised value from either field resolves to `unknown` rather than being
+ * quietly bucketed into a state that reads as an answer. YouTube has changed this vocabulary
+ * before, and "we do not know" is the only honest thing to print when it does.
+ */
+export function describeIngestion(
+  fields: IngestionStatusFields,
+): IngestionTerm & { state: IngestionState } {
+  const state = ingestionState(fields);
+  return { state, ...INGESTION_GLOSSARY[state] };
+}
+
+function ingestionState({ streamStatus, healthStatus }: IngestionStatusFields): IngestionState {
+  // An explicit ingestion error outranks whatever health last said: `healthStatus` can still read
+  // `good` from before the encoder fell over, and reporting that would be worse than saying
+  // nothing.
+  if (streamStatus === "error") return "problems";
+  if (streamStatus === "active") {
+    // `active` is the primary signal — data is arriving — so an absent or unrecognised health
+    // reading downgrades the detail, not the answer.
+    if (healthStatus === "bad") return "problems";
+    // Contradictory, and YouTube does report it in the seconds after the encoder stops: the
+    // stream is still marked active while no data is coming in. The absence of data is the fact
+    // the operator needs.
+    if (healthStatus === "noData") return "no-data";
+    if (healthStatus === "good" || healthStatus === "ok" || healthStatus === null) return "receiving";
+    return "unknown";
+  }
+  // Every other state YouTube defines means the same thing to an operator: the key exists and
+  // nothing is coming in on it. Why it is idle (never used, previously used, waiting) is detail
+  // the panel can show from the raw values; it is not a different answer.
+  if (streamStatus === "ready" || streamStatus === "inactive" || streamStatus === "created") {
+    return "no-data";
+  }
+  return "unknown";
+}
