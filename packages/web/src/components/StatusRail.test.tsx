@@ -23,6 +23,7 @@ const state = (over: Partial<DashboardState> = {}): DashboardState => ({
   busy: false,
   quota: { date: "2026-08-30", used: 0, limit: 10000, remaining: 10000 },
   undo: null,
+  ingestion: null,
   apiEnabled: true,
   fillRequest: null,
   targetConflict: null,

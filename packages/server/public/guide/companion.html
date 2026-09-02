@@ -376,6 +376,7 @@
                 <tr><td><strong>Busy</strong></td><td>boolean</td><td>While an action applies. Default blue.</td></tr>
                 <tr><td><strong>API disabled</strong></td><td>boolean</td><td>When the kill-switch is off. Default amber with black text.</td></tr>
                 <tr><td><strong>Health state is…</strong></td><td>boolean</td><td>When <code>health</code> equals the chosen value. Default amber.</td></tr>
+                <tr><td><strong>Signal in is…</strong></td><td>boolean</td><td>When YouTube's view of the ingestion key equals the chosen value — <code>receiving</code>, <code>problems</code>, <code>no-data</code>, <code>unknown</code>. This is “is video actually arriving?”, not health: the middleware can be reaching YouTube fine while the encoder pushes nothing. Default amber with black text.</td></tr>
                 <tr><td><strong>Active preset is…</strong></td><td>boolean</td><td>When the chosen preset is the active one — highlights its key. Default violet.</td></tr>
               </tbody>
             </table>

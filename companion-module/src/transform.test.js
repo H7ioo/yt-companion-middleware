@@ -7,6 +7,7 @@ import {
   COMPANION_COLORS,
   formatLastError,
   healthColor,
+  ingestionVariables,
   isLinkDown,
   joinUrl,
   linkVariables,
@@ -334,3 +335,48 @@ describe('COMPANION_COLORS.linkDown', () => {
     expect(COMPANION_COLORS.linkDown).not.toBe(healthColor('auth_error'));
   });
 });
+
+describe('ingestionVariables (issue 059)', () => {
+  it('carries the server-resolved state and copy, so the module never classifies twice', () => {
+    expect(
+      ingestionVariables({
+        ingestion: {
+          state: 'problems',
+          label: 'Arriving with problems',
+          streamTitle: 'OBS key',
+          checkedAt: '2026-09-02T18:00:00.000Z',
+        },
+      }),
+    ).toEqual({
+      ingestion_state: 'problems',
+      ingestion_label: 'Arriving with problems',
+      ingestion_key: 'OBS key',
+      ingestion_checked_at: '2026-09-02T18:00:00.000Z',
+    })
+  })
+
+  it('blanks every field when nothing has been read, rather than showing a stale key name', () => {
+    expect(ingestionVariables({ ingestion: null })).toEqual({
+      ingestion_state: '',
+      ingestion_label: '',
+      ingestion_key: '',
+      ingestion_checked_at: '',
+    })
+  })
+
+  it('survives a state frame from a server too old to send the field at all', () => {
+    expect(ingestionVariables({}).ingestion_state).toBe('')
+    expect(ingestionVariables(undefined).ingestion_state).toBe('')
+  })
+})
+
+describe('mapVariables ingestion fields', () => {
+  it('folds the ingestion readout in, so one state frame drives the key', () => {
+    const vars = mapVariables({
+      status: {},
+      ingestion: { state: 'receiving', label: 'Receiving video', streamTitle: 'OBS key' },
+    })
+    expect(vars.ingestion_state).toBe('receiving')
+    expect(vars.ingestion_label).toBe('Receiving video')
+  })
+})

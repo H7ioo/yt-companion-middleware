@@ -33,6 +33,7 @@ function state(over: Partial<DashboardState> = {}): DashboardState {
     healthMessage: null,
     lastRefreshedAt: "2026-07-03T00:00:00.000Z",
     targetPin: null,
+    ingestion: null,
     busy: false,
     quota: { date: "2026-07-03", used: 0, limit: 10000, remaining: 10000 },
     undo: null,
@@ -53,6 +54,31 @@ describe("changeSignature", () => {
   it("changes when a visible field moves (isLive)", () => {
     expect(changeSignature(state())).not.toBe(
       changeSignature(state({ status: { title: "T", privacyStatus: "public", isLive: true, noTarget: false } })),
+    );
+  });
+
+  it("pushes a re-read ingestion answer, so the age stamp does not freeze at 'just now'", () => {
+    // The reading is unchanged; only when it was taken has moved. The panel prints that age and
+    // Companion exposes it as `ingestion_checked_at`, so an unpushed re-read leaves every surface
+    // claiming a minutes-old answer is current.
+    const reading = (checkedAt: string) => ({
+      streamId: "S1",
+      streamTitle: "OBS key",
+      streamStatus: "active",
+      healthStatus: "good",
+      issues: [],
+      checkedAt,
+      state: "receiving" as const,
+      label: "Receiving video",
+      meaning: "m",
+      remedy: "r",
+    });
+    expect(changeSignature(state({ ingestion: reading("2026-07-03T00:00:00.000Z") }))).not.toBe(
+      changeSignature(state({ ingestion: reading("2026-07-03T00:02:00.000Z") })),
+    );
+    // Bucketed to the poll cadence: jitter within the same minute is not a push.
+    expect(changeSignature(state({ ingestion: reading("2026-07-03T00:00:00.000Z") }))).toBe(
+      changeSignature(state({ ingestion: reading("2026-07-03T00:00:31.000Z") })),
     );
   });
 

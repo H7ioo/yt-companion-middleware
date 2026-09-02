@@ -7,6 +7,7 @@ import { initialHealth, onFailure, onSuccess, type HealthState } from "./health.
 import type { StateEvents } from "./events.js";
 import { categoryForCode, levelForCode, type Logger } from "./logger.js";
 import { isFastWindow, pollIntervalMs, type CadenceInput } from "./pollCadence.js";
+import { readIngestion } from "../youtube/ingestion.js";
 
 /**
  * Holds the state served to Companion feedback endpoints (PRD §5.4). All feedback reads
@@ -33,6 +34,13 @@ const PENDING_TTL_MS = 6 * 60 * 60 * 1000;
  * link still completes within the 60s refresh interval.
  */
 const REFRESH_TIMEOUT_MS = 20_000;
+
+/**
+ * How long a cached ingestion reading stays believable once the loop has stopped re-reading it.
+ * Long enough that a manual check while idle is not thrown away on the next tick, short enough
+ * that no surface reports "receiving video" about a show that ended hours ago.
+ */
+const INGESTION_STALE_MS = 5 * 60_000;
 
 /** Rejects with a NETWORK_ERROR-shaped failure if `p` has not settled within the timeout. */
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -100,6 +108,8 @@ export class StateCache {
    * keeps its full refresh; probes ride between them.
    */
   private lastFullRefreshStartedAt = 0;
+  /** The stream the last-seen target broadcast is bound to, if any. See refreshIngestion. */
+  private boundStreamId: string | null = null;
 
   /**
    * Bumped every time the active preset is set or cleared. A refresh samples it before its GET and
@@ -186,9 +196,19 @@ export class StateCache {
     const run: Promise<void> = (async () => {
       // Its failure is its own caller's business — runRefresh already recorded it on health.
       if (prior) await prior.catch(() => {});
-      await withTimeout(this.runRefresh(), REFRESH_TIMEOUT_MS).catch((err) =>
-        this.recordFailure(err),
+      const reached = await withTimeout(this.runRefresh(), REFRESH_TIMEOUT_MS).then(
+        () => true,
+        async (err) => {
+          await this.recordFailure(err);
+          return false;
+        },
       );
+      // Deliberately outside the watchdog above. Inside it, a hung `liveStreams.list` would trip
+      // the 20s timeout and land on `recordFailure` — degrading health toward offline over a
+      // secondary read, which is the exact opposite of what refreshIngestion promises. Skipped
+      // when the refresh itself failed: YouTube is not answering, and a second call proves it
+      // twice at twice the quota.
+      if (reached) await this.refreshIngestion();
     })().finally(() => {
       // Only clear if no later forced refresh has since taken the slot.
       if (this.inFlight === run) this.inFlight = null;
@@ -214,6 +234,9 @@ export class StateCache {
       );
       const broadcast = await getBroadcast(this.yt, target.id);
       const status = toStatus(broadcast);
+      // The key the broadcast about to air is actually bound to — which is not always the one
+      // named as the default. See refreshIngestion.
+      this.boundStreamId = broadcast.contentDetails?.boundStreamId ?? null;
       this.health = onSuccess(this.health);
       this.logRecovery(wasUnhealthy);
       const previous = this.snapshot();
@@ -246,6 +269,8 @@ export class StateCache {
       // health failure. Keep health green and flag it as "no target" rather than
       // escalating toward auth_error (PRD §5.4 is about API failures, not empty results).
       if (mapped.code === "NO_TARGET_FOUND") {
+        // No broadcast, so nothing is bound to anything; fall back to the named default key.
+        this.boundStreamId = null;
         this.health = onSuccess(this.health);
         this.logRecovery(wasUnhealthy);
         await this.writeCache({
@@ -269,6 +294,83 @@ export class StateCache {
       }
       await this.recordFailure(mapped);
     }
+  }
+
+  /**
+   * Reads what YouTube is seeing on the ingestion key the show is bound to, and caches it (059).
+   *
+   * Cached rather than read per request because every Companion feedback is served from this
+   * cache at zero quota, and a feedback that reached out to YouTube on each poll would cost more
+   * than the whole rest of the module put together.
+   *
+   * The cost is paid only when the answer can matter: while a broadcast is live, and inside the
+   * same armed window the fast probe uses — the pre-show "is it stuck on preparing?" gap. At one
+   * unit per full refresh that is ~60 units an hour on a show night, against 10,000 a day. Idle at
+   * three in the afternoon it spends nothing, which is the state the app is in most of its life.
+   *
+   * A failure here is swallowed on purpose: the refresh that just ran *did* reach YouTube, and
+   * letting a secondary read degrade health would report a working connection as broken.
+   */
+  private async refreshIngestion(): Promise<void> {
+    // The bound key first: the question is "is video arriving for tonight's show", and the show
+    // is the broadcast about to air. When it is bound to a key other than the named default —
+    // the mismatch willAir.ts models — reporting on the default answers the wrong question in
+    // both directions, green while nothing arrives and red while the show is fine.
+    const streamId = this.boundStreamId ?? this.store.get().defaults.defaultStreamBoundId;
+    // No key named, so there is nothing to ask about — and any reading still held is about a key
+    // the operator has since stopped calling the default. Stale is tolerable, wrong is not.
+    if (!streamId) {
+      if (this.snapshot().ingestion) await this.writeCache({ ingestion: null });
+      return;
+    }
+    // A reading about some other key is about a question nobody asked; drop it rather than let
+    // the panel name one key while the lamp reports another.
+    const held = this.snapshot().ingestion;
+    if (held && held.streamId !== streamId) await this.writeCache({ ingestion: null });
+    if (!this.ingestionWorthReading()) {
+      await this.expireStaleIngestion();
+      return;
+    }
+    try {
+      const snapshot = await withTimeout(
+        readIngestion(this.yt, streamId, new Date().toISOString()),
+        REFRESH_TIMEOUT_MS,
+      );
+      await this.writeCache({ ingestion: snapshot });
+    } catch (err) {
+      // Not recordFailure: see the note above. Logged at debug level only — a mid-show panel
+      // filling with "could not read ingestion" would bury the entries that matter.
+      console.warn("[stateCache] ingestion read failed:", err);
+    }
+  }
+
+  /**
+   * Drops a reading that has stopped being re-read (issue 059).
+   *
+   * The loop only spends a unit while a show is on or a latch is armed. Without this, the last
+   * reading taken before the show ended stays in the cache forever — so a Companion key bound to
+   * the ingestion feedback sits green all night on a key nothing has pushed to since ten o'clock.
+   * The grace window is what keeps a manual "Check now" at three in the afternoon useful: the
+   * answer the operator just paid for survives the next idle tick, it just does not survive the
+   * evening.
+   */
+  private async expireStaleIngestion(): Promise<void> {
+    const held = this.snapshot().ingestion;
+    if (!held) return;
+    const age = Date.now() - Date.parse(held.checkedAt);
+    if (Number.isFinite(age) && age < INGESTION_STALE_MS) return;
+    await this.writeCache({ ingestion: null });
+  }
+
+  /**
+   * Whether an ingestion reading is worth a quota unit right now: something is on air, or a latch
+   * is armed and still inside the fast window. The same predicate the poll cadence uses, so the
+   * readout is fresh exactly while the app is already looking hard, and free the rest of the time.
+   */
+  private ingestionWorthReading(): boolean {
+    if (!this.store.get().service.apiEnabled) return false;
+    if (this.snapshot().status.isLive) return true;
+    return isFastWindow(this.cadenceInput());
   }
 
   /**

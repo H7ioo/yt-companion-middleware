@@ -22,6 +22,7 @@ function armed(agoMs: number, isLive = false): CacheState {
       targetId: "old-broadcast",
       capturedAt: new Date(NOW - agoMs).toISOString(),
     },
+    ingestion: null,
     lastTargetId: "old-broadcast",
   };
 }

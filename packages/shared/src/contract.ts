@@ -1,4 +1,5 @@
-import type { HealthStatus, TargetConflict, TargetPin } from "./schema.js";
+import type { HealthStatus, IngestionSnapshot, TargetConflict, TargetPin } from "./schema.js";
+import type { IngestionState } from "./glossary.js";
 
 /**
  * HTTP/DTO contract types — the response shapes the server produces and the web app consumes.
@@ -44,6 +45,38 @@ export interface FeedbackStatus {
   privacyStatus: string | null;
   isLive: boolean;
   noTarget: boolean;
+}
+
+/**
+ * One ingestion reading, with the classification already applied (issue 059).
+ *
+ * The resolved state travels on the wire rather than being derived per surface, because one of
+ * those surfaces is the Companion module — it is bundled standalone and cannot import this
+ * package at runtime, so a classifier it had to keep its own copy of would be a copy that drifts.
+ */
+export interface IngestionReadout extends IngestionSnapshot {
+  state: IngestionState;
+  /** Display name for the state, from the shared glossary ("Receiving video"). */
+  label: string;
+  /** One plain-language sentence about what YouTube is seeing. */
+  meaning: string;
+  /** What the operator does about it, in one sentence. */
+  remedy: string;
+}
+
+/**
+ * The answer `GET /api/dashboard/ingestion` gives (issue 059). Exactly one of `readout` and
+ * `unavailable` is set: there is a reading, or there is a sentence saying why there is not.
+ * "No key bound" and "no credentials" are ordinary states of this app, not errors, and returning
+ * a 4xx for them would put a red banner on a correctly-configured install that simply has not
+ * been told which key OBS pushes to yet.
+ */
+export interface IngestionReport {
+  readout: IngestionReadout | null;
+  /** Why there is nothing to report, in words the operator can act on. Null when there is. */
+  unavailable: string | null;
+  /** Cost-weighted quota this request actually spent — 0 when it never reached YouTube. */
+  quotaUnits: number;
 }
 
 /** Health snapshot for Companion feedback endpoints. */
@@ -116,6 +149,13 @@ export interface DashboardState {
    * leaving it implicit.
    */
   targetPin: TargetPin | null;
+  /**
+   * What YouTube is seeing on the default ingestion key, or null when nothing has been read —
+   * no key is set, the switch is off, or the app has been idle and deliberately spent nothing
+   * (issue 059). `checkedAt` is what makes a stale reading safe to show: an old answer labelled
+   * as old is useful, an old answer presented as current is the reason Studio gets opened.
+   */
+  ingestion: IngestionReadout | null;
 }
 
 /**

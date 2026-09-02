@@ -6,7 +6,8 @@ import type { FillRequests } from "./fillRequests.js";
 import { renderTextPng } from "./titleImage.js";
 // DashboardState is the shared API contract for the dashboard state / SSE / webhook payloads.
 export type { DashboardState } from "@app/shared";
-import type { DashboardState } from "@app/shared";
+import { describeIngestion, type DashboardState, type IngestionReadout } from "@app/shared";
+import type { IngestionSnapshot } from "@app/shared";
 
 /** Assembles the current state from its sources — the single source of truth for the state
  *  route, the SSE stream, and webhook payloads. */
@@ -37,7 +38,20 @@ export function buildDashboardState(
     fillRequest: fills.pending(),
     targetConflict: c.targetConflict,
     targetPin: store.get().targetPin,
+    ingestion: toIngestionReadout(c.ingestion),
   };
+}
+
+/**
+ * Attaches the glossary's copy to a raw reading, so every surface says the same words about it
+ * (issue 021's rule, applied to issue 059's states). Done here rather than in each consumer
+ * because one consumer — the Companion module — is bundled standalone and cannot import the
+ * glossary at runtime; a second copy of this mapping is exactly what would drift.
+ */
+export function toIngestionReadout(snapshot: IngestionSnapshot | null): IngestionReadout | null {
+  if (!snapshot) return null;
+  const { state, label, meaning, remedy } = describeIngestion(snapshot);
+  return { ...snapshot, state, label, meaning, remedy };
 }
 
 /**
@@ -83,5 +97,14 @@ export function changeSignature(s: DashboardState): string {
     // Pinning or clearing changes where the next action lands, so it has to reach the dashboard
     // immediately rather than waiting for the next refresh to move something else.
     s.targetPin?.id ?? null,
+    // The state, the key it is about, and `checkedAt` bucketed to the minute. The state alone
+    // would never push an unchanged answer — and the whole readout turns on its age: the panel
+    // prints "read 4 minutes ago" and the Companion feedback exposes `ingestion_checked_at`, so a
+    // stamp that freezes at "just now" while the server re-reads every minute is precisely the
+    // "the encoder is fine, look, it says receiving" mistake this readout exists to prevent.
+    // Bucketing keeps it to the poll cadence rather than a push per millisecond of jitter.
+    s.ingestion
+      ? [s.ingestion.streamId, s.ingestion.state, Math.floor(Date.parse(s.ingestion.checkedAt) / 60_000)]
+      : null,
   ]);
 }

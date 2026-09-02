@@ -2359,3 +2359,70 @@ textarea {
   border-left: 3px solid var(--warn);
   border-radius: var(--radius);
 }
+
+/* ---- Signal in (ingestion readout, issue 059) ---------------------------- */
+/* The rack's own signal language: one lamp, the state in display weight, the evidence beneath.
+   Deliberately the same lamp vocabulary the tally and the health rail use — an operator reads
+   green/amber/red here without being taught a second colour scheme. */
+
+.feed {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 16px;
+  background: var(--bg-inset);
+  border: var(--seam-line);
+  border-radius: var(--radius);
+}
+.feed__lamp {
+  margin-top: 5px;
+}
+.feed__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.feed__state {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+.feed__note {
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+/* YouTube's own words about what is wrong, kept visually apart from our copy: this is the one
+   part of the panel the operator can act on directly. */
+.feed__issues {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.feed__issues li {
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--bg-rack);
+  border: var(--seam-line);
+  border-left: 2px solid var(--warn);
+  border-radius: 3px;
+}
+/* The stamp carries the whole honesty of the panel — "receiving" from twenty minutes ago is a
+   fact about twenty minutes ago — so it is quiet but never omitted. */
+.feed__stamp {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+.feed__cost {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}

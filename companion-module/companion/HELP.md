@@ -73,6 +73,10 @@ standing dashboard warning, and that window closes on evidence.
 reading the server pushed — while `link` is not `connected`, they are all as old as the outage and
 a key press goes nowhere. See **Server unreachable** below.
 
+`ingestion_state` / `ingestion_label` / `ingestion_key` / `ingestion_checked_at` describe what
+YouTube is seeing on the ingestion key OBS pushes to. They fill themselves in while a broadcast is
+live or a title is waiting to land, and go blank when the dashboard has read nothing yet.
+
 `last_error` holds the code + message of the most recent **failed** action (e.g.
 `INVALID_PRESET: no such preset`, `MISSING_TEMPLATE_VARS: …`). By default action errors surface
 only in Companion's **log panel**; bind `last_error` to a button's text to see the latest failure
@@ -92,6 +96,12 @@ changes when another action fails, so the last failure stays visible.
   means the server is still talking to you. This one means nothing is talking to you at all —
   every reading on the deck is stale and every press lands nowhere. The **Server link**,
   **On-air indicator**, **Busy indicator** and both image presets already carry it.
+- **Signal in is…** — is video actually arriving at YouTube on the ingestion key? This is the
+  mid-show "is it stuck on preparing?" question answered on a key, and it is **not** health: the
+  middleware can be perfectly connected to YouTube while nothing at all is arriving from the
+  encoder. The dropdown picks which state lights the key: *Receiving video*, *Arriving with
+  problems*, *Nothing arriving*, *Not known*. Pair it with `$(ytmeta:ingestion_checked_at)` —
+  "receiving video" from twenty minutes ago is a fact about twenty minutes ago.
 - **Health color (auto)** — recolors a key to the current middleware health, no config:
 
   | health | meaning | key color |

@@ -1,17 +1,7 @@
 import { describeBroadcastState, ACTION_GLOSSARY, HEALTH_GLOSSARY } from "@app/shared";
-import type { HealthTerm } from "@app/shared";
 import type { DashboardState, QuotaSnapshot, HealthStatus } from "../api.js";
 import { HealthExplainer } from "./HealthExplainer.js";
-
-// The glossary owns which key colour each health state lights (issue 021); this owns how the rail
-// renders that colour. offline is slate (network), auth_error is red (needs reauth), so the two
-// failure modes never read as the same fault (PRD-06 §2 / issue 019 AC #3).
-const LAMP_FOR_KEY_COLOR: Record<HealthTerm["keyColor"], string> = {
-  Green: "lamp--ready",
-  Yellow: "lamp--warn",
-  Grey: "lamp--offline",
-  Red: "lamp--err",
-};
+import { LAMP_FOR_KEY_COLOR } from "../lib/lamps.js";
 
 // Derive the lamp class from the canonical glossary key colour so a glossary recolour reaches the
 // dashboard without a second edit — the same consumption pattern healthExplainer.ts uses.
