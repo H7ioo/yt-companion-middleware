@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { youtube_v3 } from "googleapis";
 import type { PreparedBroadcast } from "../storage/schema.js";
 import {
+  MISSING_GRACE_MS,
   RETIRE_GRACE_MS,
   airedAtOf,
   planSweep,
@@ -118,10 +119,39 @@ describe("planSweep", () => {
     expect(plan.gone).toEqual([]);
   });
 
-  it("marks a record whose broadcast YouTube no longer has as gone, not as one to delete", () => {
-    const plan = planSweep([record()], [], NOW);
+  it("keeps one created moments ago, however far in the past its slot was", () => {
+    // The prepare route accepts a start time already gone. Without the second window, the next
+    // press of Prepare would delete a broadcast made a minute earlier, unasked.
+    const plan = planSweep(
+      [record({ createdAt: new Date(NOW - 60_000).toISOString() })],
+      [remote()],
+      NOW,
+    );
     expect(plan.retire).toEqual([]);
+  });
+
+  it("marks a record whose broadcast YouTube no longer has as gone, not as one to delete", () => {
+    // Another owned id comes back, so the read did answer — the missing one really is missing.
+    const plan = planSweep([record(), record({ id: "ours-2" })], [remote({ id: "ours-2" })], NOW);
+    expect(plan.retire.map((r) => r.record.id)).toEqual(["ours-2"]);
     expect(plan.gone.map((g) => g.record.id)).toEqual(["ours-1"]);
+  });
+
+  it("stamps nothing when YouTube names none of the ids it was asked about", () => {
+    // What reconnecting OAuth to a different channel looks like. Calling the whole list gone
+    // would strike out every live link at once, and the stamp is never revisited.
+    const plan = planSweep([record(), record({ id: "ours-2" })], [], NOW);
+    expect(plan.gone).toEqual([]);
+    expect(plan.retire).toEqual([]);
+  });
+
+  it("leaves a just-created record alone when the list does not mention it yet", () => {
+    const plan = planSweep(
+      [record({ id: "fresh", createdAt: new Date(NOW - MISSING_GRACE_MS + 60_000).toISOString() }), record({ id: "ours-2" })],
+      [remote({ id: "ours-2" })],
+      NOW,
+    );
+    expect(plan.gone).toEqual([]);
   });
 });
 

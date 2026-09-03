@@ -110,8 +110,9 @@ export function broadcastsRouter(ctx: AppContext): Router {
     // Clear our own ghosts *before* the insert, not after it. YouTube refuses `insert` once the
     // channel holds too many live and scheduled broadcasts, and the whole point of retiring them
     // is that the refusal never happens on the night it matters (issue 064). One read, plus a
-    // write per ghost actually found.
-    await sweepQuietly(ctx);
+    // write per ghost actually found — charged to this press, because the quota tracker counts
+    // those calls and a reported cost that leaves them out disagrees with it.
+    const sweepUnits = await sweepQuietly(ctx);
 
     try {
       const { broadcast: prepared, warning } = await prepareBroadcast(ctx.yt, input, {
@@ -145,7 +146,7 @@ export function broadcastsRouter(ctx: AppContext): Router {
       // 200 even for a half-finished preparation: the broadcast is on the channel with a public
       // link, and an error body would hide the id the operator needs to fix or delete it — and
       // would have them press create again, putting a second public broadcast out there.
-      res.json({ prepared, quotaUnits: prepareCost(input), warning });
+      res.json({ prepared, quotaUnits: prepareCost(input) + sweepUnits, warning });
     } catch (err) {
       const mapped = mapYouTubeError(err);
       if (isEligibilityError(mapped)) {
@@ -215,6 +216,21 @@ export function broadcastsRouter(ctx: AppContext): Router {
           new AppError(
             "NO_TARGET_FOUND",
             `Broadcast ${id} is not one this app created, so it is not this app's to delete. ` +
+              `Delete it in YouTube Studio if that is really what you want.`,
+          ),
+        ),
+      );
+      return;
+    }
+    // Aired broadcasts are recordings, and deleting one takes the recording with it. The dialog
+    // already hides the button; this is the same refusal for a stale tab or a direct call, and it
+    // is the sweep's rule (`planSweep` never touches an aired record) held at the route too.
+    if (record.airedAt !== null) {
+      res.status(409).json(
+        toErrorBody(
+          new AppError(
+            "INVALID_REQUEST",
+            `“${record.title}” has been on air, so it is a recording now. ` +
               `Delete it in YouTube Studio if that is really what you want.`,
           ),
         ),
@@ -305,9 +321,9 @@ async function runSweep(ctx: AppContext): Promise<SweepResult> {
  * The sweep as a courtesy before a preparation: it must never be the reason tonight's broadcast
  * does not get made. A cleanup that cannot run is a note in the feed, not a failed press.
  */
-async function sweepQuietly(ctx: AppContext): Promise<void> {
+async function sweepQuietly(ctx: AppContext): Promise<number> {
   try {
-    await runSweep(ctx);
+    return (await runSweep(ctx)).quotaUnits;
   } catch (err) {
     ctx.logger.push({
       level: "warn",
@@ -315,6 +331,9 @@ async function sweepQuietly(ctx: AppContext): Promise<void> {
       code: null,
       message: `Could not clear old broadcasts before creating this one — ${mapYouTubeError(err).message}`,
     });
+    // The read that failed still cost its unit in most refusals, but the tracker is the authority
+    // on what was actually spent; a sweep that got nowhere adds nothing to this press's total.
+    return 0;
   }
 }
 

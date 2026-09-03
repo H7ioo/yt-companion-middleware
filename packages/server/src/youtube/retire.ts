@@ -26,6 +26,17 @@ import { mapYouTubeError } from "./client.js";
  */
 export const RETIRE_GRACE_MS = 12 * 60 * 60 * 1000;
 
+/**
+ * How long a record is protected from being called gone just because YouTube did not name it.
+ *
+ * `liveBroadcasts.list` is not instantly consistent with an insert that returned a moment ago, and
+ * "gone" is a one-way stamp — a record marked gone strikes out its link and is never examined
+ * again. A broadcast created minutes ago that the list does not mention yet is a read-after-write
+ * gap, not a deletion, so it is left alone until it is old enough for the absence to mean
+ * something.
+ */
+export const MISSING_GRACE_MS = 30 * 60 * 1000;
+
 /** Most ids YouTube will answer for in one `list`. */
 const ID_PAGE = 50;
 
@@ -75,6 +86,8 @@ export function planSweep(
 ): SweepPlan {
   const byId = new Map(remote.filter((b) => b.id).map((b) => [b.id as string, b]));
   const plan: SweepPlan = { retire: [], aired: [], gone: [] };
+  // Did YouTube answer for anything we asked about? An empty answer is treated as no answer.
+  const answered = byId.size > 0;
 
   for (const record of prepared) {
     // Already dealt with. Re-deleting would spend a write on nothing, and on a 404 would look
@@ -86,6 +99,15 @@ export function planSweep(
 
     const found = byId.get(record.id);
     if (!found) {
+      // A read that named none of the ids it was asked about is not evidence that all of them
+      // were deleted — it is what reconnecting OAuth to a different channel looks like, and what
+      // a read against the wrong account looks like. Stamping the whole list gone on that answer
+      // would strike out every live link at once, and `planSweep` never revisits a stamped
+      // record. Inconclusive, so nothing is stamped.
+      if (!answered) continue;
+      // Too young for its absence to mean anything yet — see `MISSING_GRACE_MS`.
+      const created = Date.parse(record.createdAt ?? "");
+      if (!Number.isNaN(created) && now - created < MISSING_GRACE_MS) continue;
       plan.gone.push({
         record,
         reason: "Deleted from YouTube somewhere other than here — nothing left to remove.",
@@ -105,6 +127,12 @@ export function planSweep(
     const scheduled = Date.parse(record.scheduledStartTime ?? "");
     if (Number.isNaN(scheduled)) continue;
     if (now - scheduled < RETIRE_GRACE_MS) continue;
+    // The same window measured from when we made it, because the prepare route accepts a start
+    // time in the past: a broadcast created five minutes ago for a slot that was yesterday is
+    // past due the instant it exists, and the next press of Prepare would delete it unasked.
+    // Half a day of the operator's own time has to pass too before it counts as a leftover.
+    const created = Date.parse(record.createdAt ?? "");
+    if (!Number.isNaN(created) && now - created < RETIRE_GRACE_MS) continue;
 
     plan.retire.push({ record, reason: describeRetireReason(record.scheduledStartTime) });
   }

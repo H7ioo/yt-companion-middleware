@@ -239,6 +239,19 @@ describe("DELETE /api/dashboard/broadcasts/prepared/:id", () => {
     expect(body.error.message).toMatch(/did not create|not one this app/i);
   });
 
+  it("refuses one that has been on air — deleting it would take the recording too", async () => {
+    await store.update((s) => {
+      s.preparedBroadcasts = [record({ airedAt: "2020-01-01T18:00:30.000Z" })];
+    });
+    const state: FakeState = { channel: [idle("ours-1")], deleted: [], inserts: [] };
+    const url = await mount(state);
+
+    const res = await del(url, "ours-1", { confirm: true });
+    expect(res.status).toBe(409);
+    expect(state.deleted).toEqual([]);
+    expect(((await res.json()) as any).error.message).toMatch(/recording/i);
+  });
+
   it("refuses one it already retired rather than spending a write on nothing", async () => {
     await store.update((s) => {
       s.preparedBroadcasts = [record({ retiredAt: "2026-01-01T00:00:00.000Z" })];
@@ -271,6 +284,9 @@ describe("POST /api/dashboard/broadcasts/prepare, with cleanup", () => {
     expect(res.status).toBe(200);
     expect(state.deleted).toEqual(["ours-1"]);
     expect(state.inserts).toHaveLength(1);
+    // The sweep's read and its delete are calls this press made, so the cost it reports has to
+    // count them — otherwise the number on screen disagrees with the quota tracker.
+    expect(((await res.json()) as any).quotaUnits).toBe(100 + 51);
   });
 
   it("still creates the broadcast when the sweep itself fails", async () => {
