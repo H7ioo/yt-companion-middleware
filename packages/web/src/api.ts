@@ -43,9 +43,14 @@ export type {
   AuditEntry,
   AuditActor,
   AuditOutcome,
+  LiveEligibility,
+  PreparedBroadcast,
+  PrepareInput,
 } from "@app/shared";
 
 import type {
+  PreparedBroadcast,
+  PrepareInput,
   Preset,
   DefaultSettings,
   PresetActionResult,
@@ -278,6 +283,14 @@ export const api = {
   /** The read-only answer to "which broadcast will actually air?" (issue 057). */
   broadcasts: {
     list: () => req<BroadcastListing>("/api/dashboard/broadcasts"),
+    /** What this app created, newest first. Free — an ownership record, not a YouTube read. */
+    prepared: () => req<PreparedBroadcast[]>("/api/dashboard/broadcasts/prepared"),
+    /** Creates tonight's broadcast and binds it to the existing key — 100 quota units (issue 062). */
+    prepare: (input: PrepareInput) =>
+      req<{ prepared: PreparedBroadcast; quotaUnits: number }>(
+        "/api/dashboard/broadcasts/prepare",
+        { method: "POST", body: JSON.stringify(input) },
+      ),
   },
   /** What YouTube is seeing on the default ingestion key, read live — 1 quota unit (issue 059). */
   ingestion: {

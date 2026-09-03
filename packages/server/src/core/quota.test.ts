@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { QuotaTracker, QUOTA_COST, pacificDate } from "./quota.js";
+import { QuotaTracker, QUOTA_COST, instrumentQuota, pacificDate } from "./quota.js";
+import type { youtube_v3 } from "googleapis";
 import { Logger } from "./logger.js";
 import type { JsonStore } from "../storage/jsonStore.js";
 import type { Store } from "../storage/schema.js";
@@ -83,5 +84,29 @@ describe("QuotaTracker", () => {
     now = new Date("2026-07-13T12:00:00-07:00");
     t.record(91); // day 2 crosses 90% afresh → second warning
     expect(quotaWarnings()).toHaveLength(2);
+  });
+});
+
+describe("instrumentQuota", () => {
+  /** The slice of the client this app calls, each returning nothing of interest. */
+  function stubClient() {
+    const nothing = async () => ({ data: {} });
+    return {
+      liveBroadcasts: { list: nothing, update: nothing, bind: nothing, insert: nothing },
+      videos: { list: nothing, update: nothing },
+      liveStreams: { list: nothing },
+    } as unknown as youtube_v3.Youtube;
+  }
+
+  it("charges a broadcast insert as a write, so a preparation shows up in the budget", async () => {
+    const t = new QuotaTracker(fakeStore({ date: pacificDate(), used: 0 }), 10000);
+    t.init();
+    const yt = instrumentQuota(stubClient(), t);
+
+    // What one preparation costs: insert + bind (issue 062).
+    await yt.liveBroadcasts.insert({});
+    await yt.liveBroadcasts.bind({});
+
+    expect(t.snapshot().used).toBe(QUOTA_COST.write * 2);
   });
 });

@@ -2,6 +2,7 @@ import type {
   HealthStatus,
   IngestionSnapshot,
   LiveEligibility,
+  PrivacyStatus,
   TargetConflict,
   TargetPin,
 } from "./schema.js";
@@ -173,6 +174,29 @@ export interface DashboardState {
    * allows this channel to do, and the operator is the one who needs to know.
    */
   liveEligibility: LiveEligibility;
+}
+
+/**
+ * What POST /api/dashboard/broadcasts/prepare takes (PRD-16 §2, issue 062).
+ *
+ * A preset id, or the ad-hoc fields, or both — the fields given win over the preset's, which is
+ * how "tonight's usual, but public" is one press rather than a preset edit. `scheduledStartTime`
+ * is the one field with no fallback: YouTube requires a scheduled start on every broadcast it
+ * creates, and guessing one would schedule somebody's show at a time nobody chose.
+ */
+export interface PrepareInput {
+  presetId?: string | null;
+  /** Values for the preset's `{name}` template variables, as the apply path takes them. */
+  vars?: Record<string, string>;
+  title?: string;
+  description?: string;
+  privacyStatus?: PrivacyStatus;
+  /** Override; absent inherits the preset's, then the app default. */
+  category?: string | null;
+  /** An **existing** key to bind. Preparing never creates one — OBS already holds it. */
+  streamId?: string;
+  /** ISO-8601. */
+  scheduledStartTime: string;
 }
 
 /**

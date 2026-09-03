@@ -38,6 +38,8 @@ interface FakeState {
   /** Broadcasts the channel has scheduled but not started — the pool the pin picks from. */
   upcoming?: youtube_v3.Schema$LiveBroadcast[];
   categories?: youtube_v3.Schema$VideoCategory[];
+  /** Every liveBroadcasts.insert the route table made. Creating a broadcast is never implicit. */
+  inserts: youtube_v3.Schema$LiveBroadcast[];
   /** Every regionCode videoCategories.list was called with — the cache tests read this. */
   categoryRegions: string[];
 }
@@ -80,6 +82,14 @@ function fakeYouTube(state: FakeState): youtube_v3.Youtube {
         return { data: body };
       },
       bind: async () => ({ data: {} }),
+      insert: async (params: youtube_v3.Params$Resource$Livebroadcasts$Insert) => {
+        await guard();
+        const body = (params.requestBody ?? {}) as youtube_v3.Schema$LiveBroadcast;
+        state.inserts.push(body);
+        const created = { ...body, id: `made-${state.inserts.length}` };
+        state.upcoming = [...(state.upcoming ?? []), created];
+        return { data: created };
+      },
     },
     videos: {
       list: async () => ({ data: { items: [{ snippet: { title: "t" } }] } }),
@@ -143,7 +153,7 @@ async function boot(): Promise<Harness> {
   const store = new JsonStore(path.join(dir, "store.json"));
   await store.init();
 
-  const state: FakeState = { broadcast: liveBroadcast(), categoryRegions: [] };
+  const state: FakeState = { broadcast: liveBroadcast(), categoryRegions: [], inserts: [] };
   const yt = fakeYouTube(state);
   const events = new StateEvents();
   const logger = new Logger();
@@ -1125,5 +1135,44 @@ describe("the guarded route", () => {
     for (const route of ["/api/dashboard/presets", "/api/dashboard/state", "/api/dashboard/logs"]) {
       expect(`${route} → ${(await call("GET", route)).status}`).toBe(`${route} → 401`);
     }
+  });
+});
+
+/**
+ * Preparing a broadcast (PRD-16 §2, issue 062), through the real route table.
+ *
+ * The half that only shows up here is the boundary: creation is its own explicit route, and no
+ * amount of applying presets or editing metadata reaches it.
+ */
+describe("preparing a broadcast is a deliberate press, never a side effect", () => {
+  it("never inserts while applying a preset or an ad-hoc update", async () => {
+    const id = await createPreset({ title: "Jumu'ah", privacyStatus: "public" });
+    await call("POST", "/api/action/preset", { presetId: id });
+    await call("POST", "/api/action/update", { title: "Ad hoc" });
+    await call("POST", "/api/action/privacy", {});
+    await call("POST", "/api/action/undo", {});
+    expect(h.state.inserts).toHaveLength(0);
+  });
+
+  it("creates one on the explicit route, bound to the existing key, and records it as ours", async () => {
+    await call("PUT", "/api/dashboard/settings", {
+      defaultCategory: null,
+      defaultStreamBoundId: "s1",
+    });
+    const id = await createPreset({ title: "Tonight", privacyStatus: "unlisted" });
+
+    const res = await call("POST", "/api/dashboard/broadcasts/prepare", {
+      presetId: id,
+      scheduledStartTime: "2026-09-04T18:00:00.000Z",
+    });
+
+    expect(res.status).toBe(200);
+    expect(h.state.inserts).toHaveLength(1);
+    expect(h.state.inserts[0].snippet?.title).toBe("Tonight");
+    expect(h.state.inserts[0].contentDetails?.enableAutoStart).toBe(true);
+    expect(res.body.prepared.watchUrl).toBe("https://www.youtube.com/watch?v=made-1");
+
+    const listed = await call("GET", "/api/dashboard/broadcasts/prepared");
+    expect(listed.body.map((p: { id: string }) => p.id)).toEqual(["made-1"]);
   });
 });

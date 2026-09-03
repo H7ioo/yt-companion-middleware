@@ -19,6 +19,7 @@ import { TargetConflictBanner } from "./components/TargetConflictBanner.js";
 import { RidingModeNotice } from "./components/RidingModeNotice.js";
 import { TargetPicker } from "./components/TargetPicker.js";
 import { BroadcastList } from "./components/BroadcastList.js";
+import { PrepareBroadcast } from "./components/PrepareBroadcast.js";
 import { IngestionReadout } from "./components/IngestionReadout.js";
 import { WatchPanel } from "./components/WatchPanel.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
@@ -578,6 +579,18 @@ export function App() {
           apiEnabled={state ? state.apiEnabled : null}
           pin={state?.targetPin ?? null}
           onPinned={refreshSession}
+        />
+
+        {/* Making tonight's broadcast, rather than finding out which existing one wins. Under
+            the list because that is where the operator discovers there is nothing to air —
+            which is the moment this panel is the answer (PRD-16 §2, issue 062). */}
+        <PrepareBroadcast
+          presets={presets}
+          streams={streams}
+          categories={categories}
+          apiEnabled={apiEnabled}
+          eligibility={state?.liveEligibility ?? null}
+          onPrepared={refreshSession}
         />
 
         {/* Whether video is actually arriving, right above the list it explains: "nothing will

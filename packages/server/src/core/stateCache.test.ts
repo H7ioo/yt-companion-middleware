@@ -673,6 +673,7 @@ describe("StateCache fast probe while armed (issue 054 / PRD-14)", () => {
         },
         update: unused,
         bind: unused,
+        insert: unused,
       },
       videos: { list: unused, update: unused },
     } as unknown as youtube_v3.Youtube;

@@ -147,6 +147,10 @@ export function instrumentQuota(yt: youtube_v3.Youtube, tracker: QuotaTracker): 
   b.list = meter(b.list.bind(b), QUOTA_COST.read);
   b.update = meter(b.update.bind(b), QUOTA_COST.write);
   b.bind = meter(b.bind.bind(b), QUOTA_COST.write);
+  // Creating a broadcast is a 50-unit write like the rest (issue 062). Uninstrumented, the two
+  // writes a preparation costs were invisible to the budget the dashboard prints — and a
+  // preparation is the most expensive thing an operator does in one press.
+  b.insert = meter(b.insert.bind(b), QUOTA_COST.write);
   const v = yt.videos;
   v.list = meter(v.list.bind(v), QUOTA_COST.read);
   v.update = meter(v.update.bind(v), QUOTA_COST.write);
