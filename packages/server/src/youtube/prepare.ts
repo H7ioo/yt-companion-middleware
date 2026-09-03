@@ -140,6 +140,11 @@ export async function prepareBroadcast(
     watchUrl: watchUrlFor(id),
     createdAt: opts.now,
     presetId: input.presetId,
+    // Never aired, never retired — a broadcast that was made a moment ago. The three fields the
+    // cleanup sweep reads (issue 064) are stated here so a fresh record is a complete one.
+    airedAt: null,
+    retiredAt: null,
+    retiredReason: null,
   };
   await opts.onRecord?.(record);
 

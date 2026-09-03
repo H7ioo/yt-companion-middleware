@@ -70,6 +70,14 @@ export function mapYouTubeError(err: unknown): AppError {
   if (refusal) return new AppError("LIVE_NOT_ELIGIBLE", message ?? undefined, { reason: refusal });
 
   if (status === 401 || status === 403) {
+    // Before the quota and auth families for the same reason eligibility is: a full channel is a
+    // 403 whose reason looks like a permission, so without this it lands on YOUTUBE_AUTH_ERROR
+    // and raises a reconnect banner that cannot help (issue 064). The message is the app's own,
+    // not YouTube's — "limitExceeded" does not tell an operator to go and delete something.
+    const limitReasons = ["limitExceeded", "userBroadcastsExceedLimit"];
+    if (status === 403 && reasons.some((r) => limitReasons.includes(r))) {
+      return new AppError("BROADCAST_LIMIT_REACHED");
+    }
     const quotaReasons = ["quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded"];
     if (reasons.some((r) => quotaReasons.includes(r))) {
       return new AppError("YOUTUBE_QUOTA_EXCEEDED");

@@ -24,6 +24,8 @@ export type ErrorCode =
   | "INVITE_INVALID"
   | "BROADCAST_WRITE_UNSAFE"
   | "LIVE_NOT_ELIGIBLE"
+  | "BROADCAST_LIMIT_REACHED"
+  | "CONFIRMATION_REQUIRED"
   | "SERVER_ERROR";
 
 const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
@@ -63,6 +65,17 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   // Named as YouTube's decision because the operator's first instinct on any refusal here is to
   // reconnect, and reconnecting the same channel changes nothing.
   LIVE_NOT_ELIGIBLE: LIVE_ELIGIBILITY_GLOSSARY.riding.meaning,
+  // The channel already holds as many live and scheduled broadcasts as YouTube allows (issue
+  // 064). It is a 403 with a permission-shaped reason like every other refusal here, and before
+  // it was named it read as a login problem — so the operator reconnected an account that was
+  // never the trouble, while the one thing that fixes it went unsaid.
+  BROADCAST_LIMIT_REACHED:
+    "YouTube will not create another broadcast — the channel already holds as many live and " +
+    "scheduled ones as it allows. Delete the broadcasts you are not going to use, then try again.",
+  // The act is destructive and outward-facing, and the request did not say it was meant (issue
+  // 064). The refusal carries the confirmation text itself, so a caller that is not the dashboard
+  // can still put the same question to a person.
+  CONFIRMATION_REQUIRED: "This needs to be confirmed before it is done",
   SERVER_ERROR: "The server could not complete the request",
 };
 

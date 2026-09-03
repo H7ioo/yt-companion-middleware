@@ -94,6 +94,23 @@ export function onSessionLost(handler: () => void): () => void {
   return () => sessionLostHandlers.delete(handler);
 }
 
+/**
+ * A refusal, with the server's own error code kept alongside its message (issue 064).
+ *
+ * An `Error` is what every caller already handles, so nothing has to change; the code is there
+ * for the few refusals the UI can offer to *act* on — a channel too full to take another
+ * broadcast is one press away from being fixed, and a bare message cannot carry that press.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | null,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     headers: { "Content-Type": "application/json" },
@@ -106,7 +123,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
       for (const handler of sessionLostHandlers) handler();
     }
     const message = body?.error?.message ?? `Request failed (${res.status})`;
-    throw new Error(message);
+    throw new ApiError(message, body?.error?.code ?? null);
   }
   return body as T;
 }
@@ -290,6 +307,27 @@ export const api = {
       req<{ prepared: PreparedBroadcast; quotaUnits: number; warning: string | null }>(
         "/api/dashboard/broadcasts/prepare",
         { method: "POST", body: JSON.stringify(input) },
+      ),
+    /**
+     * Removes the broadcasts this app created that never aired and whose time has passed
+     * (issue 064) — one read, plus a write per one actually removed.
+     */
+    retire: () =>
+      req<{
+        retired: PreparedBroadcast[];
+        aired: PreparedBroadcast[];
+        gone: PreparedBroadcast[];
+        failed: Array<{ id: string; title: string; message: string }>;
+        quotaUnits: number;
+      }>("/api/dashboard/broadcasts/retire", { method: "POST" }),
+    /**
+     * Deletes one broadcast this app created. `confirm` is not optional in practice — the server
+     * refuses without it, and the dashboard asks the question first.
+     */
+    deletePrepared: (id: string) =>
+      req<{ retired: PreparedBroadcast; quotaUnits: number }>(
+        `/api/dashboard/broadcasts/prepared/${encodeURIComponent(id)}`,
+        { method: "DELETE", body: JSON.stringify({ confirm: true }) },
       ),
   },
   /** What YouTube is seeing on the default ingestion key, read live — 1 quota unit (issue 059). */

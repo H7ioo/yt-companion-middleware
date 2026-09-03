@@ -455,6 +455,16 @@ export const preparedBroadcastSchema = z.object({
   createdAt: z.string(),
   /** The preset it came from, or null for an ad-hoc preparation. */
   presetId: z.string().nullable().default(null),
+  /**
+   * When YouTube first reported this broadcast as having gone to air, or null while it never has
+   * (issue 064). Once stamped it is never cleared and the broadcast is never a cleanup candidate
+   * again — a broadcast that aired is a recording someone may still be watching.
+   */
+  airedAt: z.string().nullable().default(null),
+  /** When this app deleted it from the channel, or null while it is still there. */
+  retiredAt: z.string().nullable().default(null),
+  /** Why it was retired, in the operator's words. Null until it is. */
+  retiredReason: z.string().nullable().default(null),
 });
 export type PreparedBroadcast = z.infer<typeof preparedBroadcastSchema>;
 

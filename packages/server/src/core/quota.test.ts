@@ -92,11 +92,30 @@ describe("instrumentQuota", () => {
   function stubClient() {
     const nothing = async () => ({ data: {} });
     return {
-      liveBroadcasts: { list: nothing, update: nothing, bind: nothing, insert: nothing },
+      liveBroadcasts: {
+        list: nothing,
+        update: nothing,
+        bind: nothing,
+        insert: nothing,
+        delete: nothing,
+      },
       videos: { list: nothing, update: nothing },
       liveStreams: { list: nothing },
     } as unknown as youtube_v3.Youtube;
   }
+
+  it("charges a broadcast delete as a write, so a cleanup sweep shows up in the budget", async () => {
+    const t = new QuotaTracker(fakeStore({ date: pacificDate(), used: 0 }), 10000);
+    t.init();
+    const yt = instrumentQuota(stubClient(), t);
+
+    // One sweep that removed three ghosts: the read that found them, then a write each (issue 064).
+    await yt.liveBroadcasts.list({});
+    await yt.liveBroadcasts.delete({ id: "a" });
+    await yt.liveBroadcasts.delete({ id: "b" });
+    await yt.liveBroadcasts.delete({ id: "c" });
+    expect(t.snapshot().used).toBe(1 + 3 * QUOTA_COST.write);
+  });
 
   it("charges a broadcast insert as a write, so a preparation shows up in the budget", async () => {
     const t = new QuotaTracker(fakeStore({ date: pacificDate(), used: 0 }), 10000);

@@ -2638,9 +2638,16 @@ textarea {
   font-size: 13px;
 }
 .prep__error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   margin: 12px 0 0;
   color: var(--warn);
   font-size: 13px;
+}
+.prep__error > p {
+  margin: 0;
 }
 .prep__made {
   margin: 0 0 16px;
@@ -2742,4 +2749,48 @@ textarea {
   flex: none;
   color: var(--ink-faint);
   font-size: 12px;
+}
+/* A removed broadcast keeps its place in the list rather than vanishing from it: the row is the
+   record of what was taken away and why, and a cleanup nobody can see afterwards reads as a
+   broadcast that went missing (issue 064). Dimmed and struck, with no controls left to press. */
+.prep__item--retired {
+  opacity: 0.62;
+}
+.prep__item--retired .prep__item-title {
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-faint);
+}
+.prep__item--retired .prep__item-when {
+  max-width: 60%;
+  text-align: right;
+  white-space: normal;
+}
+/* Reads as the destructive one only on approach — the list is scanned far more often than a
+   broadcast is deleted, and a permanently red row in it would be an alarm that means nothing. */
+.prep__item-del:hover {
+  border-color: var(--live);
+  color: var(--live);
+}
+/* The delete question. Its one loud element is the link — shown exactly as the panel showed it
+   when the broadcast was made, and struck through, because that is precisely what the press does
+   to it. The harm is not on screen anywhere else: the link is already in a bulletin and three
+   group chats, and "are you sure?" cannot say that. */
+.prep-confirm {
+  max-width: 440px;
+}
+.prep-confirm__body {
+  padding: 16px 20px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+.prep-confirm__body > p {
+  margin: 12px 0 0;
+}
+.prep-confirm__dead {
+  display: block;
+  border-left: 3px solid var(--live);
+  color: var(--ink-faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--live);
 }
