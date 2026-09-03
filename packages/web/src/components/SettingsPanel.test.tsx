@@ -146,7 +146,6 @@ function panel(canAdminister: boolean, flash: (m: string, k?: string) => void = 
       canAdminister={canAdminister}
       onSaveSettings={() => {}}
       flash={flash}
-      onClose={() => {}}
     />,
   );
 }
@@ -311,7 +310,6 @@ describe("the people section", () => {
         canAdminister
         onSaveSettings={() => {}}
         flash={(message) => flashed.push(message)}
-        onClose={() => {}}
       />,
     );
     fireEvent.change(await screen.findByLabelText(/role for operator/i), { target: { value: "user" } });
@@ -719,12 +717,12 @@ describe("the connection card on a hosted deployment", () => {
 });
 
 /**
- * The same sections in two shapes (navbar + pages): a modal opened over the dashboard, and the
- * Settings page you navigate to. Only the chrome differs, so the page must not lose a section on
- * the way — and must not keep a close button that leads nowhere.
+ * These sections used to be a modal over the dashboard; they are a page now (navbar + pages), so
+ * the page must not have lost a section on the way — and must not keep the overlay or a close
+ * button that leads nowhere.
  */
 describe("SettingsPanel as a page", () => {
-  it("drops the overlay and the close button when there is nothing to close", async () => {
+  it("has no overlay and no close button", async () => {
     status.mockResolvedValue(setupStatus());
     const { container } = render(
       <SettingsPanel

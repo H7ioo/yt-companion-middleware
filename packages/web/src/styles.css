@@ -1261,14 +1261,12 @@ textarea {
 
 /* ---- Settings ------------------------------------------------------------- */
 
+/* These sections are a page, not the dialog they used to be: no width cap, and the same rack
+   framing as every other panel in the column. */
 .settings {
-  max-width: 620px;
   padding: 0;
 }
-/* The page form. The modal's width cap is what makes it a dialog; a page is a panel like any
-   other on the dashboard, so it takes the column. */
 .settings--page {
-  max-width: none;
   border: var(--seam-line);
   border-radius: var(--radius);
   background: var(--bg-rack);
@@ -1290,19 +1288,6 @@ textarea {
   font-weight: 800;
   font-size: 18px;
   letter-spacing: -0.01em;
-}
-.settings__x {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  background: none;
-  border: none;
-  color: var(--ink-dim);
-  font-size: 15px;
-  cursor: pointer;
-}
-.settings__x:hover:not(:disabled) {
-  color: var(--ink);
 }
 .settings__section {
   padding: 20px 22px;

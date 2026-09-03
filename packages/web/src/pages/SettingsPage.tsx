@@ -27,8 +27,7 @@ export function SettingsPage() {
 
   return (
     <>
-      {/* Connection, people, devices, audit and app defaults — rendered without `onClose`, which
-          is what makes it a page instead of a modal. */}
+      {/* Connection, people, devices, audit and app defaults. */}
       <SettingsPanel
         settings={settings}
         categories={categories}

@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import { App } from "./App.js";
 import { LivePage } from "./pages/LivePage.js";
 import { PresetsPage } from "./pages/PresetsPage.js";
@@ -16,8 +16,9 @@ import { SettingsPage } from "./pages/SettingsPage.js";
  * `/invite` are parsed in main.tsx and answered before this router is ever mounted, because both
  * are gates in front of the dashboard rather than pages within it.
  *
- * Anything unrecognised falls back to Live: a stale bookmark should open the dashboard, not a
- * dead end.
+ * Anything unrecognised redirects to Live: a stale bookmark should open the dashboard, not a
+ * dead end — and a redirect rather than a render, so the URL matches the page and the navbar has
+ * a tab lit for where you are.
  */
 export const router = createBrowserRouter([
   {
@@ -29,7 +30,7 @@ export const router = createBrowserRouter([
       { path: "schedule", element: <SchedulePage /> },
       { path: "activity", element: <ActivityPage /> },
       { path: "settings", element: <SettingsPage /> },
-      { path: "*", element: <LivePage /> },
+      { path: "*", element: <Navigate to="/" replace /> },
     ],
   },
 ]);

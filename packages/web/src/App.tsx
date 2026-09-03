@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Outlet, useNavigate } from "react-router";
+import { Outlet, ScrollRestoration, useNavigate } from "react-router";
 import {
   api,
   type Category,
@@ -602,6 +602,12 @@ export function App() {
 
         <Outlet context={context} />
       </main>
+
+      {/* Scroll handling for the tabs: react-router does nothing here on its own, so leaving a
+          long Activity page for Live would land you mid-page with the navbar and the banners
+          off-screen. This scrolls a new page to the top and puts back where you were on
+          back/forward. */}
+      <ScrollRestoration />
 
       {editing ? (
         <PresetForm
