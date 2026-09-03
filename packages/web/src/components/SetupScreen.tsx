@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react";
+import type { ConnectMode } from "@app/shared";
 import { api } from "../api.js";
+import { clearConnectReturn, readConnectReturn } from "../lib/connectReturn.js";
 
 /**
- * First-run setup for the desktop build. The one-click path opens the real Google consent screen
- * in the system browser and captures the refresh token to the server's store — no token is ever
- * pasted by hand. When no bundled client ships (Docker/override builds) or the operator wants their
- * own client, the manual credential fields are revealed instead. Shown whenever the server reports
- * it is not yet configured.
+ * First-run setup. Consent runs one of two ways, and the server says which (issue 052):
+ *
+ * - `in-app` — the desktop build. The server opens the real Google consent screen in the *system*
+ *   browser and captures the refresh token to its own store; this request stays open meanwhile.
+ * - `redirect` — a hosted deployment. Nothing here can open a browser, but the one already reading
+ *   this page will do: it is sent to Google and returns through the server's public callback, so
+ *   the outcome arrives as a query string on a fresh page load rather than as a resolved promise.
+ *
+ * Either way no refresh token is ever pasted by hand. Only when neither flow is available — a
+ * headless host that does not know its public origin — do the three-credential fields appear, and
+ * the token has to come from `scripts/get-refresh-token.mjs`.
  */
 export function SetupScreen({ onReady }: { onReady: () => void }) {
   const [clientId, setClientId] = useState("");
@@ -14,10 +22,11 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
   const [refreshToken, setRefreshToken] = useState("");
   const [status, setStatus] = useState<"idle" | "connecting" | "saving" | "waiting">("idle");
   const [error, setError] = useState<string | null>(null);
-  // Whether the host can run the one-click flow, and whether a bundled client ships with it.
-  const [canConnect, setCanConnect] = useState(false);
+  // How consent can run here, if at all, and whether a bundled client ships with this build.
+  const [connectMode, setConnectMode] = useState<ConnectMode | null>(null);
   const [hasBundled, setHasBundled] = useState(false);
-  // The loopback redirect the operator registers on their own OAuth client (override flow).
+  // The redirect URI to register on the operator's own OAuth client — loopback on a desktop
+  // host, the public callback on a hosted one. The server decides which; it is shown verbatim.
   const [redirectUri, setRedirectUri] = useState("");
   // Manual fields start hidden when one-click is available; the disclosure reveals them.
   const [manual, setManual] = useState(false);
@@ -26,23 +35,42 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
     api.setup
       .status()
       .then((s) => {
-        setCanConnect(s.canConnect);
+        setConnectMode(s.connectMode);
         setHasBundled(s.hasBundledClient);
         setRedirectUri(s.redirectUri);
-        // No one-click path here — go straight to the manual form (today's behaviour).
-        if (!s.canConnect || !s.hasBundledClient) setManual(true);
+        // No one-click path here — go straight to the credential form.
+        if (!s.connectMode || !s.hasBundledClient) setManual(true);
       })
       .catch(() => setManual(true));
   }, []);
 
+  // The hosted flow's failures come back on the URL, not from a promise: the browser left this
+  // page for Google and returned to a fresh mount. A success needs nothing here — the server is
+  // configured by then, so the gate above this screen renders the dashboard instead.
+  useEffect(() => {
+    const returned = readConnectReturn(new URL(window.location.href));
+    if (returned && !returned.ok) setError(returned.message);
+    clearConnectReturn();
+  }, []);
+
   const busy = status !== "idle";
 
-  const connect = async () => {
+  /**
+   * Runs consent whichever way this host can. `override` carries the operator's own client when
+   * they are supplying one; omitted, the bundled client is used. On the redirect flow this
+   * function does not return in the normal case — the browser leaves for Google.
+   */
+  const runConnect = async (override?: { clientId: string; clientSecret: string }) => {
     setError(null);
     setStatus("connecting");
     try {
-      // The server holds this request open while the user approves in their browser.
-      await api.setup.connect();
+      if (connectMode === "redirect") {
+        const { url } = await api.setup.authorize(override);
+        window.location.assign(url);
+        return;
+      }
+      // The server holds this request open while the user approves in the system browser.
+      await api.setup.connect(override);
       setStatus("waiting");
       await waitForReady();
       onReady();
@@ -52,21 +80,12 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
     }
   };
 
-  // Override (PRD-03 §3): run the in-app OAuth flow against the operator's own client. Only the
-  // client ID/secret are entered — the flow itself fetches the refresh token; nothing is pasted.
-  const connectOwn = async () => {
-    setError(null);
-    setStatus("connecting");
-    try {
-      await api.setup.connect({ clientId: clientId.trim(), clientSecret: clientSecret.trim() });
-      setStatus("waiting");
-      await waitForReady();
-      onReady();
-    } catch (err) {
-      setError((err as Error).message);
-      setStatus("idle");
-    }
-  };
+  const connect = () => runConnect();
+
+  // Override (PRD-03 §3): consent against the operator's own client. Only the client ID/secret are
+  // entered — the flow itself fetches the refresh token; nothing is pasted.
+  const connectOwn = () =>
+    runConnect({ clientId: clientId.trim(), clientSecret: clientSecret.trim() });
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,7 +107,10 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
     }
   };
 
-  const oneClick = canConnect && hasBundled;
+  const oneClick = connectMode !== null && hasBundled;
+  // The redirect flow's button leaves the page, so it says where it is going rather than claiming
+  // to be waiting on something. "Waiting for your browser" would be a lie on a host with none.
+  const leaving = connectMode === "redirect";
 
   return (
     <div className="setup">
@@ -110,15 +132,16 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
               onClick={connect}
               disabled={busy}
             >
-              {status === "connecting"
+              {status === "connecting" && !leaving
                 ? "Waiting for your browser…"
                 : status === "waiting"
                   ? "Finishing up…"
                   : "Connect YouTube"}
             </button>
             <p className="setup__connect-hint">
-              Opens Google in your browser. You may see a “Google hasn’t verified this app” screen —
-              that’s expected; choose your channel and continue.
+              {leaving
+                ? "Takes you to Google to choose your channel, then brings you back here. You may see a “Google hasn’t verified this app” screen — that’s expected."
+                : "Opens Google in your browser. You may see a “Google hasn’t verified this app” screen — that’s expected; choose your channel and continue."}
             </p>
           </div>
         ) : null}
@@ -129,8 +152,9 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
           </button>
         ) : null}
 
-        {manual && canConnect ? (
-          // Electron host: enter only the client ID/secret; the in-app flow does the rest.
+        {manual && connectMode ? (
+          // A host that can run consent: enter only the client ID/secret; the flow fetches the
+          // refresh token itself, whether it drives the browser or hands this one a URL.
           <form
             className="setup__manual"
             onSubmit={(e) => {
@@ -181,19 +205,21 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
                 type="submit"
                 disabled={busy || !clientId.trim() || !clientSecret.trim()}
               >
-                {status === "connecting"
+                {status === "connecting" && !leaving
                   ? "Waiting for your browser…"
                   : status === "waiting"
                     ? "Finishing up…"
-                    : "Connect with my client"}
+                    : leaving
+                      ? "Continue to Google"
+                      : "Connect with my client"}
               </button>
             </div>
           </form>
         ) : null}
 
-        {manual && !canConnect ? (
-          // Headless/Docker: no system browser to drive, so the refresh token is pasted directly
-          // (the CLI script produces it). Saving restarts the server to wire the client.
+        {manual && !connectMode ? (
+          // No browser to drive and no public origin to be returned to, so the refresh token is
+          // pasted directly (the CLI script produces it). Saving restarts the server.
           <form className="setup__manual" onSubmit={submit}>
             <div className="field">
               <label htmlFor="setup-client-id">Client ID</label>

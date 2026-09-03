@@ -9,7 +9,7 @@ const status = (over: Partial<SetupStatus> = {}): SetupStatus => ({
   hasClientSecret: false,
   hasRefreshToken: false,
   hasBundledClient: false,
-  canConnect: false,
+  connectMode: null,
   activeFlow: null,
   redirectUri: "http://localhost:53682/oauth2callback",
   liveEligibility: { mode: "unknown", reason: null, message: null, checkedAt: null },
@@ -18,7 +18,7 @@ const status = (over: Partial<SetupStatus> = {}): SetupStatus => ({
 
 describe("describeConnection", () => {
   it("is disconnected and editable on an Electron host with no credentials yet", () => {
-    const v = describeConnection(status({ canConnect: true, hasBundledClient: true }));
+    const v = describeConnection(status({ connectMode: "in-app", hasBundledClient: true }));
     expect(v.connected).toBe(false);
     expect(v.editable).toBe(true);
     expect(v.mode).toBe("in-app");
@@ -27,7 +27,7 @@ describe("describeConnection", () => {
 
   it("labels the bundled flow when connected through the shipped client", () => {
     const v = describeConnection(
-      status({ canConnect: true, configured: true, hasRefreshToken: true, activeFlow: "bundled" }),
+      status({ connectMode: "in-app", configured: true, hasRefreshToken: true, activeFlow: "bundled" }),
     );
     expect(v.connected).toBe(true);
     expect(v.flowLabel).toBe("Bundled Google client");
@@ -37,7 +37,7 @@ describe("describeConnection", () => {
 
   it("labels the override flow when connected through the operator's own client", () => {
     const v = describeConnection(
-      status({ canConnect: true, configured: true, hasRefreshToken: true, activeFlow: "override" }),
+      status({ connectMode: "in-app", configured: true, hasRefreshToken: true, activeFlow: "override" }),
     );
     expect(v.flowLabel).toBe("Your own Google client");
     expect(v.editable).toBe(true);
@@ -46,7 +46,7 @@ describe("describeConnection", () => {
 
   it("is read-only for env/CLI credentials even on an Electron host", () => {
     const v = describeConnection(
-      status({ canConnect: true, configured: true, activeFlow: "env" }),
+      status({ connectMode: "in-app", configured: true, activeFlow: "env" }),
     );
     expect(v.flowLabel).toBe("Environment or CLI");
     expect(v.editable).toBe(false);
@@ -54,7 +54,7 @@ describe("describeConnection", () => {
   });
 
   it("is read-only on a headless host whose credentials came from env/CLI", () => {
-    const v = describeConnection(status({ canConnect: false, configured: true, activeFlow: "env" }));
+    const v = describeConnection(status({ connectMode: null, configured: true, activeFlow: "env" }));
     expect(v.editable).toBe(false);
     expect(v.mode).toBe("env");
   });
@@ -64,7 +64,7 @@ describe("describeConnection", () => {
   it("offers the manual paste form for stored credentials on a headless host", () => {
     const v = describeConnection(
       status({
-        canConnect: false,
+        connectMode: null,
         configured: true,
         hasClientId: true,
         hasRefreshToken: true,
@@ -78,9 +78,37 @@ describe("describeConnection", () => {
   });
 
   it("offers the manual paste form on a headless host with nothing stored yet", () => {
-    const v = describeConnection(status({ canConnect: false }));
+    const v = describeConnection(status({ connectMode: null }));
     expect(v.mode).toBe("manual");
     expect(v.connected).toBe(false);
+  });
+
+  /**
+   * The hosted deployment (issue 052). It is headless — no browser for the server to drive — but
+   * it is emphatically not `manual`: consent runs in the admin's own browser, so offering them the
+   * paste-a-refresh-token form would be sending them back to a CLI script they no longer need.
+   */
+  it("offers browser sign-in on a hosted host, not the paste form", () => {
+    const v = describeConnection(status({ connectMode: "redirect" }));
+    expect(v.mode).toBe("redirect");
+    expect(v.editable).toBe(true);
+    expect(v.connected).toBe(false);
+  });
+
+  it("keeps a connected hosted deployment on the redirect flow for reconnects", () => {
+    const v = describeConnection(
+      status({ connectMode: "redirect", configured: true, hasRefreshToken: true, activeFlow: "override" }),
+    );
+    expect(v.mode).toBe("redirect");
+    expect(v.flowLabel).toBe("Your own Google client");
+  });
+
+  it("stays read-only for env/CLI credentials even on a hosted deployment", () => {
+    // Nothing in the app's store backs them, so a successful consent here would be overwritten by
+    // the environment on the next boot.
+    const v = describeConnection(status({ connectMode: "redirect", configured: true, activeFlow: "env" }));
+    expect(v.mode).toBe("env");
+    expect(v.editable).toBe(false);
   });
 });
 

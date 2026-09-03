@@ -870,7 +870,7 @@ describe("setup route under a configured boot", () => {
       hasClientId: true,
       hasRefreshToken: true,
       // No browser to open in a headless boot, so the in-app OAuth flow is unavailable.
-      canConnect: false,
+      connectMode: null,
     });
     expect(JSON.stringify(res.body)).not.toContain("1//tok");
   });

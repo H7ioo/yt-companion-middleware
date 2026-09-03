@@ -44,11 +44,15 @@ const saveCreds =
     }>
   >();
 
+const authorize =
+  vi.fn<(override?: { clientId: string; clientSecret: string }) => Promise<{ url: string }>>();
+
 vi.mock("../api.js", () => ({
   api: {
     setup: {
       status: () => status(),
       save: (c: { clientId: string; clientSecret: string; refreshToken: string }) => saveCreds(c),
+      authorize: (override?: { clientId: string; clientSecret: string }) => authorize(override),
     },
     people: {
       list: () => listPeople(),
@@ -126,7 +130,7 @@ const setupStatus = (over: Partial<SetupStatus> = {}): SetupStatus =>
     hasClientSecret: true,
     hasRefreshToken: true,
     activeFlow: "bundled",
-    canConnect: true,
+    connectMode: "in-app",
     hasBundledClient: true,
     redirectUri: "http://127.0.0.1:8723/oauth/callback",
     liveEligibility: { mode: "unknown", reason: null, message: null, checkedAt: null },
@@ -195,7 +199,7 @@ describe("the connection card", () => {
   // was unfixable from the UI.
   describe("on a headless host with stored credentials", () => {
     const headless = () =>
-      status.mockResolvedValue(setupStatus({ canConnect: false, activeFlow: "override" }));
+      status.mockResolvedValue(setupStatus({ connectMode: null, activeFlow: "override" }));
 
     it("offers the paste form instead of env guidance", async () => {
       headless();
@@ -253,7 +257,7 @@ describe("the connection card", () => {
   });
 
   it("keeps env/CLI credentials read-only — the store is not what backs them", async () => {
-    status.mockResolvedValue(setupStatus({ canConnect: false, activeFlow: "env" }));
+    status.mockResolvedValue(setupStatus({ connectMode: null, activeFlow: "env" }));
     panel(true);
     expect(await screen.findByText(/managed outside the app/i)).toBeTruthy();
     expect(screen.queryByLabelText(/refresh token/i)).toBeNull();
@@ -623,5 +627,69 @@ describe("SettingsPanel channel eligibility", () => {
     );
     panel(true);
     expect(await screen.findByText(LIVE_ELIGIBILITY_GLOSSARY.driving.label)).toBeTruthy();
+  });
+});
+
+/**
+ * Reconnecting on a hosted deployment (issue 052). The connection card is where a dead token gets
+ * replaced, and until now a headless host had exactly one answer: run a CLI script and paste the
+ * result. A deployment that knows its public origin has a better one — send the admin to Google.
+ */
+describe("the connection card on a hosted deployment", () => {
+  let assign: ReturnType<typeof vi.fn>;
+  let realLocation: Location;
+
+  beforeEach(() => {
+    status.mockResolvedValue(setupStatus({ connectMode: "redirect", activeFlow: "override" }));
+    authorize.mockReset();
+    authorize.mockResolvedValue({ url: "https://accounts.google.com/o/oauth2/v2/auth?state=abc" });
+    assign = vi.fn();
+    realLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...window.location, assign },
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, "location", { configurable: true, value: realLocation });
+  });
+
+  it("offers reconnect instead of the paste-a-token form", async () => {
+    panel(true);
+    expect(await screen.findByRole("button", { name: /reconnect/i })).toBeTruthy();
+    // The whole point: nobody has to go and run get-refresh-token.mjs any more.
+    expect(screen.queryByLabelText(/refresh token/i)).toBeNull();
+    expect(screen.queryByText(/get-refresh-token/i)).toBeNull();
+  });
+
+  it("sends the browser to Google when reconnect is pressed", async () => {
+    panel(true);
+    fireEvent.click(await screen.findByRole("button", { name: /reconnect/i }));
+    await waitFor(() => expect(authorize).toHaveBeenCalledWith(undefined));
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith("https://accounts.google.com/o/oauth2/v2/auth?state=abc"),
+    );
+  });
+
+  it("shows the public callback as the URI to register on an own client", async () => {
+    status.mockResolvedValue(
+      setupStatus({
+        connectMode: "redirect",
+        activeFlow: "override",
+        redirectUri: "https://live.example.org/api/setup/oauth/callback",
+      }),
+    );
+    panel(true);
+    fireEvent.click(await screen.findByRole("button", { name: /use my own google client/i }));
+    expect(
+      await screen.findByText("https://live.example.org/api/setup/oauth/callback"),
+    ).toBeTruthy();
+  });
+
+  it("still shows a user no way to change it", async () => {
+    panel(false);
+    expect(await screen.findByText(/only an admin can change/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /reconnect/i })).toBeNull();
   });
 });

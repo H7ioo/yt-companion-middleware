@@ -47,6 +47,19 @@ export interface SetupDeps {
      */
     run: (override?: { clientId: string; clientSecret: string }) => Promise<void>;
   };
+  /**
+   * Hosted (redirect) connect flow (issue 052, PRD-15 §5), present only when the deployment knows
+   * its own public origin. The loopback flow above cannot run here: consent happens in the admin's
+   * *own* browser, on another machine, and Google redirects it back to this origin.
+   */
+  hosted?: {
+    /** The redirect URI to register on the Google client. Reported in status so it can be copied. */
+    redirectUri: string;
+    /** Issues a state nonce and returns the consent URL for the admin's browser to visit. */
+    authorize: (override?: { clientId: string; clientSecret: string }) => { url: string };
+    /** Validates the returning callback, exchanges the code, and hot-applies the credentials. */
+    complete: (params: { code?: string; state?: string; error?: string }) => Promise<void>;
+  };
 }
 
 /**
@@ -62,7 +75,7 @@ export interface SetupDeps {
  * who could not read it would face a dashboard that cannot say why nothing works. It carries no
  * secret and no way to change anything.
  */
-export function setupStatusHandler({ store, configured, oauth }: SetupDeps): RequestHandler {
+export function setupStatusHandler({ store, configured, oauth, hosted }: SetupDeps): RequestHandler {
   return (_req, res) => {
     const c = store.get().credentials;
     res.json({
@@ -73,11 +86,17 @@ export function setupStatusHandler({ store, configured, oauth }: SetupDeps): Req
       hasRefreshToken: Boolean(c.refreshToken),
       // Whether the one-click in-app OAuth flow can run in this build/host.
       hasBundledClient: Boolean(oauth?.hasBundledClient),
-      canConnect: Boolean(oauth),
+      // How consent can be run from here, if at all. The two flows are not interchangeable and
+      // the dashboard has to drive them differently — `in-app` is a POST the server holds open
+      // while it drives the local browser; `redirect` hands the browser a URL and gets it back
+      // through the callback. A single boolean could not tell them apart (issue 052).
+      connectMode: hosted ? "redirect" : oauth ? "in-app" : null,
       // Which flow currently backs the app (bundled/override/env), or null when not configured.
       activeFlow: deriveActiveFlow(c, { configured, bundledClientId: oauth?.bundledClientId }),
-      // The loopback redirect the operator must register on their own OAuth client (override flow).
-      redirectUri: OAUTH_REDIRECT,
+      // The redirect URI to register on the OAuth client — for whichever flow is actually live
+      // here. It is copied by hand into the Google console, so it must be the real one: the
+      // loopback address on a desktop host, the public callback on a hosted one.
+      redirectUri: hosted ? hosted.redirectUri : OAUTH_REDIRECT,
       // Whether YouTube lets this channel create broadcasts (issue 061). Setup status, not health:
       // it describes the channel's permissions, and nothing here is a reason to reconnect.
       liveEligibility: store.get().liveEligibility,
@@ -86,7 +105,7 @@ export function setupStatusHandler({ store, configured, oauth }: SetupDeps): Req
 }
 
 export function setupRouter(deps: SetupDeps): Router {
-  const { store, configured, requestRestart, oauth } = deps;
+  const { store, configured, requestRestart, oauth, hosted } = deps;
   const router = Router();
 
   // Also served here, so the router remains a complete unit for its own tests and for any host
@@ -140,6 +159,65 @@ export function setupRouter(deps: SetupDeps): Router {
         return;
       }
       res.status(400).json(toErrorBody(err));
+    }
+  });
+
+  // Hosted connect, step one (issue 052): hand the admin a consent URL to visit. Their browser
+  // does the navigating, so unlike /oauth/start this returns immediately and the request does not
+  // stay open across a human deciding things. An override client is accepted the same way.
+  router.post("/oauth/authorize", (req, res) => {
+    if (!hosted) {
+      res
+        .status(501)
+        .json(
+          toErrorBody(
+            new AppError(
+              "OAUTH_FAILED",
+              "Browser sign-in isn't available on this deployment — set PUBLIC_ORIGIN, or configure credentials via env or the CLI.",
+            ),
+          ),
+        );
+      return;
+    }
+    try {
+      const parsed = oauthStartBody.parse(req.body ?? {});
+      const override =
+        parsed.clientId && parsed.clientSecret
+          ? { clientId: parsed.clientId, clientSecret: parsed.clientSecret }
+          : undefined;
+      // The URL only — the state nonce it carries is the server's, and there is nothing here for
+      // the browser to hold on to.
+      res.json(hosted.authorize(override));
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json(toErrorBody(new AppError("INVALID_REQUEST", err.issues[0]?.message)));
+        return;
+      }
+      res.status(400).json(toErrorBody(err));
+    }
+  });
+
+  // Hosted connect, step two: Google sends the admin's browser here. This is a **navigation**, not
+  // a fetch — a JSON error body would land the admin on a page of machine text — so both outcomes
+  // are a redirect back to the dashboard, which reads the query and says what happened. The token
+  // never appears in either: it goes to the store, and only `ok` or a message comes back out.
+  router.get("/oauth/callback", async (req, res) => {
+    const back = (params: Record<string, string>) =>
+      res.redirect(`/?${new URLSearchParams(params).toString()}`);
+    if (!hosted) {
+      back({ connect_error: "Browser sign-in isn't available on this deployment." });
+      return;
+    }
+    const q = req.query as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+    try {
+      await hosted.complete({ code: str(q.code), state: str(q.state), error: str(q.error) });
+      back({ connected: "youtube" });
+    } catch (err) {
+      back({
+        connect_error:
+          err instanceof AppError ? err.message : "The YouTube sign-in did not complete.",
+      });
     }
   });
 

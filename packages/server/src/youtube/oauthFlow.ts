@@ -16,9 +16,24 @@ export const OAUTH_REDIRECT = `http://localhost:${OAUTH_PORT}/oauth2callback`;
 /** Single read+write YouTube scope — a Google "sensitive" scope (PRD-03 §1). No split. */
 export const OAUTH_SCOPES = ["https://www.googleapis.com/auth/youtube"];
 
-/** The slice of the googleapis OAuth2 client this flow uses. Injectable so tests stay offline. */
+/**
+ * The guidance for the case Google answers consent without a refresh token — it does that when
+ * the account has already granted this client and `prompt=consent` did not force a re-grant.
+ * Worded once here because both connect flows hit it and the fix is the same either way.
+ */
+export const NO_REFRESH_TOKEN_GUIDANCE =
+  "Google returned no refresh token because this app was already authorised. " +
+  "Revoke its access at https://myaccount.google.com/permissions and reconnect.";
+
+/** The slice of the googleapis OAuth2 client both flows use. Injectable so tests stay offline. */
 export interface OAuthClientLike {
-  generateAuthUrl(opts: { access_type: string; prompt: string; scope: string[] }): string;
+  generateAuthUrl(opts: {
+    access_type: string;
+    prompt: string;
+    scope: string[];
+    /** Round-tripped through Google. Unused by the loopback flow; the hosted flow's CSRF nonce. */
+    state?: string;
+  }): string;
   getToken(code: string): Promise<{ tokens: { refresh_token?: string | null } }>;
 }
 
@@ -39,7 +54,8 @@ export interface RunOAuthFlowDeps {
   oauthFactory?: OAuthClientFactory;
 }
 
-const defaultFactory: OAuthClientFactory = (clientId, clientSecret, redirect) => {
+/** The real googleapis client. Shared with the hosted flow, which differs only in its redirect. */
+export const defaultOAuthFactory: OAuthClientFactory = (clientId, clientSecret, redirect) => {
   const client = new google.auth.OAuth2(clientId, clientSecret, redirect);
   return {
     generateAuthUrl: (opts) => client.generateAuthUrl(opts),
@@ -64,7 +80,7 @@ export async function runOAuthFlow(deps: RunOAuthFlowDeps): Promise<{ refreshTok
     throw new AppError("OAUTH_FAILED", "Missing OAuth client ID or secret.");
   }
 
-  const oauth = (deps.oauthFactory ?? defaultFactory)(clientId, clientSecret, redirect);
+  const oauth = (deps.oauthFactory ?? defaultOAuthFactory)(clientId, clientSecret, redirect);
   const authUrl = oauth.generateAuthUrl({
     access_type: "offline", // ask Google for a refresh token
     prompt: "consent", // force it even if the user previously granted
@@ -91,11 +107,7 @@ export async function runOAuthFlow(deps: RunOAuthFlowDeps): Promise<{ refreshTok
             res.writeHead(200, { "Content-Type": "text/plain" });
             res.end("Connected, but no refresh token was returned — see the app.");
             reject(
-              new AppError(
-                "OAUTH_NO_REFRESH_TOKEN",
-                "Google returned no refresh token because this app was already authorised. " +
-                  "Revoke its access at https://myaccount.google.com/permissions and reconnect.",
-              ),
+              new AppError("OAUTH_NO_REFRESH_TOKEN", NO_REFRESH_TOKEN_GUIDANCE),
             );
             return;
           }

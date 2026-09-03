@@ -6,7 +6,7 @@ import { loadConfig } from "./config.js";
  * guarded at all — so the failure modes worth testing are the ones that fail *open*.
  */
 
-const KEYS = ["ADMIN_USERNAME", "ADMIN_PASSWORD", "TRUST_PROXY"] as const;
+const KEYS = ["ADMIN_USERNAME", "ADMIN_PASSWORD", "TRUST_PROXY", "PUBLIC_ORIGIN"] as const;
 let saved: Record<string, string | undefined>;
 
 beforeEach(() => {
@@ -49,5 +49,36 @@ describe("TRUST_PROXY", () => {
     expect(loadConfig().trustProxy).toBe(true);
     process.env.TRUST_PROXY = "loopback";
     expect(loadConfig().trustProxy).toBe("loopback");
+  });
+});
+
+/**
+ * PUBLIC_ORIGIN is what makes the hosted connect flow possible (issue 052): it is the origin
+ * Google redirects the admin's browser back to, and it must match the redirect URI registered on
+ * the OAuth client character for character. A wrong value does not fail at boot — it fails at
+ * consent, in a browser, with Google's own `redirect_uri_mismatch`, which is exactly the moment
+ * nobody wants to be debugging. So the parsing is strict and the failures are loud.
+ */
+describe("PUBLIC_ORIGIN", () => {
+  it("is empty unless set — the desktop, LAN and direct-Docker case", () => {
+    expect(loadConfig().publicOrigin).toBe("");
+  });
+
+  it("keeps scheme, host and port, and drops a trailing slash", () => {
+    process.env.PUBLIC_ORIGIN = "https://live.example.org/";
+    expect(loadConfig().publicOrigin).toBe("https://live.example.org");
+    process.env.PUBLIC_ORIGIN = "http://192.168.1.10:8080";
+    expect(loadConfig().publicOrigin).toBe("http://192.168.1.10:8080");
+  });
+
+  it("refuses a value that is not an absolute http(s) origin", () => {
+    // The shapes an operator actually types: a bare hostname, and an origin with a path on it.
+    // Both would build a redirect URI that silently does not match the registered one.
+    process.env.PUBLIC_ORIGIN = "live.example.org";
+    expect(() => loadConfig()).toThrow(/PUBLIC_ORIGIN/);
+    process.env.PUBLIC_ORIGIN = "https://live.example.org/app";
+    expect(() => loadConfig()).toThrow(/PUBLIC_ORIGIN/);
+    process.env.PUBLIC_ORIGIN = "ftp://live.example.org";
+    expect(() => loadConfig()).toThrow(/PUBLIC_ORIGIN/);
   });
 });

@@ -11,20 +11,30 @@ import { ReauthBanner } from "./ReauthBanner.js";
  */
 
 const status = vi.fn<() => Promise<SetupStatus>>();
+const authorize =
+  vi.fn<(override?: { clientId: string; clientSecret: string }) => Promise<{ url: string }>>();
 
 vi.mock("../api.js", () => ({
-  api: { setup: { status: () => status(), connect: async () => ({}) } },
+  api: {
+    setup: {
+      status: () => status(),
+      connect: async () => ({}),
+      authorize: (override?: { clientId: string; clientSecret: string }) => authorize(override),
+    },
+  },
 }));
 
 beforeEach(() => {
   status.mockReset();
+  authorize.mockReset();
+  authorize.mockResolvedValue({ url: "https://accounts.google.com/o/oauth2/v2/auth?state=abc" });
   status.mockResolvedValue({
     configured: true,
     hasClientId: true,
     hasClientSecret: true,
     hasRefreshToken: true,
     activeFlow: "bundled",
-    canConnect: true,
+    connectMode: "in-app",
     hasBundledClient: true,
     redirectUri: "http://127.0.0.1:8723/oauth/callback",
     liveEligibility: { mode: "unknown", reason: null, message: null, checkedAt: null },
@@ -69,7 +79,7 @@ it("routes to settings on a host with no browser to run consent in", async () =>
     hasClientSecret: true,
     hasRefreshToken: true,
     activeFlow: "override",
-    canConnect: false,
+    connectMode: null,
     hasBundledClient: false,
     redirectUri: "http://127.0.0.1:8723/oauth/callback",
     liveEligibility: { mode: "unknown", reason: null, message: null, checkedAt: null },
@@ -79,4 +89,41 @@ it("routes to settings on a host with no browser to run consent in", async () =>
   const button = await screen.findByRole("button", { name: /reconnect in settings/i });
   fireEvent.click(button);
   expect(open).toHaveBeenCalled();
+});
+
+
+/**
+ * On a hosted deployment the banner is the reconnect (issue 052, PRD-03 §4). There is no browser
+ * for the server to drive, but there is one reading the banner — so Reconnect sends it to Google
+ * rather than dead-ending in Settings at a form that asks for a token from a CLI script.
+ */
+it("reconnects a hosted deployment by sending the browser to Google", async () => {
+  status.mockResolvedValue({
+    configured: true,
+    hasClientId: true,
+    hasClientSecret: true,
+    hasRefreshToken: true,
+    activeFlow: "override",
+    connectMode: "redirect",
+    hasBundledClient: false,
+    redirectUri: "https://live.example.org/api/setup/oauth/callback",
+    liveEligibility: { mode: "unknown", reason: null, message: null, checkedAt: null },
+  } as SetupStatus);
+  const assign = vi.fn();
+  const realLocation = window.location;
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: { ...window.location, assign },
+  });
+  const open = vi.fn();
+  try {
+    banner(true, open);
+    fireEvent.click(await screen.findByRole("button", { name: /^reconnect$/i }));
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith(
+      "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
+    ));
+    expect(open).not.toHaveBeenCalled();
+  } finally {
+    Object.defineProperty(window, "location", { configurable: true, value: realLocation });
+  }
 });

@@ -86,6 +86,49 @@ npm start</pre>
               Docker volume and your config survives redeploys.
             </p>
           </div>
+
+          <h3>Connecting YouTube on a hosted deployment</h3>
+          <p>
+            A headless host has no browser for the server to open, so the
+            desktop build's one-click connect cannot run there. Set
+            <code>PUBLIC_ORIGIN</code> to the origin this server answers on and
+            the dashboard gains a browser sign-in instead: it sends
+            <em>your</em> browser to Google, and Google returns it to the
+            server's callback. Nobody has to run
+            <code>scripts/get-refresh-token.mjs</code> or paste a refresh token
+            by hand.
+          </p>
+          <pre><span class="c"># The full origin, scheme included, no trailing path.</span>
+<span class="k">PUBLIC_ORIGIN</span>=<span class="s">https://live.example.org</span></pre>
+          <p>
+            Then register the callback below as an <strong>Authorized redirect
+            URI</strong> on the OAuth client in the Google Cloud Console. It is
+            matched character for character — a mismatch fails at the consent
+            screen with <code>redirect_uri_mismatch</code>, not at boot.
+          </p>
+          <pre><span class="s">https://live.example.org/api/setup/oauth/callback</span></pre>
+          <p>
+            The dashboard shows the exact string for this deployment on the
+            setup screen and in <strong>Settings → YouTube connection</strong>,
+            so it can be copied rather than retyped. On success the refresh
+            token is stored server-side and the YouTube client is rebuilt
+            in-process — no restart, and Companion's connection stays up.
+          </p>
+          <div class="callout">
+            <p>
+              <strong>This is where the client secret becomes a real secret.</strong>
+              Unlike the bundled desktop client, a hosted deployment's OAuth
+              client lives only on the server. Connecting is admin-only, and
+              nothing about the credentials is ever read back to a browser —
+              status answers in booleans.
+            </p>
+          </div>
+          <p>
+            Leave <code>PUBLIC_ORIGIN</code> unset for desktop, LAN and direct
+            Docker installs. Without it the connection is still replaceable from
+            Settings, but by pasting a token minted with
+            <code>node packages/server/scripts/get-refresh-token.mjs</code>.
+          </p>
         </section>
 
 <section id="auth">

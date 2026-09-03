@@ -141,6 +141,17 @@ export const api = {
         body: JSON.stringify(override ?? {}),
       }),
     /**
+     * Starts the hosted (redirect) flow: returns the Google consent URL for *this* browser to
+     * visit (issue 052). Unlike `connect`, the request does not stay open — the browser leaves
+     * the app, consents at Google, and comes back through the server's callback. Pass an override
+     * client to consent against the operator's own; nothing but the URL comes back.
+     */
+    authorize: (override?: { clientId: string; clientSecret: string }) =>
+      req<{ url: string }>("/api/setup/oauth/authorize", {
+        method: "POST",
+        body: JSON.stringify(override ?? {}),
+      }),
+    /**
      * Disconnects the channel: the server discards the stored refresh token and reboots into setup
      * mode. No secret is sent or returned — only the ok/restarting acknowledgement.
      */

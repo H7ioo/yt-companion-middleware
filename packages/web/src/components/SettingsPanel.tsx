@@ -293,12 +293,27 @@ export function SettingsPanel({
 
   const view = status ? describeConnection(status) : null;
   const working = busy !== "idle";
+  // Both flows that can run consent from inside the app. They differ only in who opens the
+  // browser, so the same buttons drive them; `manual` and `env` get their own sections below.
+  const consent = view?.mode === "in-app" || view?.mode === "redirect";
+  // The redirect flow's button navigates away, so it must not claim to be waiting on a browser
+  // this host does not have.
+  const leaving = view?.mode === "redirect";
 
-  // Re-run the loopback consent flow against whichever client is already stored (bundled or the
-  // operator's own) — reconnect needs no re-entry of the secret, which never left the server.
+  // Re-run consent against whichever client is already stored (bundled or the operator's own) —
+  // reconnect needs no re-entry of the secret, which never left the server. Which flow runs is the
+  // server's answer, not a guess: `in-app` drives the system browser here, `redirect` sends *this*
+  // browser to Google and gets it back through the public callback (issue 052).
   const runConnect = async (override?: { clientId: string; clientSecret: string }) => {
     setBusy("connecting");
     try {
+      if (view?.mode === "redirect") {
+        const { url } = await api.setup.authorize(override);
+        // Leaves the page. The outcome arrives on the URL of the load that follows, which the
+        // dashboard reads — there is nothing to await here.
+        window.location.assign(url);
+        return;
+      }
       await api.setup.connect(override);
       setBusy("waiting");
       await settle((s) => s.configured);
@@ -395,12 +410,12 @@ export function SettingsPanel({
                 <p className="empty conn__guidance">
                   Only an admin can change the YouTube connection.
                 </p>
-              ) : view.mode === "in-app" ? (
+              ) : consent ? (
                 <div className="settings__actions">
                   {view.connected ? (
                     <>
                       <button className="btn btn--sm" onClick={() => runConnect()} disabled={working}>
-                        {busy === "connecting"
+                        {busy === "connecting" && !leaving
                           ? "Waiting for your browser…"
                           : busy === "waiting"
                             ? "Finishing up…"
@@ -412,7 +427,7 @@ export function SettingsPanel({
                     </>
                   ) : (
                     <button className="btn btn--primary btn--sm" onClick={() => runConnect()} disabled={working}>
-                      {busy === "connecting"
+                      {busy === "connecting" && !leaving
                         ? "Waiting for your browser…"
                         : busy === "waiting"
                           ? "Finishing up…"
@@ -530,7 +545,7 @@ export function SettingsPanel({
                 </p>
               )}
 
-              {view.mode === "in-app" && canAdminister ? (
+              {consent && canAdminister ? (
                 <>
                   <button
                     className="settings__disclosure"
@@ -582,7 +597,7 @@ export function SettingsPanel({
                         type="submit"
                         disabled={working || !clientId.trim() || !clientSecret.trim()}
                       >
-                        Connect with my client
+                        {leaving ? "Continue to Google" : "Connect with my client"}
                       </button>
                     </form>
                   ) : null}

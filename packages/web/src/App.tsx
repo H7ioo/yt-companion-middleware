@@ -35,6 +35,7 @@ import { buildFillUrl } from "./lib/fillRoute.js";
 import { shouldAnnounce, readLastSeen, markSeen } from "./lib/whatsNew.js";
 import { appInfoChanged } from "./lib/appInfo.js";
 import { canAdminister } from "./lib/session.js";
+import { clearConnectReturn, readConnectReturn } from "./lib/connectReturn.js";
 
 type Toast = { message: string; kind: "ok" | "err" } | null;
 
@@ -82,6 +83,15 @@ export function App() {
     setToast({ message, kind });
     window.setTimeout(() => setToast(null), 3200);
   }, []);
+
+  // The hosted connect flow returns the browser here, not to a promise (issue 052): reconnecting
+  // from Settings navigates to Google and comes back as a fresh page load, so the outcome is
+  // waiting on the URL. Reported once, then cleared, so a reload does not replay it.
+  useEffect(() => {
+    const returned = readConnectReturn(new URL(window.location.href));
+    if (returned) flash(returned.ok ? "YouTube connected" : returned.message, returned.ok ? "ok" : "err");
+    clearConnectReturn();
+  }, [flash]);
 
   // Manual update re-check. The launch check is once-only, so a release published while the app
   // runs is invisible until restart without this. Refetches app info after so the banner reflects
