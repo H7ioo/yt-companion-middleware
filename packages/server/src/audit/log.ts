@@ -372,6 +372,9 @@ const ROUTES: ReadonlyArray<{
   { method: "POST", pattern: /^\/api(\/dashboard)?\/action\/undo$/i, action: "undid the last change", notable: false },
   { method: "POST", pattern: /^\/api(\/dashboard)?\/action\/refresh$/i, action: "refreshed from YouTube", notable: false },
   { method: "PUT", pattern: /^\/api\/dashboard\/target$/i, action: "changed the go-live target", notable: false },
+  // Notable, unlike the rest of running the show: this one puts a broadcast — and a link people
+  // may already hold — into the world, and "who created this" is a question with a wrong answer.
+  { method: "POST", pattern: /^\/api\/dashboard\/broadcasts\/prepare$/i, action: "prepared a broadcast", notable: true },
   { method: "PUT", pattern: /^\/api\/dashboard\/settings$/i, action: "changed the settings", notable: false },
   { method: "PUT", pattern: /^\/api\/dashboard\/service$/i, action: "changed the service switch", notable: false },
   { method: "POST", pattern: /^\/api\/dashboard\/presets$/i, action: "created a preset", notable: false },

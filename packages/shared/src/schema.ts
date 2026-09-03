@@ -431,6 +431,33 @@ export const liveEligibilitySchema = z.object({
 export type LiveEligibility = z.infer<typeof liveEligibilitySchema>;
 export type LiveEligibilityMode = LiveEligibility["mode"];
 
+/**
+ * A broadcast **this app created** (PRD-16 §2, issue 062).
+ *
+ * The ownership record, and the reason it is persisted at all: no field on the YouTube resource
+ * distinguishes a broadcast this app inserted from one a human made in Studio, so this list is
+ * the only safe basis for ever deleting one (issue 064) — and the only basis for preferring ours
+ * when target resolution has candidates it cannot tell apart. A record is written the moment the
+ * insert returns, before the bind, so a half-finished preparation is still cleanable.
+ *
+ * Metadata is a snapshot of what was asked for at insert, not a mirror of YouTube: it names the
+ * broadcast in a list without spending a read, and it is never the authority on what is on air.
+ */
+export const preparedBroadcastSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().default(""),
+  privacyStatus: privacyStatusSchema.nullable().default(null),
+  scheduledStartTime: z.string().nullable().default(null),
+  /** The existing reusable key it was bound to. Null when the bind never landed. */
+  streamId: z.string().nullable().default(null),
+  /** The public link — the whole reason preparing ahead of time is worth doing. */
+  watchUrl: z.string(),
+  createdAt: z.string(),
+  /** The preset it came from, or null for an ad-hoc preparation. */
+  presetId: z.string().nullable().default(null),
+});
+export type PreparedBroadcast = z.infer<typeof preparedBroadcastSchema>;
+
 export const storeSchema = z.object({
   credentials: credentialsSchema.default({ clientId: "", clientSecret: "", refreshToken: "" }),
   liveEligibility: liveEligibilitySchema.default({
@@ -454,6 +481,7 @@ export const storeSchema = z.object({
   notify: notifySchema.default({ ntfyServer: "https://ntfy.sh", ntfyTopic: "", publicBaseUrl: "" }),
   service: serviceSchema.default({ apiEnabled: true }),
   targetPin: targetPinSchema.nullable().default(null),
+  preparedBroadcasts: z.array(preparedBroadcastSchema).default([]),
   cache: cacheSchema.default({
     status: {
       broadcastId: null,
