@@ -402,8 +402,43 @@ export const graceSchema = z.object({
 });
 export type Grace = z.infer<typeof graceSchema>;
 
+/**
+ * Whether YouTube lets this channel create broadcasts, or only lets this app ride along with
+ * broadcasts somebody made in Studio (PRD-16 §6, issue 061).
+ *
+ * Detected, never guessed. YouTube refuses `liveBroadcasts.insert` on an ineligible channel with
+ * a named reason — the subscriber threshold is the usual cause, but the threshold is not the rule
+ * and counting subscribers to predict it would be a second, worse copy of YouTube's policy. The
+ * refusal is the answer, so the refusal is what is stored.
+ *
+ * `unknown` is the honest starting state and is not the same as `riding`: nothing has been
+ * refused, so nothing may be disabled on the strength of it.
+ *
+ * Deliberately not part of `cache`, and deliberately not a health state. Health answers "can we
+ * reach YouTube"; this answers "what is this channel allowed to do" — a perfectly healthy
+ * connection to an ineligible channel is the normal case here, and folding the two together
+ * would light the reconnect banner over a channel whose sign-in is fine.
+ */
+export const liveEligibilitySchema = z.object({
+  mode: z.enum(["unknown", "driving", "riding"]).default("unknown"),
+  /** YouTube's own refusal reason code, kept verbatim so the finding can be checked later. */
+  reason: z.string().nullable().default(null),
+  /** YouTube's own words for the refusal. Shown as evidence, never rewritten. */
+  message: z.string().nullable().default(null),
+  /** When the mode was first observed. Null while unknown. */
+  checkedAt: z.string().nullable().default(null),
+});
+export type LiveEligibility = z.infer<typeof liveEligibilitySchema>;
+export type LiveEligibilityMode = LiveEligibility["mode"];
+
 export const storeSchema = z.object({
   credentials: credentialsSchema.default({ clientId: "", clientSecret: "", refreshToken: "" }),
+  liveEligibility: liveEligibilitySchema.default({
+    mode: "unknown",
+    reason: null,
+    message: null,
+    checkedAt: null,
+  }),
   presets: z.array(presetSchema).default([]),
   defaults: defaultSettingsSchema.default({
     defaultCategory: null,

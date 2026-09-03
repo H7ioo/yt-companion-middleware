@@ -16,6 +16,7 @@ import { SessionNotice } from "./components/SessionNotice.js";
 import { ReauthBanner } from "./components/ReauthBanner.js";
 import { FirewallGuidance } from "./components/FirewallGuidance.js";
 import { TargetConflictBanner } from "./components/TargetConflictBanner.js";
+import { RidingModeNotice } from "./components/RidingModeNotice.js";
 import { TargetPicker } from "./components/TargetPicker.js";
 import { BroadcastList } from "./components/BroadcastList.js";
 import { IngestionReadout } from "./components/IngestionReadout.js";
@@ -553,6 +554,12 @@ export function App() {
             refreshing={refreshing}
           />
         ) : null}
+
+        {/* Riding along — YouTube refuses to let this channel create broadcasts (issue 061).
+            Placed above the list because it explains what the operator can and cannot do with
+            everything below it, and never instead of a health banner: this one is about
+            permissions, those are about the connection. */}
+        {state ? <RidingModeNotice eligibility={state.liveEligibility} /> : null}
 
         {/* What YouTube will actually feed when the encoder starts, and — since issue 058 — the
             second surface for the same edit-target pin the picker below writes. Above it because

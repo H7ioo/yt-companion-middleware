@@ -4,6 +4,7 @@ import type { JsonStore } from "../storage/jsonStore.js";
 import { AppError, toErrorBody } from "../core/errors.js";
 import { OAUTH_REDIRECT } from "../youtube/oauthFlow.js";
 import { deriveActiveFlow } from "../youtube/setupStatus.js";
+import { resetEligibility } from "../youtube/eligibility.js";
 
 const body = z.object({
   clientId: z.string().trim().min(1, "Client ID is required"),
@@ -77,6 +78,9 @@ export function setupStatusHandler({ store, configured, oauth }: SetupDeps): Req
       activeFlow: deriveActiveFlow(c, { configured, bundledClientId: oauth?.bundledClientId }),
       // The loopback redirect the operator must register on their own OAuth client (override flow).
       redirectUri: OAUTH_REDIRECT,
+      // Whether YouTube lets this channel create broadcasts (issue 061). Setup status, not health:
+      // it describes the channel's permissions, and nothing here is a reason to reconnect.
+      liveEligibility: store.get().liveEligibility,
     });
   };
 }
@@ -97,6 +101,9 @@ export function setupRouter(deps: SetupDeps): Router {
     await store.update((s) => {
       s.credentials = { clientId: "", clientSecret: "", refreshToken: "" };
     });
+    // What YouTube allows was learned about the channel we just disconnected from; the next
+    // connect may well be a different channel (issue 061).
+    await resetEligibility(store);
     res.json({ ok: true, restarting: true });
     requestRestart();
   });
@@ -142,6 +149,10 @@ export function setupRouter(deps: SetupDeps): Router {
       await store.update((s) => {
         s.credentials = creds;
       });
+      // Same reasoning as /disconnect: these credentials may belong to another channel, and on a
+      // headless host this route is the only way in — `connectYouTube`'s reset never runs there
+      // (issue 061).
+      await resetEligibility(store);
       // Respond first, then restart — the restart is deferred so this response flushes.
       res.json({ ok: true, restarting: true });
       requestRestart();

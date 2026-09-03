@@ -1,4 +1,10 @@
-import type { HealthStatus, IngestionSnapshot, TargetConflict, TargetPin } from "./schema.js";
+import type {
+  HealthStatus,
+  IngestionSnapshot,
+  LiveEligibility,
+  TargetConflict,
+  TargetPin,
+} from "./schema.js";
 import type { IngestionState } from "./glossary.js";
 
 /**
@@ -161,6 +167,12 @@ export interface DashboardState {
    * as old is useful, an old answer presented as current is the reason Studio gets opened.
    */
   ingestion: IngestionReadout | null;
+  /**
+   * Riding mode, carried on the same push as everything else so the dashboard can disable
+   * creation and say why without a second fetch (issue 061). Not secret — it says what YouTube
+   * allows this channel to do, and the operator is the one who needs to know.
+   */
+  liveEligibility: LiveEligibility;
 }
 
 /**
@@ -222,6 +234,12 @@ export interface SetupStatus {
    * OAuth client so they can register it as an authorized redirect (PRD-03 §3 override flow).
    */
   redirectUri: string;
+  /**
+   * Whether YouTube lets this channel create broadcasts (issue 061). Reported here rather than on
+   * health on purpose: it is a fact about the channel's permissions, not about the connection, so
+   * it must never light the reconnect banner or move `health`.
+   */
+  liveEligibility: LiveEligibility;
 }
 
 /**

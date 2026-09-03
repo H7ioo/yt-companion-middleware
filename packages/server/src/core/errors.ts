@@ -1,4 +1,4 @@
-import { TARGET_GLOSSARY } from "@app/shared";
+import { LIVE_ELIGIBILITY_GLOSSARY, TARGET_GLOSSARY } from "@app/shared";
 
 import { scrubSecrets } from "./secrets.js";
 
@@ -23,6 +23,7 @@ export type ErrorCode =
   | "TOO_MANY_ATTEMPTS"
   | "INVITE_INVALID"
   | "BROADCAST_WRITE_UNSAFE"
+  | "LIVE_NOT_ELIGIBLE"
   | "SERVER_ERROR";
 
 const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
@@ -58,15 +59,31 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   // field the fetched broadcast had, and sending it would have deleted that field (issue 056).
   BROADCAST_WRITE_UNSAFE:
     "Refused to write the broadcast — the update would have deleted fields it should have preserved",
+  // YouTube refusing the channel, not the app failing and not the sign-in expiring (issue 061).
+  // Named as YouTube's decision because the operator's first instinct on any refusal here is to
+  // reconnect, and reconnecting the same channel changes nothing.
+  LIVE_NOT_ELIGIBLE: LIVE_ELIGIBILITY_GLOSSARY.riding.meaning,
   SERVER_ERROR: "The server could not complete the request",
 };
 
 export class AppError extends Error {
   readonly code: ErrorCode;
-  constructor(code: ErrorCode, message?: string) {
+  /**
+   * YouTube's own refusal reason, carried through the mapping so a caller can still tell *which*
+   * refusal this was (issue 061).
+   *
+   * Needed because every YouTube call in this repo maps its error at the call site — by the time
+   * the poll loop sees a failure, the Gaxios body it came from is gone. The eligibility reasons
+   * are the one case where the code alone is not enough: they are recorded verbatim as the
+   * evidence for putting a channel in riding mode, and inventing a reason from the code would
+   * defeat the point of detecting rather than guessing.
+   */
+  readonly reason?: string;
+  constructor(code: ErrorCode, message?: string, opts?: { reason?: string }) {
     super(message ?? DEFAULT_MESSAGES[code]);
     this.name = "AppError";
     this.code = code;
+    this.reason = opts?.reason;
   }
 }
 

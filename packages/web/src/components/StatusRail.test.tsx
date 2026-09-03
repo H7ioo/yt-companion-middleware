@@ -18,6 +18,7 @@ const state = (over: Partial<DashboardState> = {}): DashboardState => ({
   slugPng: null,
   titlePng: null,
   health: "ok",
+  liveEligibility: { mode: "unknown", reason: null, message: null, checkedAt: null },
   healthMessage: null,
   lastRefreshedAt: null,
   busy: false,

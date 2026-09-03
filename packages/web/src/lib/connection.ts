@@ -1,3 +1,4 @@
+import { LIVE_ELIGIBILITY_GLOSSARY } from "@app/shared";
 import type { SetupStatus } from "../api.js";
 
 /**
@@ -25,6 +26,13 @@ export interface ConnectionView {
    * replace. Only env/CLI credentials are genuinely read-only.
    */
   editable: boolean;
+  /**
+   * What YouTube lets this channel do, named from the glossary (issue 061). Carried on the
+   * connection view rather than read separately because it answers the same question the card
+   * already answers — "what have I actually got here" — and it is emphatically not a health
+   * state: a channel can be connected and green and still be refused broadcast creation.
+   */
+  eligibilityLabel: string;
 }
 
 const FLOW_LABEL: Record<NonNullable<SetupStatus["activeFlow"]>, string> = {
@@ -44,5 +52,6 @@ export function describeConnection(status: SetupStatus): ConnectionView {
     flowLabel: status.activeFlow ? FLOW_LABEL[status.activeFlow] : null,
     mode,
     editable: mode !== "env",
+    eligibilityLabel: LIVE_ELIGIBILITY_GLOSSARY[status.liveEligibility.mode].label,
   };
 }

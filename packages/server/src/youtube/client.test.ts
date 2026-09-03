@@ -32,6 +32,30 @@ describe("mapYouTubeError", () => {
     expect(mapYouTubeError(ytError(401)).code).toBe("YOUTUBE_AUTH_ERROR");
   });
 
+  // Issue 061: all three land on a 403 with a permission-shaped reason, so before this they were
+  // indistinguishable from a dead token — and the app answered a channel-eligibility fact with a
+  // reconnect banner no reconnect could clear.
+  it.each(["insufficientLivePermissions", "livePermissionBlocked", "liveStreamingNotEnabled"])(
+    "maps a 403 %s to LIVE_NOT_ELIGIBLE, not an auth error",
+    (reason) => {
+      const err = mapYouTubeError(ytError(403, [reason], "not enabled for live streaming"));
+      expect(err.code).toBe("LIVE_NOT_ELIGIBLE");
+      expect(isAuthError(err)).toBe(false);
+      expect(isNetworkError(err)).toBe(false);
+      expect(err.message).toBe("not enabled for live streaming");
+    },
+  );
+
+  it("still maps a 403 forbidden alongside an eligibility reason to LIVE_NOT_ELIGIBLE", () => {
+    expect(mapYouTubeError(ytError(403, ["forbidden", "livePermissionBlocked"])).code).toBe(
+      "LIVE_NOT_ELIGIBLE",
+    );
+  });
+
+  it("does not read eligibility out of a 5xx", () => {
+    expect(mapYouTubeError(ytError(500, ["liveStreamingNotEnabled"])).code).toBe("YOUTUBE_ERROR");
+  });
+
   it("maps a bare 403 (no quota reason) to YOUTUBE_AUTH_ERROR", () => {
     expect(mapYouTubeError(ytError(403)).code).toBe("YOUTUBE_AUTH_ERROR");
   });

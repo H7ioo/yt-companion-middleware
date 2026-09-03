@@ -1,4 +1,9 @@
-import type { HealthStatus, TargetConflict } from "./schema.js";
+import type {
+  HealthStatus,
+  LiveEligibility,
+  LiveEligibilityMode,
+  TargetConflict,
+} from "./schema.js";
 
 /**
  * Canonical user-facing vocabulary — the single source of truth for state names and their
@@ -289,4 +294,49 @@ export function describeTarget(
 ): TargetTerm & { kind: TargetKind } {
   const kind: TargetKind = status.noTarget ? "none" : status.isLive ? "live" : "upcoming";
   return { kind, ...TARGET_GLOSSARY[kind] };
+}
+
+/**
+ * The live-eligibility slice of the glossary: whether this app is driving the broadcast or riding
+ * along with one somebody else made (PRD-16 §6, issue 061).
+ *
+ * Worded to put the refusal where it belongs. YouTube blocks broadcast creation on channels it
+ * considers ineligible, and an operator reading "can't create a broadcast" with no subject
+ * reasonably concludes the app is broken and goes looking for a setting to fix — there isn't one.
+ * So every sentence here names YouTube, and says plainly what still works.
+ */
+export interface LiveEligibilityTerm {
+  /** Display name for the mode, shown on the connection card. */
+  label: string;
+  /** One plain-language sentence: what this mode means for the operator. */
+  meaning: string;
+  /** What the operator does about it — empty when there is nothing to do. */
+  remedy: string;
+}
+
+export const LIVE_ELIGIBILITY_GLOSSARY: Record<LiveEligibilityMode, LiveEligibilityTerm> = {
+  unknown: {
+    label: "Not yet known",
+    meaning:
+      "This app hasn't tried to create a broadcast on this channel yet, so whether YouTube will allow it is still an open question.",
+    remedy: "Prepare a broadcast once and the answer is recorded.",
+  },
+  driving: {
+    label: "Creating broadcasts",
+    meaning:
+      "YouTube allows this channel to create broadcasts, so this app can prepare and schedule them for you.",
+    remedy: "",
+  },
+  riding: {
+    label: "Riding along",
+    meaning:
+      "YouTube is refusing to let this channel create broadcasts. That is YouTube's decision about the channel, not a fault in this app or in your sign-in.",
+    remedy:
+      "Create the broadcast in YouTube Studio. Everything else here still works — the list, the signal-in readout and the player all follow whatever Studio made.",
+  },
+};
+
+/** Whether broadcast creation and scheduling may be offered at all (issue 061). */
+export function canCreateBroadcasts(eligibility: LiveEligibility): boolean {
+  return eligibility.mode !== "riding";
 }

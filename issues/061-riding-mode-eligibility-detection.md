@@ -37,3 +37,45 @@ the fixtures against.
 
 - User story 7
 - User story 11
+
+## Progress note — 2026-09-03
+
+Built against fixtures, as this issue's "What to build" allows ahead of issue 060. Five of the six
+acceptance criteria are met and covered by tests; the sixth is blocked on issue 062, not on 060.
+
+**Done**
+
+- `LIVE_NOT_ELIGIBLE` is its own error code. `mapYouTubeError` classifies all three refusal reasons
+  *before* the 403 auth branch — previously they were indistinguishable from a dead token, so the
+  app answered a channel-permission fact with a reconnect banner no reconnect could clear.
+- The refusal reason rides on `AppError.reason`. Needed because every YouTube call in the repo maps
+  its error at the call site, so by the time the poll loop sees a failure the Gaxios body is gone.
+- `store.liveEligibility` (`unknown` | `driving` | `riding`) holds the mode with YouTube's verbatim
+  reason and message. Recorded on the first refusal, idempotent so re-observing it every poll does
+  not re-date the finding, and reset on connect and disconnect — a reconnect may be to a different
+  channel entirely.
+- Health is untouched: `StateCache.recordFailure` treats an eligibility refusal as a call that
+  *reached* YouTube, so `cache.health` stays `ok` and the reauth banner never fires. Logged at
+  `warn`, not `error`. A 5xx, a network failure and a 401 all still classify exactly as before.
+- Reported in setup status (`GET /api/setup/status`) and on the dashboard state, so the notice
+  needs no second fetch and `changeSignature` pushes on a mode change.
+- Dashboard: `RidingModeNotice` names YouTube as the refuser in the glossary's canonical words and
+  quotes YouTube's own refusal as evidence. Deliberately not a banner — in this rack a coloured
+  left edge means a fault, and this is a standing constraint on a healthy connection. The Settings
+  connection card names the mode beside the active flow.
+- Copy lives once, in `LIVE_ELIGIBILITY_GLOSSARY` in `@app/shared` (issue 021's rule), which is
+  also where `NO_TARGET_FOUND`-style error text is drawn from.
+
+**Not done — blocked on issue 062, not on 060**
+
+- [ ] *Creation and scheduling controls are disabled — not merely hidden — in riding mode.* There
+      are no creation or scheduling controls yet; issue 062 builds them. `canCreateBroadcasts()` is
+      exported from `@app/shared` for 062 to gate on, and `driving` is only ever recorded by a
+      successful insert, which is also 062's to call via `noteDriving()`.
+
+**For issue 060 to check**
+
+The three reason strings and the assumption that all three arrive as HTTP 403 are taken from the
+API docs, not from this channel. Issue 060's live run must confirm the verbatim refusal against
+`ELIGIBILITY_REASONS` and the 403 gate in `eligibilityRefusal()` — the status gate is deliberate,
+since a false positive here disables the feature permanently on an eligible channel.

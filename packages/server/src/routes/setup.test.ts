@@ -80,3 +80,98 @@ describe("setup route", () => {
     }
   });
 });
+
+describe("setup status and channel eligibility (issue 061)", () => {
+  let store: JsonStore;
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "setup-elig-"));
+    store = new JsonStore(path.join(dir, "store.json"));
+    await store.init();
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  // Setup status, not health: PRD-16 §6 is explicit that riding mode belongs beside "which
+  // channel are we connected to", never beside "can we reach YouTube".
+  it("reports riding mode with YouTube's own reason", async () => {
+    await store.update((s) => {
+      s.liveEligibility = {
+        mode: "riding",
+        reason: "insufficientLivePermissions",
+        message: "The user is not enabled for live streaming.",
+        checkedAt: "2026-09-03T10:00:00.000Z",
+      };
+    });
+    const { url, close } = await mount({ store, configured: true, requestRestart: () => {} });
+    try {
+      const body = (await (await fetch(`${url}/api/setup/status`)).json()) as Record<string, unknown>;
+      expect(body.liveEligibility).toEqual({
+        mode: "riding",
+        reason: "insufficientLivePermissions",
+        message: "The user is not enabled for live streaming.",
+        checkedAt: "2026-09-03T10:00:00.000Z",
+      });
+    } finally {
+      await close();
+    }
+  });
+
+  it("reports unknown before anything has been refused", async () => {
+    const { url, close } = await mount({ store, configured: true, requestRestart: () => {} });
+    try {
+      const body = (await (await fetch(`${url}/api/setup/status`)).json()) as {
+        liveEligibility: { mode: string };
+      };
+      expect(body.liveEligibility.mode).toBe("unknown");
+    } finally {
+      await close();
+    }
+  });
+
+  // The credential POST is the only way onto a headless host, where `connectYouTube` — and so its
+  // reset — never runs. Without this, channel A's refusal would disable creation on channel B.
+  it("forgets riding mode when credentials are replaced", async () => {
+    await store.update((s) => {
+      s.liveEligibility = {
+        mode: "riding",
+        reason: "livePermissionBlocked",
+        message: "no",
+        checkedAt: "2026-09-01T00:00:00.000Z",
+      };
+    });
+    const { url, close } = await mount({ store, configured: true, requestRestart: () => {} });
+    try {
+      const res = await fetch(`${url}/api/setup`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ clientId: "b.apps", clientSecret: "sec", refreshToken: "1//b" }),
+      });
+      expect(res.status).toBe(200);
+      expect(store.get().liveEligibility.mode).toBe("unknown");
+    } finally {
+      await close();
+    }
+  });
+
+  it("forgets riding mode on disconnect — the next connect may be another channel", async () => {
+    await store.update((s) => {
+      s.liveEligibility = {
+        mode: "riding",
+        reason: "livePermissionBlocked",
+        message: "no",
+        checkedAt: "2026-09-01T00:00:00.000Z",
+      };
+    });
+    const { url, close } = await mount({ store, configured: true, requestRestart: () => {} });
+    try {
+      await fetch(`${url}/api/setup/disconnect`, { method: "POST" });
+      expect(store.get().liveEligibility.mode).toBe("unknown");
+    } finally {
+      await close();
+    }
+  });
+});

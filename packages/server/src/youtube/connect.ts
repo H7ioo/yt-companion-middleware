@@ -2,6 +2,7 @@ import type { JsonStore } from "../storage/jsonStore.js";
 import type { CredentialsState } from "../storage/schema.js";
 import { AppError } from "../core/errors.js";
 import { runOAuthFlow } from "./oauthFlow.js";
+import { resetEligibility } from "./eligibility.js";
 
 /**
  * Orchestrates a "Connect YouTube" click (PRD-03 §2): pick the OAuth client (an operator's own
@@ -61,5 +62,9 @@ export async function connectYouTube(deps: ConnectDeps): Promise<void> {
   await deps.store.update((s) => {
     s.credentials = creds;
   });
+  // Recorded at connect time, per PRD-16 §6: whatever was known about the previous channel's
+  // eligibility says nothing about this one, and carrying it over would disable broadcast
+  // creation on a channel that has never refused anything (issue 061).
+  await resetEligibility(deps.store);
   await deps.applyCredentials(creds);
 }

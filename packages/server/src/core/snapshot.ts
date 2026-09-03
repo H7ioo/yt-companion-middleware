@@ -39,6 +39,7 @@ export function buildDashboardState(
     targetConflict: c.targetConflict,
     targetPin: store.get().targetPin,
     ingestion: toIngestionReadout(c.ingestion),
+    liveEligibility: store.get().liveEligibility,
   };
 }
 
@@ -109,5 +110,9 @@ export function changeSignature(s: DashboardState): string {
     s.ingestion
       ? [s.ingestion.streamId, s.ingestion.state, Math.floor(Date.parse(s.ingestion.checkedAt) / 60_000)]
       : null,
+    // The mode, so riding mode reaches the dashboard the moment it is detected. Without it the
+    // notice — and the disabled creation controls it explains — would wait for an unrelated
+    // field to move, which on an idle channel can be a long time.
+    s.liveEligibility.mode,
   ]);
 }

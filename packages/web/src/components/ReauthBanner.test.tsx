@@ -27,6 +27,7 @@ beforeEach(() => {
     canConnect: true,
     hasBundledClient: true,
     redirectUri: "http://127.0.0.1:8723/oauth/callback",
+    liveEligibility: { mode: "unknown", reason: null, message: null, checkedAt: null },
   } as SetupStatus);
 });
 afterEach(cleanup);
@@ -71,6 +72,7 @@ it("routes to settings on a host with no browser to run consent in", async () =>
     canConnect: false,
     hasBundledClient: false,
     redirectUri: "http://127.0.0.1:8723/oauth/callback",
+    liveEligibility: { mode: "unknown", reason: null, message: null, checkedAt: null },
   } as SetupStatus);
   const open = vi.fn();
   banner(true, open);
