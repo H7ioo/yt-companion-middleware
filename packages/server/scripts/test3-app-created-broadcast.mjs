@@ -16,18 +16,20 @@
  *
  *   node scripts/test3-app-created-broadcast.mjs watch
  *       Poll every broadcast on the channel until one goes live. Records which one aired,
- *       the title on its first frame, and how long ours sat in "preparing".
+ *       the title on its first frame, and how long ours took from prepare to first frame.
  *
  * Findings append to scripts/test3-findings.json. Reads YT_* from .env.
  */
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { google } from "googleapis";
 import { config as loadEnv } from "dotenv";
 
 // .env lives at the monorepo root, so this runs from either the repo root or packages/server.
-loadEnv({ path: new URL("../../../.env", import.meta.url).pathname });
+// fileURLToPath, not .pathname: a checkout path with a space would arrive percent-encoded.
+loadEnv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
 
-const FINDINGS = new URL("./test3-findings.json", import.meta.url).pathname;
+const FINDINGS = fileURLToPath(new URL("./test3-findings.json", import.meta.url));
 const POLL_SECONDS = 10;
 const WATCH_MINUTES = 45;
 
@@ -52,16 +54,28 @@ function describeError(err) {
   };
 }
 
+/**
+ * Merges into the existing key rather than replacing it: the findings file carries hand-added
+ * fields (the rival broadcast, the notes) that a re-run must not destroy.
+ */
 function record(key, value) {
   const all = existsSync(FINDINGS) ? JSON.parse(readFileSync(FINDINGS, "utf8")) : {};
-  all[key] = value;
+  const prev = all[key];
+  const mergeable = (v) => v && typeof v === "object" && !Array.isArray(v);
+  all[key] = mergeable(prev) && mergeable(value) ? { ...prev, ...value } : value;
   writeFileSync(FINDINGS, JSON.stringify(all, null, 2) + "\n");
   console.log(`\n[recorded: ${key} -> ${FINDINGS}]`);
 }
 
 function arg(name, fallback = null) {
   const i = process.argv.indexOf(`--${name}`);
-  return i > -1 ? process.argv[i + 1] : fallback;
+  if (i === -1) return fallback;
+  const value = process.argv[i + 1];
+  if (value === undefined || value.startsWith("--")) {
+    console.error(`--${name} needs a value.`);
+    process.exit(1);
+  }
+  return value;
 }
 
 async function whoami() {
@@ -131,6 +145,10 @@ async function cmdPrepare() {
     process.exit(2);
   }
 
+  // Recorded here, not after the bind: a bind failure must not leave a stale `permitted: false`
+  // from an earlier run standing as the answer to the one question issue 060 turns on.
+  record("insertEligibility", { permitted: true, refusal: null, at: new Date().toISOString() });
+
   console.log(`Inserted id=${created.id}  life=${created.status?.lifeCycleStatus}`);
   console.log(`  enableAutoStart returned: ${created.contentDetails?.enableAutoStart}`);
   console.log(`  enableAutoStop  returned: ${created.contentDetails?.enableAutoStop}`);
@@ -159,7 +177,6 @@ async function cmdPrepare() {
     await yt.liveBroadcasts.list({ part: ["id", "snippet", "status", "contentDetails"], id: [created.id] })
   ).data.items?.[0];
 
-  record("insertEligibility", { permitted: true, at: new Date().toISOString() });
   record("prepared", {
     broadcastId: created.id,
     streamId,
@@ -204,14 +221,13 @@ async function cmdWatch() {
     const at = new Date().toISOString();
     let items = [];
     try {
-      const res = await yt.liveBroadcasts.list({
-        part: ["id", "snippet", "status", "contentDetails"],
-        broadcastStatus: "all",
-        maxResults: 50,
-      });
-      items = res.data.items ?? [];
+      items = await listBroadcasts(ours);
     } catch (err) {
-      timeline.push({ at, error: describeError(err) });
+      const error = describeError(err);
+      timeline.push({ at, error });
+      // Printed, not only recorded: a revoked token or spent quota must not look like a quiet
+      // channel while the operator sits there holding OBS live.
+      console.error(`${at}  POLL ERROR ${error.status ?? ""} ${error.reason ?? ""} ${error.message}`);
     }
 
     for (const b of items) {
@@ -248,23 +264,47 @@ async function cmdWatch() {
   console.log("\nDone. Findings written. Paste them back and I will write the result into PRD-16.");
 }
 
+/**
+ * The rival broadcast matters as much as ours — the test is which one wins — so we page the whole
+ * channel rather than reading page one. And we ask for ours by id on top of that: on a channel with
+ * a long broadcast history a single unpaged page could leave ours out and every poll would miss it.
+ */
+async function listBroadcasts(ours) {
+  const part = ["id", "snippet", "status", "contentDetails"];
+  const byId = new Map();
+
+  let pageToken;
+  do {
+    const res = await yt.liveBroadcasts.list({ part, broadcastStatus: "all", maxResults: 50, pageToken });
+    for (const b of res.data.items ?? []) byId.set(b.id, b);
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+
+  if (ours && !byId.has(ours)) {
+    const res = await yt.liveBroadcasts.list({ part, id: [ours] });
+    for (const b of res.data.items ?? []) byId.set(b.id, b);
+  }
+  return [...byId.values()];
+}
+
 /** Ctrl-C is the normal way this ends, so the result must survive it — not only a clean timeout. */
 function makeSaver(timeline, ours) {
   let saved = false;
   return function save() {
     if (saved) return;
     saved = true;
-    const firstReady = timeline.find((e) => e.ours && e.lifeCycleStatus === "ready");
     const wentLive = timeline.find((e) => e.ours && e.lifeCycleStatus === "live");
+    // Anchored on when we prepared it, not on the first poll: ours is already "ready" by the time
+    // the watcher starts, so the first "ready" entry would only measure watcher uptime.
+    const all = existsSync(FINDINGS) ? JSON.parse(readFileSync(FINDINGS, "utf8")) : {};
+    const preparedAt = all.prepared?.broadcastId === ours ? (all.prepared?.preparedAt ?? null) : null;
     const winner = timeline.find((e) => e.lifeCycleStatus === "live") ?? null;
     record("goLive", {
       winner,
       winnerWasOurs: winner ? winner.ours : null,
       titleOnFirstFrame: winner?.title ?? null,
-      readyToLiveSeconds:
-        firstReady && wentLive
-          ? (Date.parse(wentLive.at) - Date.parse(firstReady.at)) / 1000
-          : null,
+      preparedToLiveSeconds:
+        preparedAt && wentLive ? (Date.parse(wentLive.at) - Date.parse(preparedAt)) / 1000 : null,
       ours,
       timeline,
     });
