@@ -383,6 +383,11 @@ export function SettingsPanel({
                 <div className="conn__meta">
                   <span className="conn__state">{view.connected ? "Connected" : "Not connected"}</span>
                   {view.flowLabel ? <span className="conn__flow">via {view.flowLabel}</span> : null}
+                  {/* What this channel is allowed to do (issue 061). It belongs beside "which
+                      channel are we connected to" and nowhere near health — the connection above
+                      can read Connected and green while YouTube still refuses to let the channel
+                      create a broadcast. */}
+                  <span className="conn__flow">{view.eligibilityLabel}</span>
                 </div>
               </div>
 

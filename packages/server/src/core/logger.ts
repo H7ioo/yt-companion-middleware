@@ -71,5 +71,8 @@ export function categoryForCode(code: string | null): LogCategory {
 
 /** Convenience: the severity a failure code should log at. Auth/network are hard errors. */
 export function levelForCode(code: string | null): LogLevel {
-  return code === "YOUTUBE_QUOTA_EXCEEDED" ? "warn" : "error";
+  // Riding mode is a standing fact about the channel, not a fault: logging it as an error would
+  // put a red line in the panel every time preparation is attempted on a channel YouTube will
+  // never let create one (issue 061).
+  return code === "YOUTUBE_QUOTA_EXCEEDED" || code === "LIVE_NOT_ELIGIBLE" ? "warn" : "error";
 }

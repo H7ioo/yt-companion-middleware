@@ -10,6 +10,7 @@ import type {
   Person,
   SetupStatus,
 } from "@app/shared";
+import { LIVE_ELIGIBILITY_GLOSSARY } from "@app/shared";
 import { SettingsPanel } from "./SettingsPanel.js";
 
 /**
@@ -128,6 +129,7 @@ const setupStatus = (over: Partial<SetupStatus> = {}): SetupStatus =>
     canConnect: true,
     hasBundledClient: true,
     redirectUri: "http://127.0.0.1:8723/oauth/callback",
+    liveEligibility: { mode: "unknown", reason: null, message: null, checkedAt: null },
     ...over,
   }) as SetupStatus;
 
@@ -584,5 +586,42 @@ describe("the audit log", () => {
     expect(screen.queryByText("Audit log")).toBeNull();
     // And it is never even asked for: a request that answers 403 is not a request to make.
     expect(listAudit).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Riding mode belongs on the connection card, next to "which channel are we connected to"
+ * (issue 061 / PRD-16 §6). A channel can be Connected and green while YouTube still refuses to
+ * let it create anything, and that is the one place an operator looks to find out what they have.
+ */
+describe("SettingsPanel channel eligibility", () => {
+  it("names the mode on the connection card", async () => {
+    status.mockResolvedValue(
+      setupStatus({
+        liveEligibility: {
+          mode: "riding",
+          reason: "insufficientLivePermissions",
+          message: "The user is not enabled for live streaming.",
+          checkedAt: "2026-09-03T10:00:00.000Z",
+        },
+      }),
+    );
+    panel(true);
+    expect(await screen.findByText(LIVE_ELIGIBILITY_GLOSSARY.riding.label)).toBeTruthy();
+  });
+
+  it("says the channel is creating broadcasts once one has been created", async () => {
+    status.mockResolvedValue(
+      setupStatus({
+        liveEligibility: {
+          mode: "driving",
+          reason: null,
+          message: null,
+          checkedAt: "2026-09-03T10:00:00.000Z",
+        },
+      }),
+    );
+    panel(true);
+    expect(await screen.findByText(LIVE_ELIGIBILITY_GLOSSARY.driving.label)).toBeTruthy();
   });
 });

@@ -2,6 +2,7 @@ import { google, type youtube_v3 } from "googleapis";
 import type { AppConfig } from "../config.js";
 import { AppError } from "../core/errors.js";
 import { scrubSecrets } from "../core/secrets.js";
+import { eligibilityRefusal } from "./eligibility.js";
 
 /**
  * Builds an authenticated YouTube Data API client from the server-side OAuth refresh
@@ -60,6 +61,13 @@ export function mapYouTubeError(err: unknown): AppError {
   const status = Number(anyErr.response?.status ?? anyErr.status ?? anyErr.code);
   const reasons = anyErr.response?.data?.error?.errors?.map((e) => e.reason ?? "") ?? [];
   const message = anyErr.message;
+
+  // Before anything else in the 403 family, and deliberately so: all three eligibility reasons
+  // are 403s with a permission-shaped reason, so without this they land on YOUTUBE_AUTH_ERROR —
+  // which escalates health to auth_error and raises the reconnect banner over a channel whose
+  // sign-in is perfectly good and whose problem no reconnect can fix (issue 061).
+  const refusal = eligibilityRefusal(err);
+  if (refusal) return new AppError("LIVE_NOT_ELIGIBLE", message ?? undefined, { reason: refusal });
 
   if (status === 401 || status === 403) {
     const quotaReasons = ["quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded"];

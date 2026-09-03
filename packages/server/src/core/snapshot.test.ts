@@ -34,6 +34,7 @@ function state(over: Partial<DashboardState> = {}): DashboardState {
     lastRefreshedAt: "2026-07-03T00:00:00.000Z",
     targetPin: null,
     ingestion: null,
+    liveEligibility: { mode: "unknown", reason: null, message: null, checkedAt: null },
     busy: false,
     quota: { date: "2026-07-03", used: 0, limit: 10000, remaining: 10000 },
     undo: null,
@@ -166,5 +167,25 @@ describe("resolveDisplayLabel", () => {
 
   it("treats a whitespace-only slug as unset", () => {
     expect(resolveDisplayLabel(storeWith([preset({ slug: "   " })]), "p1")).toBe("p1");
+  });
+});
+
+describe("changeSignature and riding mode (issue 061)", () => {
+  // Riding mode disables the creation controls, so the dashboard has to learn about it on the
+  // next push rather than whenever some unrelated field happens to move — on an idle channel
+  // nothing else changes for hours.
+  it("changes when the eligibility mode changes", () => {
+    const before = changeSignature(state());
+    const after = changeSignature(
+      state({
+        liveEligibility: {
+          mode: "riding",
+          reason: "livePermissionBlocked",
+          message: "no",
+          checkedAt: "2026-09-03T10:00:00.000Z",
+        },
+      }),
+    );
+    expect(after).not.toBe(before);
   });
 });

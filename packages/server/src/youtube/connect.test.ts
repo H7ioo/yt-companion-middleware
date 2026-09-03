@@ -5,7 +5,17 @@ import type { CredentialsState } from "../storage/schema.js";
 
 /** A minimal in-memory stand-in for JsonStore's credentials read/write surface. */
 function fakeStore(credentials: CredentialsState) {
-  const state = { credentials: { ...credentials } };
+  const state = {
+    credentials: { ...credentials },
+    // Carried because connect clears it: what YouTube allowed the *previous* channel to do is not
+    // a fact about the one being connected now (issue 061).
+    liveEligibility: {
+      mode: "riding" as const,
+      reason: "livePermissionBlocked",
+      message: "no",
+      checkedAt: "2026-09-01T00:00:00.000Z",
+    },
+  };
   return {
     get: () => state,
     update: vi.fn(async (mutator: (s: typeof state) => void) => {
@@ -98,5 +108,24 @@ describe("connectYouTube", () => {
     expect(err).toBeInstanceOf(AppError);
     expect(err.code).toBe("OAUTH_FAILED");
     expect(runFlow).not.toHaveBeenCalled();
+  });
+});
+
+describe("connectYouTube and channel eligibility (issue 061)", () => {
+  it("forgets the previous channel's riding mode on a successful connect", async () => {
+    const store = fakeStore(EMPTY);
+    await connectYouTube({
+      store,
+      bundledClient: { clientId: "bundled-id", clientSecret: "bundled-secret" },
+      openBrowser: vi.fn(),
+      applyCredentials: vi.fn(),
+      runFlow: vi.fn(async () => ({ refreshToken: "rt" })),
+    });
+    expect(store.get().liveEligibility).toEqual({
+      mode: "unknown",
+      reason: null,
+      message: null,
+      checkedAt: null,
+    });
   });
 });

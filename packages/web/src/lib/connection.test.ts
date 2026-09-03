@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { LIVE_ELIGIBILITY_GLOSSARY } from "@app/shared";
 import { describeConnection } from "./connection.js";
 import type { SetupStatus } from "../api.js";
 
@@ -11,6 +12,7 @@ const status = (over: Partial<SetupStatus> = {}): SetupStatus => ({
   canConnect: false,
   activeFlow: null,
   redirectUri: "http://localhost:53682/oauth2callback",
+  liveEligibility: { mode: "unknown", reason: null, message: null, checkedAt: null },
   ...over,
 });
 
@@ -79,5 +81,35 @@ describe("describeConnection", () => {
     const v = describeConnection(status({ canConnect: false }));
     expect(v.mode).toBe("manual");
     expect(v.connected).toBe(false);
+  });
+});
+
+/**
+ * Channel eligibility rides on the connection view (issue 061). It is not a health state and not
+ * a connection fault: describeConnection can report Connected while YouTube still refuses to let
+ * the channel create anything, and the card has to be able to say both at once.
+ */
+describe("describeConnection and channel eligibility", () => {
+  it("names riding mode from the glossary", () => {
+    const view = describeConnection(
+      status({
+        configured: true,
+        activeFlow: "bundled",
+        liveEligibility: {
+          mode: "riding",
+          reason: "livePermissionBlocked",
+          message: "no",
+          checkedAt: "2026-09-03T10:00:00.000Z",
+        },
+      }),
+    );
+    expect(view.connected).toBe(true);
+    expect(view.eligibilityLabel).toBe(LIVE_ELIGIBILITY_GLOSSARY.riding.label);
+  });
+
+  it("names the unknown mode rather than claiming either answer", () => {
+    expect(describeConnection(status()).eligibilityLabel).toBe(
+      LIVE_ELIGIBILITY_GLOSSARY.unknown.label,
+    );
   });
 });

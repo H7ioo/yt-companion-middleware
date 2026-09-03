@@ -8,6 +8,7 @@ import type { StateEvents } from "./events.js";
 import { categoryForCode, levelForCode, type Logger } from "./logger.js";
 import { isFastWindow, pollIntervalMs, type CadenceInput } from "./pollCadence.js";
 import { readIngestion } from "../youtube/ingestion.js";
+import { eligibilityRefusal, isEligibilityError, noteRidingMode } from "../youtube/eligibility.js";
 
 /**
  * Holds the state served to Companion feedback endpoints (PRD §5.4). All feedback reads
@@ -399,6 +400,31 @@ export class StateCache {
    */
   private async recordFailure(err: unknown): Promise<void> {
     const mapped = mapYouTubeError(err);
+    // YouTube answered, and answered definitively: this channel may not create broadcasts
+    // (issue 061). That is a permissions fact about the channel, not a failure of the
+    // connection — the same reasoning that keeps NO_TARGET_FOUND above out of health. Degrading
+    // here would eventually read as `offline` on a channel we are talking to perfectly well, and
+    // the refusal would come back on the very next poll, so it would never clear.
+    if (isEligibilityError(mapped)) {
+      // The reason rides on the AppError: the calls in broadcasts.ts map their errors at the call
+      // site, so the Gaxios body is long gone by the time a failure reaches here.
+      const refusal = mapped.reason ?? eligibilityRefusal(err);
+      if (refusal) {
+        await noteRidingMode(this.store, {
+          reason: refusal,
+          message: mapped.message,
+          now: new Date().toISOString(),
+        });
+      }
+      await this.recordSuccess();
+      this.logger?.push({
+        level: "warn",
+        category: "system",
+        code: mapped.code,
+        message: mapped.message,
+      });
+      return;
+    }
     const kind = isAuthError(mapped) ? "auth" : isNetworkError(mapped) ? "network" : "transient";
     this.health = onFailure(this.health, {
       kind,

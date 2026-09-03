@@ -2515,3 +2515,62 @@ textarea {
   color: var(--ink);
   font-weight: 600;
 }
+
+/* ---- Riding along (YouTube won't let this channel create broadcasts) ------ */
+/* A mode plate, not an alert. It keeps the 3px left edge every "this line matters" element in
+   this rack carries, but leaves it the seam's own colour: amber and red here mean a fault, and
+   this is a standing permission fact about the channel with a healthy connection behind it.
+   No lamp, no button — nothing retries and nothing in this app can lift it. */
+
+.riding {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 14px 20px;
+  background: var(--bg-rack);
+  border: var(--seam-line);
+  border-left: 3px solid var(--seam-bright);
+  border-radius: var(--radius);
+}
+.riding__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 340px;
+}
+.riding__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink);
+}
+.riding__note {
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+/* Inset, the way the rack sets anything quoted back from a machine. */
+.riding__said {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  flex: 1 1 240px;
+  padding: 10px 12px;
+  background: var(--bg-inset);
+  border: var(--seam-line);
+  border-radius: var(--radius);
+}
+.riding__reason {
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  background: var(--bg-rack);
+  border: var(--seam-line);
+  border-radius: 3px;
+}
+.riding__verbatim {
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}

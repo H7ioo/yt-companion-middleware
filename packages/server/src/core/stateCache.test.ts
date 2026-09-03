@@ -869,3 +869,88 @@ describe("StateCache broadcast identity (issue 065)", () => {
     expect(cache.snapshot().status).toMatchObject({ broadcastId: null, noTarget: true });
   });
 });
+
+/**
+ * Riding mode (issue 061 / PRD-16 §6). YouTube refusing a channel's *permission* to create
+ * broadcasts is a fact about the channel, and the cache's job here is to record it without
+ * pretending the connection is broken — every one of these refusals is a 403 the app reached
+ * YouTube to receive.
+ */
+describe("StateCache riding-mode detection", () => {
+  let store: JsonStore;
+  let dir: string;
+  let logger: Logger;
+
+  /** A 403 refusal in the shape googleapis returns it. */
+  const refusal = (reason: string) => ({
+    response: { status: 403, data: { error: { errors: [{ reason }] } } },
+    message: "The user is not enabled for live streaming.",
+  });
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "cache-elig-"));
+    store = new JsonStore(path.join(dir, "store.json"));
+    await store.init();
+    logger = new Logger();
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  const run = async (err: unknown) => {
+    const cache = new StateCache(
+      failingClient(err),
+      store,
+      { refreshIntervalMs: 60_000, healthFailureThreshold: 3 },
+      undefined,
+      logger,
+    );
+    await cache.refresh();
+    return cache;
+  };
+
+  it.each(["insufficientLivePermissions", "livePermissionBlocked", "liveStreamingNotEnabled"])(
+    "records riding mode on a %s refusal",
+    async (reason) => {
+      await run(refusal(reason));
+      const held = store.get().liveEligibility;
+      expect(held.mode).toBe("riding");
+      expect(held.reason).toBe(reason);
+      expect(held.message).toBe("The user is not enabled for live streaming.");
+      expect(held.checkedAt).not.toBeNull();
+    },
+  );
+
+  // The criterion that matters most: this must not raise the reconnect banner. Reconnecting the
+  // same channel changes nothing, so sending the operator there is sending them nowhere.
+  it("leaves health alone — riding mode is not a health state", async () => {
+    await run(refusal("livePermissionBlocked"));
+    expect(store.get().cache.health).toBe("ok");
+    expect(store.get().cache.healthMessage).toBeNull();
+  });
+
+  it("logs it as a warning, not an error", async () => {
+    await run(refusal("livePermissionBlocked"));
+    const [entry] = logger.list();
+    expect(entry.code).toBe("LIVE_NOT_ELIGIBLE");
+    expect(entry.level).toBe("warn");
+  });
+
+  it("does not enter riding mode on a 5xx", async () => {
+    await run({ response: { status: 500 }, message: "server exploded" });
+    expect(store.get().liveEligibility.mode).toBe("unknown");
+    expect(store.get().cache.health).toBe("degraded");
+  });
+
+  it("does not enter riding mode on a network failure", async () => {
+    await run({ code: "ECONNREFUSED", message: "connect ECONNREFUSED" });
+    expect(store.get().liveEligibility.mode).toBe("unknown");
+  });
+
+  it("does not enter riding mode on a dead token", async () => {
+    await run({ response: { status: 401 }, message: "invalid_grant" });
+    expect(store.get().liveEligibility.mode).toBe("unknown");
+    expect(store.get().cache.health).toBe("auth_error");
+  });
+});
