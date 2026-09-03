@@ -377,6 +377,78 @@ body {
   min-width: 0;
 }
 
+/* ---- Page nav (the channel strip) -----------------------------------------
+   Tabs across the top of the content column, bled out to its edges so they read
+   as a strip of switched-in modules rather than links floating on the panel.
+   The live tab lights its top bezel — the same vocabulary as the breaker and
+   the tally, so "where am I" is answered by what is illuminated.
+   ------------------------------------------------------------------------- */
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  gap: 2px;
+  margin: -28px -34px 0;
+  padding: 16px 34px 0;
+  /* Opaque enough that panels scrolling under it stay unreadable — a half-visible title
+     sliding behind the labels is the thing that makes a sticky bar look broken. */
+  background: rgba(14, 16, 19, 0.94);
+  backdrop-filter: blur(8px);
+  border-bottom: var(--seam-line);
+  /* Narrow windows scroll the strip rather than wrapping it: a wrapped second row would push
+     the panels down by a line and move every tab the next time one is added. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.nav::-webkit-scrollbar {
+  display: none;
+}
+
+.nav__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  margin-bottom: -1px;
+  padding: 9px 15px 10px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    color 0.12s ease,
+    background-color 0.12s ease;
+}
+.nav__tab:hover {
+  color: var(--ink-dim);
+  background: rgba(255, 255, 255, 0.025);
+}
+.nav__tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* Switched in: the tab lifts onto the panel surface, closes the seam beneath it, and lights. */
+.nav__tab--on {
+  color: var(--ink);
+  background: var(--bg-rack);
+  border-color: var(--seam);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav__tab {
+    transition: none;
+  }
+}
+
 .panel {
   border: var(--seam-line);
   border-radius: var(--radius);
@@ -1189,25 +1261,18 @@ textarea {
 
 /* ---- Settings ------------------------------------------------------------- */
 
-/* Rail entry point — a quiet control alongside the manual link, reachable any time. */
-.rail__settings {
-  margin-top: 6px;
-  align-self: flex-start;
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--ink-dim);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.rail__settings:hover {
-  color: var(--ink);
-}
-
+/* These sections are a page, not the dialog they used to be: no width cap, and the same rack
+   framing as every other panel in the column. */
 .settings {
-  max-width: 620px;
   padding: 0;
+}
+.settings--page {
+  border: var(--seam-line);
+  border-radius: var(--radius);
+  background: var(--bg-rack);
+}
+.settings--page .settings__head {
+  padding-top: 16px;
 }
 .settings__head {
   position: relative;
@@ -1223,19 +1288,6 @@ textarea {
   font-weight: 800;
   font-size: 18px;
   letter-spacing: -0.01em;
-}
-.settings__x {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  background: none;
-  border: none;
-  color: var(--ink-dim);
-  font-size: 15px;
-  cursor: pointer;
-}
-.settings__x:hover:not(:disabled) {
-  color: var(--ink);
 }
 .settings__section {
   padding: 20px 22px;

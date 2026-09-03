@@ -15,7 +15,6 @@ import {
 import { describeConnection } from "../lib/connection.js";
 import { CategorySelect } from "./CategorySelect.js";
 import { StreamBindingField } from "./StreamBindingField.js";
-import { useEscape } from "../lib/useEscape.js";
 
 interface Props {
   settings: DefaultSettings;
@@ -25,7 +24,6 @@ interface Props {
   canAdminister: boolean;
   onSaveSettings: (next: DefaultSettings) => void;
   flash: (message: string, kind?: "ok" | "err") => void;
-  onClose: () => void;
 }
 
 type Busy = "idle" | "connecting" | "waiting" | "saving" | "disconnecting";
@@ -49,7 +47,6 @@ export function SettingsPanel({
   canAdminister,
   onSaveSettings,
   flash,
-  onClose,
 }: Props) {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [busy, setBusy] = useState<Busy>("idle");
@@ -91,7 +88,6 @@ export function SettingsPanel({
   // someone comes looking for — "X changed the title" is routine, "X made Y an admin" is not.
   const [auditEntries, setAuditEntries] = useState<AuditEntry[] | null>(null);
   const [auditNotableOnly, setAuditNotableOnly] = useState(true);
-  useEscape(busy === "idle" ? onClose : () => {});
 
   const loadStatus = () => api.setup.status().then(setStatus).catch(() => {});
   useEffect(() => {
@@ -464,589 +460,584 @@ export function SettingsPanel({
   );
 
   return (
-    <div className="overlay" onClick={busy === "idle" ? onClose : undefined}>
-      <div className="modal settings" onClick={(e) => e.stopPropagation()}>
-        <div className="settings__head">
-          <span className="eyebrow">Settings</span>
-          <h2>Connection &amp; defaults</h2>
-          <button className="settings__x" type="button" onClick={onClose} aria-label="Close settings" disabled={working}>
-            ✕
-          </button>
-        </div>
+    <div className="settings settings--page">
+      <div className="settings__head">
+        <span className="eyebrow">Settings</span>
+        <h2>Connection &amp; defaults</h2>
+      </div>
 
-        {/* ---- Connection ---- */}
-        <section className="settings__section">
-          <h3 className="settings__title">YouTube connection</h3>
+      {/* ---- Connection ---- */}
+      <section className="settings__section">
+        <h3 className="settings__title">YouTube connection</h3>
 
-          {view == null ? (
-            <p className="empty" style={{ marginTop: 0 }}>Checking connection…</p>
-          ) : (
-            <>
-              <div className="conn">
-                <span className={`lamp ${view.connected ? "lamp--live" : "lamp--warn"}`} />
-                <div className="conn__meta">
-                  <span className="conn__state">{view.connected ? "Connected" : "Not connected"}</span>
-                  {view.flowLabel ? <span className="conn__flow">via {view.flowLabel}</span> : null}
-                  {/* What this channel is allowed to do (issue 061). It belongs beside "which
-                      channel are we connected to" and nowhere near health — the connection above
-                      can read Connected and green while YouTube still refuses to let the channel
-                      create a broadcast. */}
-                  <span className="conn__flow">{view.eligibilityLabel}</span>
-                </div>
+        {view == null ? (
+          <p className="empty" style={{ marginTop: 0 }}>Checking connection…</p>
+        ) : (
+          <>
+            <div className="conn">
+              <span className={`lamp ${view.connected ? "lamp--live" : "lamp--warn"}`} />
+              <div className="conn__meta">
+                <span className="conn__state">{view.connected ? "Connected" : "Not connected"}</span>
+                {view.flowLabel ? <span className="conn__flow">via {view.flowLabel}</span> : null}
+                {/* What this channel is allowed to do (issue 061). It belongs beside "which
+                    channel are we connected to" and nowhere near health — the connection above
+                    can read Connected and green while YouTube still refuses to let the channel
+                    create a broadcast. */}
+                <span className="conn__flow">{view.eligibilityLabel}</span>
               </div>
+            </div>
 
-              {!canAdminister ? (
-                <p className="empty conn__guidance">
-                  Only an admin can change the YouTube connection.
-                </p>
-              ) : consent ? (
-                <div className="settings__actions">
-                  {view.connected ? (
-                    <>
-                      <button className="btn btn--sm" onClick={() => runConnect()} disabled={working}>
-                        {busy === "connecting" && !leaving
-                          ? "Waiting for your browser…"
-                          : busy === "waiting"
-                            ? "Finishing up…"
-                            : "Reconnect"}
-                      </button>
-                      <button className="btn btn--sm btn--danger" onClick={disconnect} disabled={working}>
-                        {busy === "disconnecting" ? "Disconnecting…" : "Disconnect"}
-                      </button>
-                    </>
-                  ) : (
-                    <button className="btn btn--primary btn--sm" onClick={() => runConnect()} disabled={working}>
+            {!canAdminister ? (
+              <p className="empty conn__guidance">
+                Only an admin can change the YouTube connection.
+              </p>
+            ) : consent ? (
+              <div className="settings__actions">
+                {view.connected ? (
+                  <>
+                    <button className="btn btn--sm" onClick={() => runConnect()} disabled={working}>
                       {busy === "connecting" && !leaving
                         ? "Waiting for your browser…"
                         : busy === "waiting"
                           ? "Finishing up…"
-                          : "Connect YouTube"}
+                          : "Reconnect"}
                     </button>
-                  )}
-                </div>
-              ) : view.mode === "manual" ? (
-                // Headless/Docker: the credentials are stored here and are ours to replace, but
-                // there is no system browser to run consent in — so they are pasted.
-                <>
-                  <p className="empty conn__guidance">
-                    This host can't open a browser for Google's consent screen, so credentials are
-                    entered here. Run{" "}
-                    <span className="mono">node packages/server/scripts/get-refresh-token.mjs</span>{" "}
-                    to mint a refresh token, picking the right channel at the consent screen, then
-                    paste all three below — the saved values are never sent back to this page, so
-                    there is nothing to prefill.
-                  </p>
-                  <p className="empty conn__guidance">
-                    A connection saved here wins over{" "}
-                    <span className="mono">YT_CLIENT_ID</span> /{" "}
-                    <span className="mono">YT_CLIENT_SECRET</span> /{" "}
-                    <span className="mono">YT_REFRESH_TOKEN</span> in the environment: those are
-                    read only when nothing is stored. Editing the environment while this section
-                    says Connected changes nothing. Disconnect first if the environment should win.
-                  </p>
-                  {pasteForm}
-                  <a className="settings__link" href="/guide" target="_blank" rel="noreferrer">
-                    Where do I get these?
-                  </a>
-                </>
-              ) : (
+                    <button className="btn btn--sm btn--danger" onClick={disconnect} disabled={working}>
+                      {busy === "disconnecting" ? "Disconnecting…" : "Disconnect"}
+                    </button>
+                  </>
+                ) : (
+                  <button className="btn btn--primary btn--sm" onClick={() => runConnect()} disabled={working}>
+                    {busy === "connecting" && !leaving
+                      ? "Waiting for your browser…"
+                      : busy === "waiting"
+                        ? "Finishing up…"
+                        : "Connect YouTube"}
+                  </button>
+                )}
+              </div>
+            ) : view.mode === "manual" ? (
+              // Headless/Docker: the credentials are stored here and are ours to replace, but
+              // there is no system browser to run consent in — so they are pasted.
+              <>
                 <p className="empty conn__guidance">
-                  This connection is managed outside the app — set{" "}
-                  <span className="mono">YT_CLIENT_ID</span>, <span className="mono">YT_CLIENT_SECRET</span> and{" "}
-                  <span className="mono">YT_REFRESH_TOKEN</span> in the environment, or run the token script, then
-                  restart. See the{" "}
-                  <a className="settings__link" href="/guide" target="_blank" rel="noreferrer">
-                    operator guide
-                  </a>
-                  .
+                  This host can't open a browser for Google's consent screen, so credentials are
+                  entered here. Run{" "}
+                  <span className="mono">node packages/server/scripts/get-refresh-token.mjs</span>{" "}
+                  to mint a refresh token, picking the right channel at the consent screen, then
+                  paste all three below — the saved values are never sent back to this page, so
+                  there is nothing to prefill.
                 </p>
-              )}
+                <p className="empty conn__guidance">
+                  A connection saved here wins over{" "}
+                  <span className="mono">YT_CLIENT_ID</span> /{" "}
+                  <span className="mono">YT_CLIENT_SECRET</span> /{" "}
+                  <span className="mono">YT_REFRESH_TOKEN</span> in the environment: those are
+                  read only when nothing is stored. Editing the environment while this section
+                  says Connected changes nothing. Disconnect first if the environment should win.
+                </p>
+                {pasteForm}
+                <a className="settings__link" href="/guide" target="_blank" rel="noreferrer">
+                  Where do I get these?
+                </a>
+              </>
+            ) : (
+              <p className="empty conn__guidance">
+                This connection is managed outside the app — set{" "}
+                <span className="mono">YT_CLIENT_ID</span>, <span className="mono">YT_CLIENT_SECRET</span> and{" "}
+                <span className="mono">YT_REFRESH_TOKEN</span> in the environment, or run the token script, then
+                restart. See the{" "}
+                <a className="settings__link" href="/guide" target="_blank" rel="noreferrer">
+                  operator guide
+                </a>
+                .
+              </p>
+            )}
 
-              {consent && canAdminister ? (
-                <>
-                  <button
-                    className="settings__disclosure"
-                    type="button"
-                    onClick={() => setShowOwn((v) => !v)}
-                    disabled={working}
+            {consent && canAdminister ? (
+              <>
+                <button
+                  className="settings__disclosure"
+                  type="button"
+                  onClick={() => setShowOwn((v) => !v)}
+                  disabled={working}
+                >
+                  {showOwn ? "Hide" : "Use my own Google client instead"}
+                </button>
+                {showOwn ? (
+                  <form
+                    className="settings__own"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void runConnect({ clientId: clientId.trim(), clientSecret: clientSecret.trim() });
+                    }}
                   >
-                    {showOwn ? "Hide" : "Use my own Google client instead"}
-                  </button>
-                  {showOwn ? (
-                    <form
-                      className="settings__own"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        void runConnect({ clientId: clientId.trim(), clientSecret: clientSecret.trim() });
-                      }}
-                    >
-                      <div className="field">
-                        <label htmlFor="set-client-id">Client ID</label>
-                        <input
-                          id="set-client-id"
-                          className="mono"
-                          value={clientId}
-                          placeholder="xxxxxxxx.apps.googleusercontent.com"
-                          onChange={(e) => setClientId(e.target.value)}
-                          disabled={working}
-                        />
-                      </div>
-                      <div className="field">
-                        <label htmlFor="set-client-secret">Client secret</label>
-                        <input
-                          id="set-client-secret"
-                          className="mono"
-                          type="password"
-                          value={clientSecret}
-                          placeholder="GOCSPX-…"
-                          onChange={(e) => setClientSecret(e.target.value)}
-                          disabled={working}
-                        />
-                      </div>
-                      {status?.redirectUri ? (
-                        <p className="conn__redirect">
-                          Add this authorized redirect URI to your client:{" "}
-                          <code className="mono">{status.redirectUri}</code>
-                        </p>
-                      ) : null}
-                      <button
-                        className="btn btn--primary btn--sm"
-                        type="submit"
-                        disabled={working || !clientId.trim() || !clientSecret.trim()}
-                      >
-                        {leaving ? "Continue to Google" : "Connect with my client"}
-                      </button>
-                    </form>
-                  ) : null}
-                </>
-              ) : null}
-
-              {/* The way out when the round trip cannot be made to work. Setting PUBLIC_ORIGIN
-                  turns a headless host from `manual` to `redirect`, which used to take the paste
-                  form away entirely — and an unregistered redirect URI or a Workspace policy then
-                  left the admin with a button that could not work and nothing else to try. */}
-              {leaving && canAdminister ? (
-                <>
-                  <button
-                    className="settings__disclosure"
-                    type="button"
-                    onClick={() => setShowPaste((v) => !v)}
-                    disabled={working}
-                  >
-                    {showPaste ? "Hide" : "Google won’t send me back here — paste credentials instead"}
-                  </button>
-                  {showPaste ? (
-                    <>
-                      <p className="empty conn__guidance">
-                        Run{" "}
-                        <span className="mono">node packages/server/scripts/get-refresh-token.mjs</span>{" "}
-                        on any machine with a browser, pick this channel at the consent screen, and
-                        paste all three below. The saved values are never sent back to this page,
-                        so there is nothing to prefill.
+                    <div className="field">
+                      <label htmlFor="set-client-id">Client ID</label>
+                      <input
+                        id="set-client-id"
+                        className="mono"
+                        value={clientId}
+                        placeholder="xxxxxxxx.apps.googleusercontent.com"
+                        onChange={(e) => setClientId(e.target.value)}
+                        disabled={working}
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="set-client-secret">Client secret</label>
+                      <input
+                        id="set-client-secret"
+                        className="mono"
+                        type="password"
+                        value={clientSecret}
+                        placeholder="GOCSPX-…"
+                        onChange={(e) => setClientSecret(e.target.value)}
+                        disabled={working}
+                      />
+                    </div>
+                    {status?.redirectUri ? (
+                      <p className="conn__redirect">
+                        Add this authorized redirect URI to your client:{" "}
+                        <code className="mono">{status.redirectUri}</code>
                       </p>
-                      {pasteForm}
-                    </>
-                  ) : null}
-                </>
-              ) : null}
-            </>
-          )}
-        </section>
-
-        {/* ---- People (issue 045) ---- */}
-        {canAdminister && people.length > 0 ? (
-          <section className="settings__section">
-            <h3 className="settings__title">People</h3>
-            <p className="empty" style={{ marginTop: 0 }}>
-              Everyone here can run the show. An admin also manages people and the YouTube
-              connection.
-            </p>
-            <ul className="people">
-              {people.map((person) => (
-                <li className="people__row" key={person.id}>
-                  <span className="people__name">
-                    {person.name}
-                    {person.seeded ? <span className="people__tag">set up at install</span> : null}
-                  </span>
-                  <span className="people__actions">
-                    <select
-                      className="people__role"
-                      aria-label={`Role for ${person.name}`}
-                      value={person.role}
-                      disabled={savingRole === person.id}
-                      onChange={(e) => void changeRole(person, e.target.value as Person["role"])}
+                    ) : null}
+                    <button
+                      className="btn btn--primary btn--sm"
+                      type="submit"
+                      disabled={working || !clientId.trim() || !clientSecret.trim()}
                     >
-                      <option value="admin">Admin</option>
-                      <option value="user">User</option>
-                    </select>
+                      {leaving ? "Continue to Google" : "Connect with my client"}
+                    </button>
+                  </form>
+                ) : null}
+              </>
+            ) : null}
+
+            {/* The way out when the round trip cannot be made to work. Setting PUBLIC_ORIGIN
+                turns a headless host from `manual` to `redirect`, which used to take the paste
+                form away entirely — and an unregistered redirect URI or a Workspace policy then
+                left the admin with a button that could not work and nothing else to try. */}
+            {leaving && canAdminister ? (
+              <>
+                <button
+                  className="settings__disclosure"
+                  type="button"
+                  onClick={() => setShowPaste((v) => !v)}
+                  disabled={working}
+                >
+                  {showPaste ? "Hide" : "Google won’t send me back here — paste credentials instead"}
+                </button>
+                {showPaste ? (
+                  <>
+                    <p className="empty conn__guidance">
+                      Run{" "}
+                      <span className="mono">node packages/server/scripts/get-refresh-token.mjs</span>{" "}
+                      on any machine with a browser, pick this channel at the consent screen, and
+                      paste all three below. The saved values are never sent back to this page,
+                      so there is nothing to prefill.
+                    </p>
+                    {pasteForm}
+                  </>
+                ) : null}
+              </>
+            ) : null}
+          </>
+        )}
+      </section>
+
+      {/* ---- People (issue 045) ---- */}
+      {canAdminister && people.length > 0 ? (
+        <section className="settings__section">
+          <h3 className="settings__title">People</h3>
+          <p className="empty" style={{ marginTop: 0 }}>
+            Everyone here can run the show. An admin also manages people and the YouTube
+            connection.
+          </p>
+          <ul className="people">
+            {people.map((person) => (
+              <li className="people__row" key={person.id}>
+                <span className="people__name">
+                  {person.name}
+                  {person.seeded ? <span className="people__tag">set up at install</span> : null}
+                </span>
+                <span className="people__actions">
+                  <select
+                    className="people__role"
+                    aria-label={`Role for ${person.name}`}
+                    value={person.role}
+                    disabled={savingRole === person.id}
+                    onChange={(e) => void changeRole(person, e.target.value as Person["role"])}
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="user">User</option>
+                  </select>
+                  <button
+                    className="btn btn--ghost btn--sm"
+                    type="button"
+                    aria-expanded={openDevices === person.id}
+                    onClick={() => void toggleDevices(person)}
+                  >
+                    Devices
+                  </button>
+                  {/* The seeded admin has no remove button at all rather than one that answers
+                      403: the server refuses it, and a button that always fails is worse than
+                      no button. */}
+                  {person.seeded ? null : (
                     <button
                       className="btn btn--ghost btn--sm"
                       type="button"
-                      aria-expanded={openDevices === person.id}
-                      onClick={() => void toggleDevices(person)}
+                      onClick={() => void removePerson(person)}
                     >
-                      Devices
+                      Remove
                     </button>
-                    {/* The seeded admin has no remove button at all rather than one that answers
-                        403: the server refuses it, and a button that always fails is worse than
-                        no button. */}
-                    {person.seeded ? null : (
-                      <button
-                        className="btn btn--ghost btn--sm"
-                        type="button"
-                        onClick={() => void removePerson(person)}
-                      >
-                        Remove
-                      </button>
+                  )}
+                </span>
+                {openDevices === person.id ? (
+                  <ul className="devices">
+                    {devices.length === 0 ? (
+                      <li className="devices__row">Not signed in on any device.</li>
+                    ) : (
+                      devices.map((device) => (
+                        <li className="devices__row" key={device.id}>
+                          <span>
+                            Signed in {formatDay(device.createdAt)} · last used{" "}
+                            {formatDay(device.lastSeenAt)}
+                          </span>
+                          <button
+                            className="btn btn--ghost btn--sm"
+                            type="button"
+                            onClick={() => void revokeDevice(person, device.id)}
+                          >
+                            Sign out
+                          </button>
+                        </li>
+                      ))
                     )}
+                  </ul>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+
+          {/* ---- Invites (issue 046) ---- */}
+          <h3 className="settings__title" style={{ marginTop: 20 }}>
+            Invites
+          </h3>
+          <p className="empty" style={{ marginTop: 0 }}>
+            Nothing is emailed. Create a link, then send it to that person however you normally
+            would. It works once and expires within a day.
+          </p>
+          <div className="field--row" style={{ marginTop: 12 }}>
+            <div className="field">
+              <label htmlFor="invite-role">Role</label>
+              <select
+                id="invite-role"
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value as Person["role"])}
+              >
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>&nbsp;</label>
+              <button className="btn" type="button" onClick={() => void createInvite()}>
+                Create invite link
+              </button>
+            </div>
+          </div>
+
+          {fresh ? (
+            <div className="invite-link">
+              <span className="invite-link__url">{fresh.url}</span>
+              <button
+                className="btn btn--ghost"
+                type="button"
+                onClick={() => void navigator.clipboard?.writeText(fresh.url)}
+              >
+                Copy
+              </button>
+            </div>
+          ) : null}
+          {fresh ? (
+            <p className="hint" style={{ marginTop: 6 }}>
+              Copy this now — the link is not shown again. Losing it means creating another.
+            </p>
+          ) : null}
+
+          {invites.length > 0 ? (
+            <ul className="invites">
+              {invites.map((invite) => (
+                <li
+                  className={`invites__row${invite.state === "open" ? "" : " invites__row--spent"}`}
+                  key={invite.id}
+                >
+                  <span>
+                    {invite.role === "admin" ? "Admin" : "User"}
+                    <span className="invites__meta">
+                      {" · "}
+                      {invite.state === "redeemed"
+                        ? `used by ${invite.redeemedBy ?? "someone since removed"}`
+                        : invite.state === "expired"
+                          ? "expired"
+                          : `expires ${formatDay(invite.expiresAt)}`}
+                    </span>
                   </span>
-                  {openDevices === person.id ? (
-                    <ul className="devices">
-                      {devices.length === 0 ? (
-                        <li className="devices__row">Not signed in on any device.</li>
-                      ) : (
-                        devices.map((device) => (
-                          <li className="devices__row" key={device.id}>
-                            <span>
-                              Signed in {formatDay(device.createdAt)} · last used{" "}
-                              {formatDay(device.lastSeenAt)}
-                            </span>
-                            <button
-                              className="btn btn--ghost btn--sm"
-                              type="button"
-                              onClick={() => void revokeDevice(person, device.id)}
-                            >
-                              Sign out
-                            </button>
-                          </li>
-                        ))
-                      )}
-                    </ul>
+                  {invite.state === "open" ? (
+                    <button
+                      className="btn btn--ghost btn--sm"
+                      type="button"
+                      onClick={() => void cancelInvite(invite.id)}
+                    >
+                      Withdraw
+                    </button>
                   ) : null}
                 </li>
               ))}
             </ul>
+          ) : null}
+        </section>
+      ) : null}
 
-            {/* ---- Invites (issue 046) ---- */}
-            <h3 className="settings__title" style={{ marginTop: 20 }}>
-              Invites
-            </h3>
-            <p className="empty" style={{ marginTop: 0 }}>
-              Nothing is emailed. Create a link, then send it to that person however you normally
-              would. It works once and expires within a day.
-            </p>
-            <div className="field--row" style={{ marginTop: 12 }}>
-              <div className="field">
-                <label htmlFor="invite-role">Role</label>
-                <select
-                  id="invite-role"
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value as Person["role"])}
+      {/* ---- Machines (issue 047) ---- */}
+      {canAdminister && people.length > 0 ? (
+        <section className="settings__section">
+          <h3 className="settings__title">Machines</h3>
+          <p className="empty" style={{ marginTop: 0 }}>
+            Companion runs unattended, so it signs in with a key instead of a password. A key can
+            run the show and nothing else — it can never manage people or the YouTube connection.
+          </p>
+
+          {grace ? (
+            <div className={`grace${grace.met ? " grace--met" : ""}`}>
+              <p className="grace__lede">
+                {grace.enforcing
+                  ? "A key is required. Anything without one is refused."
+                  : grace.lastTokenlessAt
+                    ? "Something is still connecting without a key."
+                    : "Nothing has connected without a key."}
+              </p>
+              {/* Two gauges, never one verdict. A fortnight of quiet on its own is not evidence:
+                  an off-season satisfies it while a keyless machine sits powered down, and the
+                  next show goes dark. Both halves are on screen so neither can be read alone. */}
+              <div className="grace__gauges">
+                <div
+                  className={`grace__gauge${
+                    grace.daysSinceTokenless === null ||
+                    grace.daysSinceTokenless >= grace.daysRequired
+                      ? " grace__gauge--held"
+                      : ""
+                  }`}
                 >
-                  <option value="user">User</option>
-                  <option value="admin">Admin</option>
-                </select>
+                  <span className="grace__gauge-label">Quiet days</span>
+                  <span className="grace__gauge-value">
+                    {grace.daysSinceTokenless === null ? (
+                      "none seen"
+                    ) : (
+                      <>
+                        {grace.daysSinceTokenless}
+                        <span className="grace__gauge-of"> / {grace.daysRequired}</span>
+                      </>
+                    )}
+                  </span>
+                </div>
+                <div
+                  className={`grace__gauge${
+                    grace.goLivesSinceTokenless >= grace.goLivesRequired
+                      ? " grace__gauge--held"
+                      : ""
+                  }`}
+                >
+                  <span className="grace__gauge-label">Go-lives since</span>
+                  <span className="grace__gauge-value">
+                    {grace.goLivesSinceTokenless}
+                    <span className="grace__gauge-of"> / {grace.goLivesRequired}</span>
+                  </span>
+                </div>
               </div>
-              <div className="field">
-                <label>&nbsp;</label>
-                <button className="btn" type="button" onClick={() => void createInvite()}>
-                  Create invite link
-                </button>
-              </div>
+              <p className="grace__verdict">{graceVerdict(grace)}</p>
+              {grace.lastTokenlessAt ? (
+                <p className="grace__last">
+                  Last on {formatDay(grace.lastTokenlessAt)} ·{" "}
+                  {grace.lastTokenlessClient ?? "unnamed client"}
+                  {grace.lastTokenlessFrom ? ` · ${grace.lastTokenlessFrom}` : ""}
+                  {grace.lastTokenlessRoute ? ` · ${grace.lastTokenlessRoute}` : ""} ·{" "}
+                  {grace.tokenlessCount} in total
+                </p>
+              ) : null}
             </div>
+          ) : null}
 
-            {fresh ? (
+          <div className="field--row" style={{ marginTop: 12 }}>
+            <div className="field">
+              <label htmlFor="machine-name">Machine name</label>
+              <input
+                id="machine-name"
+                value={machineName}
+                placeholder="companion machine"
+                onChange={(e) => setMachineName(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label>&nbsp;</label>
+              <button
+                className="btn"
+                type="button"
+                disabled={!machineName.trim()}
+                onClick={() => void createMachine()}
+              >
+                Create key
+              </button>
+            </div>
+          </div>
+
+          {freshKey ? (
+            <>
               <div className="invite-link">
-                <span className="invite-link__url">{fresh.url}</span>
+                <span className="invite-link__url">{freshKey.token}</span>
                 <button
                   className="btn btn--ghost"
                   type="button"
-                  onClick={() => void navigator.clipboard?.writeText(fresh.url)}
+                  onClick={() => void navigator.clipboard?.writeText(freshKey.token)}
                 >
                   Copy
                 </button>
               </div>
-            ) : null}
-            {fresh ? (
               <p className="hint" style={{ marginTop: 6 }}>
-                Copy this now — the link is not shown again. Losing it means creating another.
+                Copy this now — the key is not shown again. Paste it into {freshKey.name}&rsquo;s
+                Companion module settings. Losing it means revoking this key and creating another.
               </p>
-            ) : null}
+            </>
+          ) : null}
 
-            {invites.length > 0 ? (
-              <ul className="invites">
-                {invites.map((invite) => (
-                  <li
-                    className={`invites__row${invite.state === "open" ? "" : " invites__row--spent"}`}
-                    key={invite.id}
-                  >
-                    <span>
-                      {invite.role === "admin" ? "Admin" : "User"}
-                      <span className="invites__meta">
-                        {" · "}
-                        {invite.state === "redeemed"
-                          ? `used by ${invite.redeemedBy ?? "someone since removed"}`
-                          : invite.state === "expired"
-                            ? "expired"
-                            : `expires ${formatDay(invite.expiresAt)}`}
-                      </span>
-                    </span>
-                    {invite.state === "open" ? (
-                      <button
-                        className="btn btn--ghost btn--sm"
-                        type="button"
-                        onClick={() => void cancelInvite(invite.id)}
-                      >
-                        Withdraw
-                      </button>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </section>
-        ) : null}
-
-        {/* ---- Machines (issue 047) ---- */}
-        {canAdminister && people.length > 0 ? (
-          <section className="settings__section">
-            <h3 className="settings__title">Machines</h3>
-            <p className="empty" style={{ marginTop: 0 }}>
-              Companion runs unattended, so it signs in with a key instead of a password. A key can
-              run the show and nothing else — it can never manage people or the YouTube connection.
-            </p>
-
-            {grace ? (
-              <div className={`grace${grace.met ? " grace--met" : ""}`}>
-                <p className="grace__lede">
-                  {grace.enforcing
-                    ? "A key is required. Anything without one is refused."
-                    : grace.lastTokenlessAt
-                      ? "Something is still connecting without a key."
-                      : "Nothing has connected without a key."}
-                </p>
-                {/* Two gauges, never one verdict. A fortnight of quiet on its own is not evidence:
-                    an off-season satisfies it while a keyless machine sits powered down, and the
-                    next show goes dark. Both halves are on screen so neither can be read alone. */}
-                <div className="grace__gauges">
-                  <div
-                    className={`grace__gauge${
-                      grace.daysSinceTokenless === null ||
-                      grace.daysSinceTokenless >= grace.daysRequired
-                        ? " grace__gauge--held"
-                        : ""
-                    }`}
-                  >
-                    <span className="grace__gauge-label">Quiet days</span>
-                    <span className="grace__gauge-value">
-                      {grace.daysSinceTokenless === null ? (
-                        "none seen"
-                      ) : (
-                        <>
-                          {grace.daysSinceTokenless}
-                          <span className="grace__gauge-of"> / {grace.daysRequired}</span>
-                        </>
-                      )}
-                    </span>
-                  </div>
-                  <div
-                    className={`grace__gauge${
-                      grace.goLivesSinceTokenless >= grace.goLivesRequired
-                        ? " grace__gauge--held"
-                        : ""
-                    }`}
-                  >
-                    <span className="grace__gauge-label">Go-lives since</span>
-                    <span className="grace__gauge-value">
-                      {grace.goLivesSinceTokenless}
-                      <span className="grace__gauge-of"> / {grace.goLivesRequired}</span>
-                    </span>
-                  </div>
-                </div>
-                <p className="grace__verdict">{graceVerdict(grace)}</p>
-                {grace.lastTokenlessAt ? (
-                  <p className="grace__last">
-                    Last on {formatDay(grace.lastTokenlessAt)} ·{" "}
-                    {grace.lastTokenlessClient ?? "unnamed client"}
-                    {grace.lastTokenlessFrom ? ` · ${grace.lastTokenlessFrom}` : ""}
-                    {grace.lastTokenlessRoute ? ` · ${grace.lastTokenlessRoute}` : ""} ·{" "}
-                    {grace.tokenlessCount} in total
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-
-            <div className="field--row" style={{ marginTop: 12 }}>
-              <div className="field">
-                <label htmlFor="machine-name">Machine name</label>
-                <input
-                  id="machine-name"
-                  value={machineName}
-                  placeholder="companion machine"
-                  onChange={(e) => setMachineName(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>&nbsp;</label>
-                <button
-                  className="btn"
-                  type="button"
-                  disabled={!machineName.trim()}
-                  onClick={() => void createMachine()}
+          {machines.length > 0 ? (
+            <ul className="invites">
+              {machines.map((machine) => (
+                <li
+                  className={`invites__row${machine.revokedAt ? " invites__row--spent" : ""}`}
+                  key={machine.id}
                 >
-                  Create key
-                </button>
-              </div>
-            </div>
-
-            {freshKey ? (
-              <>
-                <div className="invite-link">
-                  <span className="invite-link__url">{freshKey.token}</span>
-                  <button
-                    className="btn btn--ghost"
-                    type="button"
-                    onClick={() => void navigator.clipboard?.writeText(freshKey.token)}
-                  >
-                    Copy
-                  </button>
-                </div>
-                <p className="hint" style={{ marginTop: 6 }}>
-                  Copy this now — the key is not shown again. Paste it into {freshKey.name}&rsquo;s
-                  Companion module settings. Losing it means revoking this key and creating another.
-                </p>
-              </>
-            ) : null}
-
-            {machines.length > 0 ? (
-              <ul className="invites">
-                {machines.map((machine) => (
-                  <li
-                    className={`invites__row${machine.revokedAt ? " invites__row--spent" : ""}`}
-                    key={machine.id}
-                  >
-                    <span>
-                      {machine.name}
-                      <span className="invites__meta">
-                        {" · "}
-                        {machine.revokedAt
-                          ? `revoked ${formatDay(machine.revokedAt)}`
-                          : machine.lastUsedAt
-                            ? `last used ${formatDay(machine.lastUsedAt)}`
-                            : "never used"}
-                      </span>
+                  <span>
+                    {machine.name}
+                    <span className="invites__meta">
+                      {" · "}
+                      {machine.revokedAt
+                        ? `revoked ${formatDay(machine.revokedAt)}`
+                        : machine.lastUsedAt
+                          ? `last used ${formatDay(machine.lastUsedAt)}`
+                          : "never used"}
                     </span>
-                    {machine.revokedAt ? null : (
-                      <button
-                        className="btn btn--ghost btn--sm"
-                        type="button"
-                        onClick={() => void revokeMachine(machine)}
-                      >
-                        Revoke
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </section>
-        ) : null}
+                  </span>
+                  {machine.revokedAt ? null : (
+                    <button
+                      className="btn btn--ghost btn--sm"
+                      type="button"
+                      onClick={() => void revokeMachine(machine)}
+                    >
+                      Revoke
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
 
-        {/* ---- Audit log (issue 050) ---- */}
-        {canAdminister && people.length > 0 ? (
-          <section className="settings__section">
-            <h3 className="settings__title">Audit log</h3>
-            <p className="empty" style={{ marginTop: 0 }}>
-              Who did what, kept on disk for {AUDIT_RETENTION_DAYS} days. Separate from Activity,
-              which is a live feed and starts fresh whenever the server restarts.
-            </p>
-
-            {/* The same chips the Activity feed filters with — this is the feed's sibling, and a
-                second filter idiom on the same screen would read as a different kind of control.
-                Two chips rather than a checkbox: it is which log you are reading, not an option
-                applied to one. The narrow view is first, because it is the question. */}
-            <div className="audit__filter" role="group" aria-label="Which entries to show">
-              <button
-                className={`chip ${auditNotableOnly ? "chip--on" : ""}`}
-                type="button"
-                aria-pressed={auditNotableOnly}
-                onClick={() => setAuditNotableOnly(true)}
-              >
-                Account changes
-              </button>
-              <button
-                className={`chip ${auditNotableOnly ? "" : "chip--on"}`}
-                type="button"
-                aria-pressed={!auditNotableOnly}
-                onClick={() => setAuditNotableOnly(false)}
-              >
-                Everything
-              </button>
-            </div>
-
-            {auditEntries === null ? null : auditEntries.length === 0 ? (
-              <p className="hint" style={{ marginTop: 10 }}>
-                {auditNotableOnly
-                  ? "No account or role changes recorded yet."
-                  : "Nothing recorded yet."}
-              </p>
-            ) : (
-              <ol className="audit">
-                {auditEntries.map((item) => (
-                  <li
-                    className={`audit__row audit__row--${item.outcome}${
-                      item.notable ? " audit__row--notable" : ""
-                    }`}
-                    key={item.id}
-                  >
-                    <span className="audit__when">{formatMoment(item.ts)}</span>
-                    <span className="audit__who">{item.actor.name}</span>
-                    <span className="audit__what">
-                      {item.action}
-                      {item.target ? <span className="audit__target">{item.target}</span> : null}
-                    </span>
-                    {item.outcome === "ok" ? null : (
-                      <span className="audit__outcome">
-                        {item.outcome === "refused" ? "refused" : "failed"}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
-        ) : null}
-
-        {/* ---- App defaults ---- */}
+      {/* ---- Audit log (issue 050) ---- */}
+      {canAdminister && people.length > 0 ? (
         <section className="settings__section">
-          <h3 className="settings__title">App defaults</h3>
+          <h3 className="settings__title">Audit log</h3>
           <p className="empty" style={{ marginTop: 0 }}>
-            Baseline used whenever a preset or ad-hoc update leaves category or stream binding blank.
+            Who did what, kept on disk for {AUDIT_RETENTION_DAYS} days. Separate from Activity,
+            which is a live feed and starts fresh whenever the server restarts.
           </p>
-          <div className="field--row" style={{ marginTop: 12 }}>
-            <div className="field">
-              <label htmlFor="set-def-cat">Default category</label>
-              <CategorySelect
-                id="set-def-cat"
-                value={settings.defaultCategory}
-                categories={categories}
-                blankLabel="— none (leave untouched) —"
-                onChange={(value) => onSaveSettings({ ...settings, defaultCategory: value })}
-              />
-            </div>
-            <StreamBindingField
-              id="set-def-stream"
-              label="Default stream binding"
-              value={settings.defaultStreamBoundId}
-              streams={streams}
-              onCommit={(next) => onSaveSettings({ ...settings, defaultStreamBoundId: next })}
+
+          {/* The same chips the Activity feed filters with — this is the feed's sibling, and a
+              second filter idiom on the same screen would read as a different kind of control.
+              Two chips rather than a checkbox: it is which log you are reading, not an option
+              applied to one. The narrow view is first, because it is the question. */}
+          <div className="audit__filter" role="group" aria-label="Which entries to show">
+            <button
+              className={`chip ${auditNotableOnly ? "chip--on" : ""}`}
+              type="button"
+              aria-pressed={auditNotableOnly}
+              onClick={() => setAuditNotableOnly(true)}
+            >
+              Account changes
+            </button>
+            <button
+              className={`chip ${auditNotableOnly ? "" : "chip--on"}`}
+              type="button"
+              aria-pressed={!auditNotableOnly}
+              onClick={() => setAuditNotableOnly(false)}
+            >
+              Everything
+            </button>
+          </div>
+
+          {auditEntries === null ? null : auditEntries.length === 0 ? (
+            <p className="hint" style={{ marginTop: 10 }}>
+              {auditNotableOnly
+                ? "No account or role changes recorded yet."
+                : "Nothing recorded yet."}
+            </p>
+          ) : (
+            <ol className="audit">
+              {auditEntries.map((item) => (
+                <li
+                  className={`audit__row audit__row--${item.outcome}${
+                    item.notable ? " audit__row--notable" : ""
+                  }`}
+                  key={item.id}
+                >
+                  <span className="audit__when">{formatMoment(item.ts)}</span>
+                  <span className="audit__who">{item.actor.name}</span>
+                  <span className="audit__what">
+                    {item.action}
+                    {item.target ? <span className="audit__target">{item.target}</span> : null}
+                  </span>
+                  {item.outcome === "ok" ? null : (
+                    <span className="audit__outcome">
+                      {item.outcome === "refused" ? "refused" : "failed"}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      ) : null}
+
+      {/* ---- App defaults ---- */}
+      <section className="settings__section">
+        <h3 className="settings__title">App defaults</h3>
+        <p className="empty" style={{ marginTop: 0 }}>
+          Baseline used whenever a preset or ad-hoc update leaves category or stream binding blank.
+        </p>
+        <div className="field--row" style={{ marginTop: 12 }}>
+          <div className="field">
+            <label htmlFor="set-def-cat">Default category</label>
+            <CategorySelect
+              id="set-def-cat"
+              value={settings.defaultCategory}
+              categories={categories}
+              blankLabel="— none (leave untouched) —"
+              onChange={(value) => onSaveSettings({ ...settings, defaultCategory: value })}
             />
           </div>
-          <p className="empty">
-            The category saves when you leave the field; the stream binding asks first.
-          </p>
-        </section>
-      </div>
+          <StreamBindingField
+            id="set-def-stream"
+            label="Default stream binding"
+            value={settings.defaultStreamBoundId}
+            streams={streams}
+            onCommit={(next) => onSaveSettings({ ...settings, defaultStreamBoundId: next })}
+          />
+        </div>
+        <p className="empty">
+          The category saves when you leave the field; the stream binding asks first.
+        </p>
+      </section>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Outlet, ScrollRestoration, useNavigate } from "react-router";
 import {
   api,
   type Category,
@@ -12,39 +13,25 @@ import {
   type SessionInfo,
 } from "./api.js";
 import { StatusRail } from "./components/StatusRail.js";
+import { NavBar } from "./components/NavBar.js";
 import { SessionNotice } from "./components/SessionNotice.js";
 import { ReauthBanner } from "./components/ReauthBanner.js";
 import { FirewallGuidance } from "./components/FirewallGuidance.js";
 import { TargetConflictBanner } from "./components/TargetConflictBanner.js";
 import { RidingModeNotice } from "./components/RidingModeNotice.js";
-import { TargetPicker } from "./components/TargetPicker.js";
-import { BroadcastList } from "./components/BroadcastList.js";
-import { PrepareBroadcast } from "./components/PrepareBroadcast.js";
-import { IngestionReadout } from "./components/IngestionReadout.js";
-import { WatchPanel } from "./components/WatchPanel.js";
-import { SettingsPanel } from "./components/SettingsPanel.js";
 import { PresetForm } from "./components/PresetForm.js";
 import { PresetFillModal } from "./components/PresetFillModal.js";
 import { AdHocModal } from "./components/AdHocModal.js";
-import { CategorySelect } from "./components/CategorySelect.js";
-import { StreamBindingField } from "./components/StreamBindingField.js";
-import { ActivityPanel } from "./components/ActivityPanel.js";
 import { UpdateBanner } from "./components/UpdateBanner.js";
 import { WhatsNewModal } from "./components/WhatsNewModal.js";
 import { extractVars } from "./lib/template.js";
-import { buildFillUrl } from "./lib/fillRoute.js";
 import { shouldAnnounce, readLastSeen, markSeen } from "./lib/whatsNew.js";
 import { appInfoChanged } from "./lib/appInfo.js";
 import { canAdminister } from "./lib/session.js";
 import { clearConnectReturn, readConnectReturn } from "./lib/connectReturn.js";
+import type { DashboardContext } from "./pages/context.js";
 
 type Toast = { message: string; kind: "ok" | "err" } | null;
-
-const PRIVACY_PILL: Record<string, string> = {
-  public: "pill--pub",
-  unlisted: "pill--unl",
-  private: "pill--priv",
-};
 
 export function App() {
   const [state, setState] = useState<DashboardState | null>(null);
@@ -64,7 +51,6 @@ export function App() {
   const [editing, setEditing] = useState<Preset | "new" | null>(null);
   const [filling, setFilling] = useState<Preset | null>(null);
   const [adHoc, setAdHoc] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   /** Sign-in state (issue 043). Null on a deployment that does not authenticate. */
   const [session, setSession] = useState<SessionInfo | null>(null);
@@ -78,7 +64,8 @@ export function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
-  const importInput = useRef<HTMLInputElement>(null);
+  // Pages are reached by URL, so anything that used to open a panel now navigates to one.
+  const navigate = useNavigate();
 
   const flash = useCallback((message: string, kind: "ok" | "err" = "ok") => {
     setToast({ message, kind });
@@ -511,6 +498,42 @@ export function App() {
     }
   };
 
+  // Everything a page may need, handed down through the router's outlet. The shell keeps the
+  // live state, the fetches and the modals; a page is a view onto them.
+  const context: DashboardContext = {
+    state,
+    presets,
+    categories,
+    streams,
+    settings,
+    apiEnabled,
+    admin,
+    refreshing,
+    refreshSession,
+    flash,
+    defaultCategoryLabel,
+    defaultStreamLabel,
+    applyPreset,
+    duplicatePreset,
+    deletePreset,
+    exportPresets,
+    importPresets,
+    newPreset: () => setEditing("new"),
+    editPreset: setEditing,
+    copy,
+    undo,
+    togglePrivacy,
+    openAdHoc: () => setAdHoc(true),
+    saveSettings,
+    webhookUrl,
+    setWebhookUrl,
+    saveWebhook,
+    notify,
+    setNotify,
+    saveNotify,
+    pushAdHoc,
+  };
+
   return (
     <div className="shell">
       <StatusRail
@@ -518,7 +541,6 @@ export function App() {
         onRefresh={refreshSession}
         refreshing={refreshing}
         onToggleApi={toggleApi}
-        onOpenSettings={() => setSettingsOpen(true)}
         version={appInfo?.version ?? null}
         onShowWhatsNew={() => setWhatsNew("running")}
         account={session?.account ?? null}
@@ -526,6 +548,13 @@ export function App() {
       />
 
       <main className="main">
+        {/* Which page is showing. Above the banners because it is the fixed furniture: an
+            operator scanning for the way to Presets should never have to read a banner first. */}
+        <NavBar isLive={state?.status.isLive ?? false} />
+
+        {/* The banners sit in the shell, not on a page. Each one reports something that stops the
+            whole app working, and none of them may be hidden behind a tab nobody has open. */}
+
         {/* Session cap notice — a signed-in browser gets one week's warning before the 90-day
             absolute cap logs it out (issue 043). Silent on every other deployment. */}
         <SessionNotice info={session} onRenewed={loadSignIn} />
@@ -546,7 +575,7 @@ export function App() {
           <ReauthBanner
             canAdminister={admin}
             onReconnected={refreshSession}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={() => navigate("/settings")}
             flash={flash}
           />
         ) : null}
@@ -566,379 +595,19 @@ export function App() {
           />
         ) : null}
 
-        {/* Riding along — YouTube refuses to let this channel create broadcasts (issue 061).
-            Placed above the list because it explains what the operator can and cannot do with
-            everything below it, and never instead of a health banner: this one is about
-            permissions, those are about the connection. */}
+        {/* Riding along — YouTube refuses to let this channel create broadcasts (issue 061). It
+            explains what the operator can and cannot do on every page below, and never stands in
+            for a health banner: this one is about permissions, those are about the connection. */}
         {state ? <RidingModeNotice eligibility={state.liveEligibility} /> : null}
 
-        {/* What YouTube will actually feed when the encoder starts, and — since issue 058 — the
-            second surface for the same edit-target pin the picker below writes. Above it because
-            "which one airs" is the question that comes first (issue 057). */}
-        <BroadcastList
-          apiEnabled={state ? state.apiEnabled : null}
-          pin={state?.targetPin ?? null}
-          onPinned={refreshSession}
-        />
-
-        {/* Making tonight's broadcast, rather than finding out which existing one wins. Under
-            the list because that is where the operator discovers there is nothing to air —
-            which is the moment this panel is the answer (PRD-16 §2, issue 062). */}
-        <PrepareBroadcast
-          presets={presets}
-          streams={streams}
-          categories={categories}
-          apiEnabled={apiEnabled}
-          eligibility={state?.liveEligibility ?? null}
-          defaultCategory={settings.defaultCategory}
-          onPrepared={refreshSession}
-        />
-
-        {/* Whether video is actually arriving, right above the list it explains: "nothing will
-            air" and "nothing is arriving" are different faults with different fixes, and seeing
-            them together is what stops a Studio trip to work out which one this is (issue 059). */}
-        <IngestionReadout
-          apiEnabled={state ? state.apiEnabled : null}
-          ingestion={state?.ingestion ?? null}
-        />
-
-        {/* The audience's own view, on request — "is it out, and does it look right" (issue
-            065). Directly under Signal in, and never instead of it: the embed is a delayed
-            picture, and the panel that answers "is video arriving right now" has to be the one
-            read first. */}
-        {state ? <WatchPanel status={state.status} /> : null}
-
-        {/* Which broadcast every action below writes to. Placed above the presets because it
-            governs where all of them land (PRD-12 / the pinned-target work). */}
-        <TargetPicker
-          pin={state?.targetPin ?? null}
-          apiEnabled={apiEnabled}
-          onChanged={refreshSession}
-        />
-
-        {/* Presets */}
-        <section className="panel">
-          <div className="panel__head">
-            <h2>Presets</h2>
-            <div className="panel__head-actions">
-              <button
-                className="btn btn--sm"
-                onClick={exportPresets}
-                disabled={presets.length === 0}
-                title="Download all presets as a JSON backup"
-              >
-                Export
-              </button>
-              <button
-                className="btn btn--sm"
-                onClick={() => importInput.current?.click()}
-                title="Restore or clone presets from a JSON file"
-              >
-                Import
-              </button>
-              <input
-                ref={importInput}
-                type="file"
-                accept="application/json,.json"
-                hidden
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void importPresets(file);
-                  e.target.value = "";
-                }}
-              />
-              <button
-                className="btn btn--primary btn--sm"
-                onClick={() => setEditing("new")}
-              >
-                + New preset
-              </button>
-            </div>
-          </div>
-          <div className="panel__body">
-            {presets.length === 0 ? (
-              <p className="empty">
-                No presets yet. Create one to map it to a Stream Deck button.
-              </p>
-            ) : (
-              <div className="preset-grid">
-                {presets.map((p) => (
-                  <article className="card" key={p.id}>
-                    <div className="card__title" dir="auto">
-                      {p.title}
-                    </div>
-                    {p.description ? (
-                      <div className="card__desc" dir="auto">
-                        {p.description}
-                      </div>
-                    ) : null}
-                    <div className="card__meta">
-                      <span className={`pill ${PRIVACY_PILL[p.privacyStatus]}`}>
-                        {p.privacyStatus}
-                      </span>
-                      <span
-                        className="pill"
-                        title={
-                          p.category
-                            ? `Category override: ${p.category}`
-                            : `Inherits default category: ${defaultCategoryLabel ?? "none (leave untouched)"}`
-                        }
-                      >
-                        {p.category
-                          ? `cat ${p.category}`
-                          : `cat · default: ${defaultCategoryLabel ?? "none"}`}
-                      </span>
-                      <span
-                        className="pill"
-                        title={
-                          p.streamBoundId
-                            ? `Stream override: ${p.streamBoundId}`
-                            : `Inherits default binding: ${defaultStreamLabel ?? "none (leave untouched)"}`
-                        }
-                      >
-                        {p.streamBoundId
-                          ? "stream · override"
-                          : `stream · default: ${defaultStreamLabel ?? "none"}`}
-                      </span>
-                    </div>
-                    <div
-                      className="mapping"
-                      title="Fill-route deep link — paste into a Companion HTTP GET action"
-                    >
-                      <code>{buildFillUrl(location.origin, p.id)}</code>
-                      <button
-                        className="btn btn--ghost btn--sm"
-                        onClick={() =>
-                          copy(buildFillUrl(location.origin, p.id), "Fill URL")
-                        }
-                      >
-                        Copy URL
-                      </button>
-                    </div>
-                    <div
-                      className="mapping"
-                      title="Direct-API JSON payload for the Companion body"
-                    >
-                      <code>{`{ "presetId": "${p.id}" }`}</code>
-                      <button
-                        className="btn btn--ghost btn--sm"
-                        onClick={() =>
-                          copy(`{ "presetId": "${p.id}" }`, "Payload")
-                        }
-                      >
-                        Copy JSON
-                      </button>
-                    </div>
-                    <div className="card__actions">
-                      <button
-                        className="btn btn--sm"
-                        onClick={() => applyPreset(p)}
-                        disabled={(state?.busy ?? false) || !apiEnabled}
-                        title={apiEnabled ? undefined : "YouTube API is paused"}
-                      >
-                        Apply now
-                      </button>
-                      <button
-                        className="btn btn--sm"
-                        onClick={() => setEditing(p)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="btn btn--sm"
-                        onClick={() => duplicatePreset(p)}
-                        title="Create an editable copy of this preset"
-                      >
-                        Duplicate
-                      </button>
-                      <button
-                        className="btn btn--sm btn--danger"
-                        onClick={() => deletePreset(p)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Defaults + Ad-hoc */}
-        <section className="panel">
-          <div className="panel__head">
-            <h2>Default settings</h2>
-            <div className="panel__head-actions">
-              <button
-                className="btn btn--sm"
-                onClick={undo}
-                disabled={(state?.busy ?? false) || !state?.undo || !apiEnabled}
-                title={
-                  state?.undo
-                    ? `Revert the last change${state.undo.label ? ` (was “${state.undo.label}”)` : ""}`
-                    : "Nothing to undo yet"
-                }
-              >
-                Undo
-              </button>
-              <button
-                className="btn btn--sm"
-                onClick={togglePrivacy}
-                disabled={
-                  (state?.busy ?? false) ||
-                  (state?.status.noTarget ?? false) ||
-                  !apiEnabled
-                }
-                title={
-                  apiEnabled
-                    ? "Flip the live target between private and public"
-                    : "YouTube API is paused"
-                }
-              >
-                Toggle privacy
-              </button>
-              <button
-                className="btn btn--sm"
-                onClick={() => setAdHoc(true)}
-                disabled={!apiEnabled}
-                title={apiEnabled ? undefined : "YouTube API is paused"}
-              >
-                Ad-hoc update…
-              </button>
-            </div>
-          </div>
-          <div className="panel__body">
-            <p className="empty" style={{ marginTop: 0 }}>
-              Baseline used whenever a preset or ad-hoc update leaves category
-              or stream binding blank.
-            </p>
-            <div className="field--row" style={{ marginTop: 12 }}>
-              <div className="field">
-                <label htmlFor="def-cat">Default category</label>
-                <CategorySelect
-                  id="def-cat"
-                  value={settings.defaultCategory}
-                  categories={categories}
-                  blankLabel="— none (leave untouched) —"
-                  onChange={(value) =>
-                    saveSettings({ ...settings, defaultCategory: value })
-                  }
-                />
-              </div>
-              <StreamBindingField
-                id="def-stream"
-                label="Default stream binding"
-                value={settings.defaultStreamBoundId}
-                streams={streams}
-                onCommit={(next) =>
-                  saveSettings({ ...settings, defaultStreamBoundId: next })
-                }
-              />
-            </div>
-            <p className="empty">
-              The category saves when you leave the field; the stream binding asks first.
-            </p>
-          </div>
-        </section>
-
-        {/* Webhook */}
-        <section className="panel">
-          <div className="panel__head">
-            <h2>State webhook</h2>
-          </div>
-          <div className="panel__body">
-            <p className="empty" style={{ marginTop: 0 }}>
-              Optional. When set, every meaningful state change (live/idle,
-              privacy, health, busy) is POSTed here as{" "}
-              <span className="mono">{`{ "event": "state", "state": {…} }`}</span>{" "}
-              — so Companion reacts instantly instead of polling.
-            </p>
-            <div className="field">
-              <label htmlFor="webhook-url">Webhook URL</label>
-              <input
-                id="webhook-url"
-                type="url"
-                value={webhookUrl}
-                placeholder="https://…"
-                onChange={(e) => setWebhookUrl(e.target.value)}
-                onBlur={(e) => saveWebhook(e.target.value)}
-              />
-            </div>
-            <p className="empty">
-              Saves when you leave the field. Clear it to disable.
-            </p>
-          </div>
-        </section>
-
-        {/* Phone push — the ntfy leg of the Companion fill flow (issue 003 trigger). */}
-        <section className="panel">
-          <div className="panel__head">
-            <h2>Phone push (ntfy)</h2>
-          </div>
-          <div className="panel__body">
-            <p className="empty" style={{ marginTop: 0 }}>
-              Optional. A Companion “Request fill” key pops the fill dialog in
-              any open dashboard. With a topic set here it also sends an{" "}
-              <a href="https://ntfy.sh" target="_blank" rel="noreferrer">
-                ntfy
-              </a>{" "}
-              notification — tap it on your phone to open the fill page, even
-              with no dashboard open. Subscribe to the same topic in the ntfy
-              app; treat the topic name as a secret.
-            </p>
-            <div className="field">
-              <label htmlFor="ntfy-topic">Topic</label>
-              <input
-                id="ntfy-topic"
-                value={notify.ntfyTopic}
-                placeholder="e.g. masjid-fill-8k2j — empty disables the push"
-                onChange={(e) =>
-                  setNotify({ ...notify, ntfyTopic: e.target.value })
-                }
-                onBlur={() => saveNotify(notify)}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="ntfy-server">ntfy server</label>
-              <input
-                id="ntfy-server"
-                type="url"
-                value={notify.ntfyServer}
-                placeholder="https://ntfy.sh"
-                onChange={(e) =>
-                  setNotify({ ...notify, ntfyServer: e.target.value })
-                }
-                onBlur={() => saveNotify(notify)}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="ntfy-base">
-                Public base URL (what the phone opens)
-              </label>
-              <input
-                id="ntfy-base"
-                type="url"
-                value={notify.publicBaseUrl}
-                placeholder="usually leave blank — this machine's LAN address is used"
-                onChange={(e) =>
-                  setNotify({ ...notify, publicBaseUrl: e.target.value })
-                }
-                onBlur={() => saveNotify(notify)}
-              />
-            </div>
-            <p className="empty">
-              Leave the base URL blank when the phone is on the same network —
-              the link points at this machine's LAN address automatically. Set
-              it only when that address won't reach the phone (Tailscale,
-              another subnet, a reverse proxy). Saves when you leave a field.
-            </p>
-          </div>
-        </section>
-
-        {/* Activity — the in-memory event feed (PRD-06 §3). */}
-        <ActivityPanel />
+        <Outlet context={context} />
       </main>
+
+      {/* Scroll handling for the tabs: react-router does nothing here on its own, so leaving a
+          long Activity page for Live would land you mid-page with the navbar and the banners
+          off-screen. This scrolls a new page to the top and puts back where you were on
+          back/forward. */}
+      <ScrollRestoration />
 
       {editing ? (
         <PresetForm
@@ -980,18 +649,6 @@ export function App() {
           defaultStreamLabel={defaultStreamLabel}
           onCancel={() => setAdHoc(false)}
           onSubmit={pushAdHoc}
-        />
-      ) : null}
-
-      {settingsOpen ? (
-        <SettingsPanel
-          settings={settings}
-          categories={categories}
-          streams={streams}
-          canAdminister={admin}
-          onSaveSettings={saveSettings}
-          flash={flash}
-          onClose={() => setSettingsOpen(false)}
         />
       ) : null}
 

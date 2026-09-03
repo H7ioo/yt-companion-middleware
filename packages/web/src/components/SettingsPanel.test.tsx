@@ -146,7 +146,6 @@ function panel(canAdminister: boolean, flash: (m: string, k?: string) => void = 
       canAdminister={canAdminister}
       onSaveSettings={() => {}}
       flash={flash}
-      onClose={() => {}}
     />,
   );
 }
@@ -311,7 +310,6 @@ describe("the people section", () => {
         canAdminister
         onSaveSettings={() => {}}
         flash={(message) => flashed.push(message)}
-        onClose={() => {}}
       />,
     );
     fireEvent.change(await screen.findByLabelText(/role for operator/i), { target: { value: "user" } });
@@ -715,5 +713,47 @@ describe("the connection card on a hosted deployment", () => {
     expect(await screen.findByText(/only an admin can change/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /reconnect/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /paste credentials instead/i })).toBeNull();
+  });
+});
+
+/**
+ * These sections used to be a modal over the dashboard; they are a page now (navbar + pages), so
+ * the page must not have lost a section on the way — and must not keep the overlay or a close
+ * button that leads nowhere.
+ */
+describe("SettingsPanel as a page", () => {
+  it("has no overlay and no close button", async () => {
+    status.mockResolvedValue(setupStatus());
+    const { container } = render(
+      <SettingsPanel
+        settings={{ defaultCategory: null, defaultStreamBoundId: null }}
+        categories={[]}
+        streams={[]}
+        canAdminister
+        onSaveSettings={() => {}}
+        flash={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText(/YouTube connection/i)).toBeTruthy();
+    expect(container.querySelector(".overlay")).toBeNull();
+    expect(container.querySelector(".settings--page")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /close settings/i })).toBeNull();
+  });
+
+  it("keeps the app defaults, which used to be the only reason to open it", async () => {
+    status.mockResolvedValue(setupStatus());
+    render(
+      <SettingsPanel
+        settings={{ defaultCategory: null, defaultStreamBoundId: null }}
+        categories={[]}
+        streams={[]}
+        canAdminister
+        onSaveSettings={() => {}}
+        flash={() => {}}
+      />,
+    );
+
+    expect(await screen.findByLabelText(/default category/i)).toBeTruthy();
   });
 });

@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App.js";
+import { RouterProvider } from "react-router/dom";
+import { router } from "./routes.js";
 import { FillPage } from "./FillPage.js";
 import { SetupScreen } from "./components/SetupScreen.js";
 import { LoginScreen } from "./components/LoginScreen.js";
@@ -96,7 +97,7 @@ function Root() {
       <SetupPending />
     );
   }
-  return <App />;
+  return <RouterProvider router={router} />;
 }
 
 createRoot(document.getElementById("root")!).render(
