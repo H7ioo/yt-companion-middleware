@@ -1,0 +1,42 @@
+{
+  "insertEligibility": {
+    "permitted": true,
+    "at": "2026-09-03T09:12:26.716Z"
+  },
+  "prepared": {
+    "broadcastId": "3UIZTEgkWWY",
+    "streamId": "xKDnpZFu9fwK2pvWqfuWNQ1782235149591438",
+    "title": "TEST 3 — app-created broadcast 2026-09-03T09:12",
+    "privacy": "unlisted",
+    "scheduledStartTime": "2026-09-03T09:27:23.780Z",
+    "watchUrl": "https://www.youtube.com/watch?v=3UIZTEgkWWY",
+    "preparedAt": "2026-09-03T09:12:26.716Z",
+    "autoStartMonitorInteraction": {
+      "enableAutoStart": true,
+      "enableAutoStop": true,
+      "enableMonitorStream": true,
+      "broadcastStreamDelayMs": 0,
+      "lifeCycleStatus": "ready"
+    }
+  },
+  "goLive": {
+    "winner": {
+      "id": "3UIZTEgkWWY",
+      "ours": true,
+      "lifeCycleStatus": "live",
+      "title": "TEST 3 — app-created broadcast 2026-09-03T09:12",
+      "actualStartTime": "2026-09-03T09:15:09Z",
+      "boundStreamId": "xKDnpZFu9fwK2pvWqfuWNQ1782235149591438"
+    },
+    "winnerWasOurs": true,
+    "titleOnFirstFrame": "TEST 3 — app-created broadcast 2026-09-03T09:12",
+    "rival": {
+      "id": "IWqRP7awcvc",
+      "lifeCycleStatus": "ready",
+      "boundStreamId": "xKDnpZFu9fwK2pvWqfuWNQ1782235149591438",
+      "note": "Studio-created, bound to the same key, did not air."
+    },
+    "autoStopCompleted": true,
+    "note": "Recorded by direct query; the watch phase was interrupted before it wrote its timeline (since fixed)."
+  }
+}
