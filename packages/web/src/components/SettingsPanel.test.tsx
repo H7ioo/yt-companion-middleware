@@ -687,9 +687,33 @@ describe("the connection card on a hosted deployment", () => {
     ).toBeTruthy();
   });
 
+  it("keeps a way back in when the round trip cannot be made to work", async () => {
+    // PUBLIC_ORIGIN moves a headless host from `manual` to `redirect`, which took the paste form
+    // away everywhere. An unregistered redirect URI or a Workspace policy then left an admin with
+    // a button that could not work and no in-app way to replace the credentials at all.
+    panel(true);
+    fireEvent.click(await screen.findByRole("button", { name: /Google won’t send me back here/ }));
+
+    fireEvent.change(screen.getByLabelText(/client id/i), { target: { value: "mine.apps" } });
+    fireEvent.change(screen.getByLabelText(/client secret/i), { target: { value: "GOCSPX-x" } });
+    fireEvent.change(screen.getByLabelText(/refresh token/i), { target: { value: "1//new" } });
+    fireEvent.click(screen.getByRole("button", { name: /replace credentials/i }));
+
+    await waitFor(() =>
+      expect(saveCreds).toHaveBeenCalledWith({
+        clientId: "mine.apps",
+        clientSecret: "GOCSPX-x",
+        refreshToken: "1//new",
+      }),
+    );
+    // The fallback is a fallback: it does not send anyone to Google on the way.
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
   it("still shows a user no way to change it", async () => {
     panel(false);
     expect(await screen.findByText(/only an admin can change/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /reconnect/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /paste credentials instead/i })).toBeNull();
   });
 });

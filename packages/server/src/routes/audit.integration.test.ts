@@ -12,6 +12,9 @@ import { auditTrail } from "../audit/middleware.js";
 import { auditRouter } from "./audit.js";
 import { peopleRouter } from "./people.js";
 import { devicesRouter } from "./devices.js";
+import { setupCallbackHandler } from "./setup.js";
+import { requireConnectCallback } from "../app.js";
+import { AppError } from "../core/errors.js";
 import type { AuditEntry } from "@app/shared";
 
 /**
@@ -36,6 +39,13 @@ async function call(url: string, init: RequestInit = {}): Promise<{ status: numb
   const res = await fetch(`${base}${url}`, init);
   const text = await res.text();
   return { status: res.status, body: text ? JSON.parse(text) : null };
+}
+
+/** A browser navigation, which answers with a redirect and no JSON body to parse. */
+async function navigate(url: string, cookie: string): Promise<number> {
+  const res = await fetch(`${base}${url}`, { redirect: "manual", headers: { cookie } });
+  await res.body?.cancel();
+  return res.status;
 }
 
 async function cookieFor(who: { name: string; password: string }): Promise<string> {
@@ -113,6 +123,25 @@ beforeEach(async () => {
   app.post("/api/setup", auth.requireSession(), auth.requireAdmin(), (_req, res) => {
     res.json({ ok: true });
   });
+  // The hosted connect callback, mounted the way app.ts mounts it. The real handler, because
+  // what is under test is that a *GET* which replaces the channel's credentials is recorded —
+  // and recorded as what it was, since success and failure both leave as a 302 (issue 052).
+  app.get(
+    "/api/setup/oauth/callback",
+    requireConnectCallback(auth),
+    setupCallbackHandler({
+      store,
+      configured: false,
+      requestRestart: () => {},
+      hosted: {
+        redirectUri: "https://live.example.org/api/setup/oauth/callback",
+        authorize: () => ({ url: "https://accounts.google.com/o/oauth2/v2/auth" }),
+        complete: async ({ code }) => {
+          if (code !== "good-code") throw new AppError("OAUTH_FAILED", "Google refused the sign-in.");
+        },
+      },
+    }),
+  );
 
   server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -120,6 +149,9 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  // Recording happens after the response has gone, so an append can still be in flight — pulling
+  // the directory out from under it is an ENOTEMPTY that has nothing to do with the test.
+  await audit.settled();
   await fs.rm(dir, { recursive: true, force: true });
 });
 
@@ -169,6 +201,28 @@ describe("what gets recorded", () => {
     const [entry] = await entries();
     expect(entry.action).toBe("ran a preset");
     expect(entry.actor).toEqual({ kind: "machine", id: minted.body.device.id, name: "companion machine" });
+  });
+
+  it("records the hosted connect, though it arrives as a GET", async () => {
+    // The credentials change behind a browser navigation, so a method-only filter recorded
+    // nothing and "who reconnected the channel" had no answer on a hosted deployment.
+    expect(await navigate("/api/setup/oauth/callback?code=good-code&state=nonce", await cookieFor(ADMIN))).toBe(302);
+
+    const [entry] = await entries();
+    expect(entry).toMatchObject({ action: "connected YouTube", notable: true, method: "GET" });
+    expect(entry.actor).toMatchObject({ kind: "person", name: ADMIN.name });
+    // The authorization code is a credential in a query string, and the path is stored without it.
+    expect(JSON.stringify(entry)).not.toContain("good-code");
+  });
+
+  it("does not call an abandoned attempt a reconnect", async () => {
+    // Both outcomes leave as a 302 to the dashboard, so the status cannot tell them apart — the
+    // handler says which it was.
+    expect(await navigate("/api/setup/oauth/callback?code=planted&state=guessed", await cookieFor(ADMIN))).toBe(302);
+
+    const [entry] = await entries();
+    expect(entry.action).toBe("failed to connect YouTube");
+    expect(entry.notable).toBe(false);
   });
 
   it("records a refusal, which is the entry an admin came looking for", async () => {

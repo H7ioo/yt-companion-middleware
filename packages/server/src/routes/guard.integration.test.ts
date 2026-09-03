@@ -193,6 +193,9 @@ async function boot(seed: { name: string; password: string } | null): Promise<Ha
       await new Promise<void>((r) => wss.close(() => r()));
       server.closeAllConnections?.();
       await new Promise<void>((r) => server.close(() => r()));
+      // The trail appends after the response has gone, so an entry can still be in flight here —
+      // removing the directory under it is an ENOTEMPTY that has nothing to do with the test.
+      await audit.settled();
       await fs.rm(dir, { recursive: true, force: true });
     },
   };
@@ -477,6 +480,46 @@ describe("what a signed-out browser can reach", () => {
 
   it("refuses setup, so a stranger who finds the host first cannot claim it", async () => {
     expect(await probe(h, "/api/setup/status")).toBe(401);
+  });
+
+  /**
+   * The hosted OAuth callback is the one guarded route that must not answer 401 (issue 052).
+   * Google navigates the admin's *browser* here, so a JSON refusal is a page of machine text and
+   * a lost connect — and a session that expires while they are picking a channel is the ordinary
+   * way to arrive without one.
+   */
+  it("turns a signed-out browser away from the connect callback with a page, not a JSON 401", async () => {
+    const res = await fetch(`${h.url}/api/setup/oauth/callback?code=planted&state=guessed`, {
+      redirect: "manual",
+    });
+    await res.body?.cancel();
+    expect(res.status).toBe(302);
+    const back = new URL(res.headers.get("location")!, "http://x");
+    expect(back.pathname).toBe("/");
+    expect(back.searchParams.get("connect_error")).toMatch(/sign in again/i);
+  });
+
+  it("turns a signed-in user away from it too — connecting the channel is an admin's", async () => {
+    const res = await fetch(`${h.url}/api/setup/oauth/callback?code=abc&state=xyz`, {
+      redirect: "manual",
+      headers: { cookie: await signIn(h, USER) },
+    });
+    await res.body?.cancel();
+    expect(res.status).toBe(302);
+    const back = new URL(res.headers.get("location")!, "http://x");
+    expect(back.searchParams.get("connect_error")).toMatch(/only an admin/i);
+  });
+
+  it("lets the admin through to the handler, which answers for itself", async () => {
+    // This harness boots with no hosted flow, so the handler's own "not available here" is the
+    // right answer — what matters is that the guard was not the thing that stopped it.
+    const res = await fetch(`${h.url}/api/setup/oauth/callback?code=abc&state=xyz`, {
+      redirect: "manual",
+      headers: { cookie: await signIn(h) },
+    });
+    await res.body?.cancel();
+    const back = new URL(res.headers.get("location")!, "http://x");
+    expect(back.searchParams.get("connect_error")).toMatch(/isn't available/i);
   });
 });
 

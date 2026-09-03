@@ -334,6 +334,51 @@ describe("SetupScreen on a hosted deployment", () => {
     await vi.waitFor(() => expect(assign).toHaveBeenCalled());
   });
 
+  it("offers the paste form as a way out when Google will not come back here", async () => {
+    // Setting PUBLIC_ORIGIN moves a headless host from `manual` to `redirect`, which took the
+    // paste form away entirely. An unregistered redirect URI or a Workspace policy then left an
+    // admin with one button that could not work and no other way in.
+    render(<SetupScreen onReady={() => {}} />);
+
+    await screen.findByLabelText("Client ID");
+    expect(screen.queryByLabelText("Refresh token")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Google won’t send me back here/ }),
+    );
+
+    expect(field("Refresh token")).toBeDefined();
+    // The consent form is gone rather than doubled — two "Client ID" fields on one page is an
+    // ambiguous label and a form that submits the wrong half.
+    expect(screen.getAllByLabelText("Client ID")).toHaveLength(1);
+  });
+
+  it("saves pasted credentials from that fallback, without going to Google", async () => {
+    vi.useFakeTimers();
+    const onReady = vi.fn();
+    status
+      .mockResolvedValueOnce(setupStatus(HOSTED))
+      .mockResolvedValue(setupStatus({ ...HOSTED, configured: true }));
+    render(<SetupScreen onReady={onReady} />);
+
+    await vi.waitFor(() => expect(screen.queryByLabelText("Client ID")).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: /Google won’t send me back here/ }));
+    fireEvent.change(field("Client ID"), { target: { value: "mine.apps" } });
+    fireEvent.change(field("Client secret"), { target: { value: "GOCSPX-x" } });
+    fireEvent.change(field("Refresh token"), { target: { value: "1//token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect channel" }));
+
+    await vi.waitFor(() =>
+      expect(save).toHaveBeenCalledWith({
+        clientId: "mine.apps",
+        clientSecret: "GOCSPX-x",
+        refreshToken: "1//token",
+      }),
+    );
+    await settleRestart();
+    await vi.waitFor(() => expect(onReady).toHaveBeenCalled());
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
   it("stays put and explains itself when the flow cannot be started", async () => {
     authorize.mockRejectedValue(new Error("No OAuth client available"));
     render(<SetupScreen onReady={() => {}} />);
@@ -356,6 +401,26 @@ describe("SetupScreen on a hosted deployment", () => {
  */
 describe("SetupScreen after a failed hosted consent", () => {
   afterEach(() => window.history.replaceState(null, "", "/"));
+
+  it("waits out the first-run restart instead of showing the setup form over a connect that worked", async () => {
+    // On first run there is no YouTube client to hot-swap, so the callback asks for a restart —
+    // and the load that carries `connected=youtube` can be answered by the instance on its way
+    // out, still saying `configured: false`. Rendering setup here threw the success away.
+    vi.useFakeTimers();
+    const onReady = vi.fn();
+    status
+      .mockResolvedValueOnce(setupStatus({ connectMode: "redirect", hasBundledClient: false }))
+      .mockResolvedValue(
+        setupStatus({ connectMode: "redirect", hasBundledClient: false, configured: true }),
+      );
+    window.history.replaceState(null, "", "/?connected=youtube");
+
+    render(<SetupScreen onReady={onReady} />);
+
+    await settleRestart();
+    await vi.waitFor(() => expect(onReady).toHaveBeenCalled());
+    expect(window.location.search).not.toContain("connected");
+  });
 
   it("shows what the server said, then clears it from the address bar", async () => {
     status.mockResolvedValue(

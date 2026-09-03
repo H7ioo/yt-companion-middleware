@@ -2,6 +2,7 @@ import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import type { JsonStore } from "../storage/jsonStore.js";
 import { AppError, toErrorBody } from "../core/errors.js";
+import { noteAudit } from "../audit/middleware.js";
 import { OAUTH_REDIRECT } from "../youtube/oauthFlow.js";
 import { deriveActiveFlow } from "../youtube/setupStatus.js";
 import { resetEligibility } from "../youtube/eligibility.js";
@@ -104,6 +105,43 @@ export function setupStatusHandler({ store, configured, oauth, hosted }: SetupDe
   };
 }
 
+/**
+ * Hosted connect, step two: Google sends the admin's browser here. This is a **navigation**, not
+ * a fetch — a JSON error body would land the admin on a page of machine text — so every outcome
+ * is a redirect back to the dashboard, which reads the query and says what happened. The token
+ * never appears in either: it goes to the store, and only `ok` or a message comes back out.
+ *
+ * Exported apart from the router because it is mounted apart from it (issue 052 review): the rest
+ * of `/api/setup` sits behind `requireAdmin()`, whose refusals are JSON — which is the one body
+ * this route promises never to produce. app.ts mounts it ahead of that with a guard that refuses
+ * in the same currency the route answers in, a redirect.
+ */
+export function setupCallbackHandler({ hosted }: SetupDeps): RequestHandler {
+  return async (req, res) => {
+    const back = (params: Record<string, string>) =>
+      res.redirect(`/?${new URLSearchParams(params).toString()}`);
+    if (!hosted) {
+      back({ connect_error: "Browser sign-in isn't available on this deployment." });
+      return;
+    }
+    const q = req.query as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+    try {
+      await hosted.complete({ code: str(q.code), state: str(q.state), error: str(q.error) });
+      // The credential change happens here, on a GET, so the trail is told what this was rather
+      // than left to infer it from a 302 that looks identical on the way out (issue 050).
+      noteAudit(req, { action: "connected YouTube", notable: true });
+      back({ connected: "youtube" });
+    } catch (err) {
+      noteAudit(req, { action: "failed to connect YouTube", notable: false });
+      back({
+        connect_error:
+          err instanceof AppError ? err.message : "The YouTube sign-in did not complete.",
+      });
+    }
+  };
+}
+
 export function setupRouter(deps: SetupDeps): Router {
   const { store, configured, requestRestart, oauth, hosted } = deps;
   const router = Router();
@@ -197,29 +235,9 @@ export function setupRouter(deps: SetupDeps): Router {
     }
   });
 
-  // Hosted connect, step two: Google sends the admin's browser here. This is a **navigation**, not
-  // a fetch — a JSON error body would land the admin on a page of machine text — so both outcomes
-  // are a redirect back to the dashboard, which reads the query and says what happened. The token
-  // never appears in either: it goes to the store, and only `ok` or a message comes back out.
-  router.get("/oauth/callback", async (req, res) => {
-    const back = (params: Record<string, string>) =>
-      res.redirect(`/?${new URLSearchParams(params).toString()}`);
-    if (!hosted) {
-      back({ connect_error: "Browser sign-in isn't available on this deployment." });
-      return;
-    }
-    const q = req.query as Record<string, unknown>;
-    const str = (v: unknown) => (typeof v === "string" ? v : undefined);
-    try {
-      await hosted.complete({ code: str(q.code), state: str(q.state), error: str(q.error) });
-      back({ connected: "youtube" });
-    } catch (err) {
-      back({
-        connect_error:
-          err instanceof AppError ? err.message : "The YouTube sign-in did not complete.",
-      });
-    }
-  });
+  // Kept here too, so the router stays a complete unit for its own tests and for any host that
+  // mounts it alone — the mount in app.ts answers first in the app itself, as it does for /status.
+  router.get("/oauth/callback", setupCallbackHandler(deps));
 
   router.post("/", async (req, res) => {
     try {

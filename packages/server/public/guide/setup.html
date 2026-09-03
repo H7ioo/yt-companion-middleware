@@ -129,6 +129,20 @@ npm start</pre>
             Settings, but by pasting a token minted with
             <code>node packages/server/scripts/get-refresh-token.mjs</code>.
           </p>
+          <p>
+            If the round trip cannot be made to work — Google refuses the
+            redirect URI, or a Workspace policy blocks the app — the paste form
+            is still there behind
+            <strong>“Google won’t send me back here”</strong>, on the setup
+            screen and in Settings. Mint a token with
+            <code>node packages/server/scripts/get-refresh-token.mjs</code> on
+            any machine that has a browser and enter all three values.
+          </p>
+          <p>
+            Either way the connect is recorded in the audit log: starting a
+            browser sign-in, and the callback that actually changed the
+            credentials, both name the admin who did it.
+          </p>
         </section>
 
 <section id="auth">

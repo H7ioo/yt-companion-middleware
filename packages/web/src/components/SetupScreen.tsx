@@ -12,9 +12,11 @@ import { clearConnectReturn, readConnectReturn } from "../lib/connectReturn.js";
  *   this page will do: it is sent to Google and returns through the server's public callback, so
  *   the outcome arrives as a query string on a fresh page load rather than as a resolved promise.
  *
- * Either way no refresh token is ever pasted by hand. Only when neither flow is available — a
- * headless host that does not know its public origin — do the three-credential fields appear, and
- * the token has to come from `scripts/get-refresh-token.mjs`.
+ * Either way no refresh token is ever pasted by hand — normally. The three-credential form is
+ * still reachable in two cases: a headless host where neither flow is available (it is all there
+ * is), and, behind a disclosure, a `redirect` host where the round trip cannot be made to work —
+ * an unregistered redirect URI, a Workspace policy — so that a deployment is never left with one
+ * button and no way past it. The token then comes from `scripts/get-refresh-token.mjs`.
  */
 export function SetupScreen({ onReady }: { onReady: () => void }) {
   const [clientId, setClientId] = useState("");
@@ -30,6 +32,11 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
   const [redirectUri, setRedirectUri] = useState("");
   // Manual fields start hidden when one-click is available; the disclosure reveals them.
   const [manual, setManual] = useState(false);
+  // The last resort on a hosted host: paste all three credentials instead of running consent.
+  // Hidden behind a disclosure, because the redirect flow is the way this is meant to go — but a
+  // redirect URI Google will not accept, or a Workspace policy that blocks the app, leaves an
+  // admin with a button that cannot work and, without this, nothing else to try (issue 052).
+  const [paste, setPaste] = useState(false);
 
   useEffect(() => {
     api.setup
@@ -44,13 +51,33 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
       .catch(() => setManual(true));
   }, []);
 
-  // The hosted flow's failures come back on the URL, not from a promise: the browser left this
-  // page for Google and returned to a fresh mount. A success needs nothing here — the server is
-  // configured by then, so the gate above this screen renders the dashboard instead.
+  // The hosted flow's outcome comes back on the URL, not from a promise: the browser left this
+  // page for Google and returned to a fresh mount.
+  //
+  // A success is not simply "the gate above renders the dashboard". On *first* run there is no
+  // YouTube client to hot-swap, so the callback's `applyCredentials` is a deferred restart — this
+  // page load can be answered by the instance that is about to go away, still reporting
+  // `configured: false`. Rendering the setup form over a connect that worked, and throwing its
+  // success away with the query string, is what that race looked like. So the success is waited
+  // out here, the same way the pasted-credentials path waits out its own restart.
   useEffect(() => {
     const returned = readConnectReturn(new URL(window.location.href));
-    if (returned && !returned.ok) setError(returned.message);
     clearConnectReturn();
+    if (!returned) return;
+    if (!returned.ok) {
+      setError(returned.message);
+      return;
+    }
+    setStatus("waiting");
+    waitForReady()
+      .then(onReady)
+      .catch((err: Error) => {
+        setError(err.message);
+        setStatus("idle");
+      });
+    // Once, on the load that carried the outcome. `onReady` is deliberately not a dependency: it
+    // is a fresh closure every render, and re-running this would only re-read a query string that
+    // has already been cleared.
   }, []);
 
   const busy = status !== "idle";
@@ -152,7 +179,7 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
           </button>
         ) : null}
 
-        {manual && connectMode ? (
+        {manual && connectMode && !paste ? (
           // A host that can run consent: enter only the client ID/secret; the flow fetches the
           // refresh token itself, whether it drives the browser or hands this one a URL.
           <form
@@ -217,10 +244,24 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
           </form>
         ) : null}
 
-        {manual && !connectMode ? (
-          // No browser to drive and no public origin to be returned to, so the refresh token is
-          // pasted directly (the CLI script produces it). Saving restarts the server.
+        {manual && connectMode === "redirect" && !paste ? (
+          <button className="setup__disclosure" type="button" onClick={() => setPaste(true)}>
+            Google won’t send me back here — enter a refresh token instead
+          </button>
+        ) : null}
+
+        {manual && (!connectMode || paste) ? (
+          // No browser to drive and no public origin to be returned to — or a redirect flow that
+          // cannot complete — so the refresh token is pasted directly (the CLI script produces
+          // it). Saving restarts the server.
           <form className="setup__manual" onSubmit={submit}>
+            {paste ? (
+              <p className="setup__connect-hint">
+                Run <span className="mono">node packages/server/scripts/get-refresh-token.mjs</span>{" "}
+                on any machine with a browser, pick this channel at the consent screen, and paste
+                what it prints below.
+              </p>
+            ) : null}
             <div className="field">
               <label htmlFor="setup-client-id">Client ID</label>
               <input

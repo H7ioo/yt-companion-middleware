@@ -35,7 +35,9 @@ type Busy = "idle" | "connecting" | "waiting" | "saving" | "disconnecting";
  * Connect / Reconnect / Disconnect) alongside the app defaults, reachable any time — not just on
  * first run. Reads the connection state as booleans from `/api/setup/status`; secrets never arrive
  * here. A headless/Docker host has no browser to run consent in, so it gets the paste form instead
- * of the one-click buttons — the credentials are still the app's own to replace. Only env/CLI
+ * of the one-click buttons — the credentials are still the app's own to replace, and a hosted host
+ * whose redirect round trip cannot be made to work keeps that form behind a disclosure rather than
+ * being left with one button and no way past it (issue 052). Only env/CLI
  * credentials are read-only, because those live outside the store. A user — as opposed to an admin — reads the
  * same connection state and is offered none of the controls (issue 045): changing the channel is
  * how a deployment loses it, and a button that always answers 403 is worse than no button.
@@ -57,6 +59,11 @@ export function SettingsPanel({
   // Pasted credentials for a headless host (`manual` mode). All three are re-entered: the server
   // never sends a saved secret back, so there is nothing to prefill.
   const [refreshToken, setRefreshToken] = useState("");
+  // Whether the paste form is showing on a host that has the redirect flow. Off by default —
+  // that flow is the way this is meant to go — but a redirect URI Google will not accept, or a
+  // Workspace policy that blocks the app, leaves an admin with a button that cannot work and no
+  // in-app way to replace credentials at all (issue 052).
+  const [showPaste, setShowPaste] = useState(false);
   // Who else is here (issue 045). Empty on a deployment with no accounts, which is what hides the
   // section on desktop and LAN installs — there are no roles there to manage.
   const [people, setPeople] = useState<Person[]>([]);
@@ -374,6 +381,88 @@ export function SettingsPanel({
     }
   };
 
+  /**
+   * The three-credential paste form. One definition, two places it is offered: a `manual` host,
+   * where it is the only way in, and — behind a disclosure — a `redirect` host whose round trip
+   * cannot be made to work. All three fields are re-entered because the server never sends a
+   * saved secret back, so there is nothing to prefill.
+   */
+  const pasteForm = (
+    <form
+      className="settings__own"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void saveManual();
+      }}
+    >
+      <div className="field">
+        <label htmlFor="man-client-id">Client ID</label>
+        <input
+          id="man-client-id"
+          className="mono"
+          value={clientId}
+          placeholder="xxxxxxxx.apps.googleusercontent.com"
+          onChange={(e) => setClientId(e.target.value)}
+          disabled={working}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="man-client-secret">Client secret</label>
+        <input
+          id="man-client-secret"
+          className="mono"
+          type="password"
+          value={clientSecret}
+          placeholder="GOCSPX-…"
+          onChange={(e) => setClientSecret(e.target.value)}
+          disabled={working}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="man-refresh-token">Refresh token</label>
+        <input
+          id="man-refresh-token"
+          className="mono"
+          type="password"
+          value={refreshToken}
+          placeholder="1//…"
+          onChange={(e) => setRefreshToken(e.target.value)}
+          disabled={working}
+        />
+      </div>
+      <div className="settings__actions">
+        <button
+          className="btn btn--primary btn--sm"
+          type="submit"
+          disabled={
+            working ||
+            !clientId.trim() ||
+            !clientSecret.trim() ||
+            !refreshToken.trim()
+          }
+        >
+          {busy === "saving"
+            ? "Saving…"
+            : busy === "waiting"
+              ? "Rebuilding the connection…"
+              : view?.connected
+                ? "Replace credentials"
+                : "Save credentials"}
+        </button>
+        {view?.connected ? (
+          <button
+            className="btn btn--sm btn--danger"
+            type="button"
+            onClick={disconnect}
+            disabled={working}
+          >
+            {busy === "disconnecting" ? "Disconnecting…" : "Disconnect"}
+          </button>
+        ) : null}
+      </div>
+    </form>
+  );
+
   return (
     <div className="overlay" onClick={busy === "idle" ? onClose : undefined}>
       <div className="modal settings" onClick={(e) => e.stopPropagation()}>
@@ -455,79 +544,7 @@ export function SettingsPanel({
                     read only when nothing is stored. Editing the environment while this section
                     says Connected changes nothing. Disconnect first if the environment should win.
                   </p>
-                  <form
-                    className="settings__own"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void saveManual();
-                    }}
-                  >
-                    <div className="field">
-                      <label htmlFor="man-client-id">Client ID</label>
-                      <input
-                        id="man-client-id"
-                        className="mono"
-                        value={clientId}
-                        placeholder="xxxxxxxx.apps.googleusercontent.com"
-                        onChange={(e) => setClientId(e.target.value)}
-                        disabled={working}
-                      />
-                    </div>
-                    <div className="field">
-                      <label htmlFor="man-client-secret">Client secret</label>
-                      <input
-                        id="man-client-secret"
-                        className="mono"
-                        type="password"
-                        value={clientSecret}
-                        placeholder="GOCSPX-…"
-                        onChange={(e) => setClientSecret(e.target.value)}
-                        disabled={working}
-                      />
-                    </div>
-                    <div className="field">
-                      <label htmlFor="man-refresh-token">Refresh token</label>
-                      <input
-                        id="man-refresh-token"
-                        className="mono"
-                        type="password"
-                        value={refreshToken}
-                        placeholder="1//…"
-                        onChange={(e) => setRefreshToken(e.target.value)}
-                        disabled={working}
-                      />
-                    </div>
-                    <div className="settings__actions">
-                      <button
-                        className="btn btn--primary btn--sm"
-                        type="submit"
-                        disabled={
-                          working ||
-                          !clientId.trim() ||
-                          !clientSecret.trim() ||
-                          !refreshToken.trim()
-                        }
-                      >
-                        {busy === "saving"
-                          ? "Saving…"
-                          : busy === "waiting"
-                            ? "Rebuilding the connection…"
-                            : view.connected
-                              ? "Replace credentials"
-                              : "Save credentials"}
-                      </button>
-                      {view.connected ? (
-                        <button
-                          className="btn btn--sm btn--danger"
-                          type="button"
-                          onClick={disconnect}
-                          disabled={working}
-                        >
-                          {busy === "disconnecting" ? "Disconnecting…" : "Disconnect"}
-                        </button>
-                      ) : null}
-                    </div>
-                  </form>
+                  {pasteForm}
                   <a className="settings__link" href="/guide" target="_blank" rel="noreferrer">
                     Where do I get these?
                   </a>
@@ -600,6 +617,35 @@ export function SettingsPanel({
                         {leaving ? "Continue to Google" : "Connect with my client"}
                       </button>
                     </form>
+                  ) : null}
+                </>
+              ) : null}
+
+              {/* The way out when the round trip cannot be made to work. Setting PUBLIC_ORIGIN
+                  turns a headless host from `manual` to `redirect`, which used to take the paste
+                  form away entirely — and an unregistered redirect URI or a Workspace policy then
+                  left the admin with a button that could not work and nothing else to try. */}
+              {leaving && canAdminister ? (
+                <>
+                  <button
+                    className="settings__disclosure"
+                    type="button"
+                    onClick={() => setShowPaste((v) => !v)}
+                    disabled={working}
+                  >
+                    {showPaste ? "Hide" : "Google won’t send me back here — paste credentials instead"}
+                  </button>
+                  {showPaste ? (
+                    <>
+                      <p className="empty conn__guidance">
+                        Run{" "}
+                        <span className="mono">node packages/server/scripts/get-refresh-token.mjs</span>{" "}
+                        on any machine with a browser, pick this channel at the consent screen, and
+                        paste all three below. The saved values are never sent back to this page,
+                        so there is nothing to prefill.
+                      </p>
+                      {pasteForm}
+                    </>
                   ) : null}
                 </>
               ) : null}
