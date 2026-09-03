@@ -3,15 +3,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { LiveEligibility, PreparedBroadcast, Preset, StreamInfo } from "../api.js";
 import { PrepareBroadcast } from "./PrepareBroadcast.js";
+import { ApiError } from "../api.js";
 
 const prepare = vi.fn();
 const preparedList = vi.fn<() => Promise<PreparedBroadcast[]>>();
+const retire = vi.fn(async () => ({ retired: [], aired: [], gone: [], failed: [], quotaUnits: 0 }));
+const deletePrepared = vi.fn(async (_id: string) => ({ retired: made(), quotaUnits: 50 }));
 
-vi.mock("../api.js", () => ({
+vi.mock("../api.js", async (importOriginal) => ({
+  // Partial: ApiError is a real class the panel narrows refusals with, so the mock keeps it
+  // rather than replacing it with something `instanceof` can never match (issue 064).
+  ...(await importOriginal<typeof import("../api.js")>()),
   api: {
     broadcasts: {
       prepare: (input: unknown) => prepare(input),
       prepared: () => preparedList(),
+      retire: () => retire(),
+      deletePrepared: (id: string) => deletePrepared(id),
     },
   },
 }));
@@ -40,6 +48,9 @@ const made = (over: Partial<PreparedBroadcast> = {}): PreparedBroadcast => ({
   watchUrl: "https://www.youtube.com/watch?v=made-1",
   createdAt: "2026-09-03T10:00:00.000Z",
   presetId: "friday",
+  airedAt: null,
+  retiredAt: null,
+  retiredReason: null,
   ...over,
 });
 
@@ -70,6 +81,10 @@ beforeEach(() => {
   prepare.mockResolvedValue({ prepared: made(), quotaUnits: 100, warning: null });
   preparedList.mockReset();
   preparedList.mockResolvedValue([]);
+  retire.mockReset();
+  retire.mockResolvedValue({ retired: [], aired: [], gone: [], failed: [], quotaUnits: 0 });
+  deletePrepared.mockReset();
+  deletePrepared.mockResolvedValue({ retired: made(), quotaUnits: 50 });
 });
 afterEach(cleanup);
 
@@ -134,6 +149,34 @@ describe("PrepareBroadcast", () => {
     expect(
       await screen.findByText("YouTube will not let this channel create broadcasts."),
     ).toBeTruthy();
+  });
+
+  // Issue 064: a channel too full to take another broadcast is the one refusal here the operator
+  // fixes with a press rather than a decision, so the press is offered next to the explanation.
+  it("offers the cleanup when YouTube says the channel is full", async () => {
+    prepare.mockRejectedValue(
+      new ApiError("The channel already holds as many as it allows. Delete the ones you are not going to use.", "BROADCAST_LIMIT_REACHED"),
+    );
+    retire.mockResolvedValue({ retired: [made()], aired: [], gone: [], failed: [], quotaUnits: 51 });
+    mount();
+    fireEvent.change(await screen.findByLabelText("From preset"), { target: { value: "friday" } });
+    fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clear old broadcasts" }));
+    await waitFor(() => expect(retire).toHaveBeenCalled());
+  });
+
+  it("says so plainly when the cleanup finds nothing of ours to remove", async () => {
+    prepare.mockRejectedValue(new ApiError("The channel is full.", "BROADCAST_LIMIT_REACHED"));
+    mount();
+    fireEvent.change(await screen.findByLabelText("From preset"), { target: { value: "friday" } });
+    fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Clear old broadcasts" }));
+
+    // The broadcasts filling the channel are someone else's, and this app will never touch them.
+    expect(await screen.findByText(/YouTube Studio/)).toBeTruthy();
   });
 
   it("offers no creation controls in riding mode — the press would only ever fail", async () => {

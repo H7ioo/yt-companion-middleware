@@ -341,6 +341,9 @@ describe("GET /api/dashboard/broadcasts/prepared", () => {
           watchUrl: "https://www.youtube.com/watch?v=old",
           createdAt: "2026-08-27T10:00:00.000Z",
           presetId: null,
+          airedAt: null,
+          retiredAt: null,
+          retiredReason: null,
         },
         {
           id: "new",
@@ -351,6 +354,9 @@ describe("GET /api/dashboard/broadcasts/prepared", () => {
           watchUrl: "https://www.youtube.com/watch?v=new",
           createdAt: "2026-09-03T10:00:00.000Z",
           presetId: null,
+          airedAt: null,
+          retiredAt: null,
+          retiredReason: null,
         },
       ];
     });

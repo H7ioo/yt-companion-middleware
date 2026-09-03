@@ -8,9 +8,11 @@ import { listBroadcasts } from "../youtube/broadcasts.js";
 import { listWhatWillAir } from "../youtube/willAir.js";
 import { listStreams } from "./streams.js";
 import { prepareBroadcast, type PrepareInput } from "../youtube/prepare.js";
+import { retireOne, sweepBroadcasts, type SweepResult } from "../youtube/retire.js";
+import { deleteConfirmation } from "@app/shared";
 import { isEligibilityError, noteDriving, noteRidingMode } from "../youtube/eligibility.js";
 import { resolvePresetText } from "../core/template.js";
-import { privacyStatusSchema } from "../storage/schema.js";
+import { privacyStatusSchema, type PreparedBroadcast } from "../storage/schema.js";
 
 // BroadcastListing is part of the shared API contract (the dashboard's broadcast list).
 export type { BroadcastListing } from "@app/shared";
@@ -105,6 +107,13 @@ export function broadcastsRouter(ctx: AppContext): Router {
       return;
     }
 
+    // Clear our own ghosts *before* the insert, not after it. YouTube refuses `insert` once the
+    // channel holds too many live and scheduled broadcasts, and the whole point of retiring them
+    // is that the refusal never happens on the night it matters (issue 064). One read, plus a
+    // write per ghost actually found — charged to this press, because the quota tracker counts
+    // those calls and a reported cost that leaves them out disagrees with it.
+    const sweepUnits = await sweepQuietly(ctx);
+
     try {
       const { broadcast: prepared, warning } = await prepareBroadcast(ctx.yt, input, {
         now: new Date().toISOString(),
@@ -137,7 +146,7 @@ export function broadcastsRouter(ctx: AppContext): Router {
       // 200 even for a half-finished preparation: the broadcast is on the channel with a public
       // link, and an error body would hide the id the operator needs to fix or delete it — and
       // would have them press create again, putting a second public broadcast out there.
-      res.json({ prepared, quotaUnits: prepareCost(input), warning });
+      res.json({ prepared, quotaUnits: prepareCost(input) + sweepUnits, warning });
     } catch (err) {
       const mapped = mapYouTubeError(err);
       if (isEligibilityError(mapped)) {
@@ -153,11 +162,179 @@ export function broadcastsRouter(ctx: AppContext): Router {
         res.status(409).json(toErrorBody(mapped));
         return;
       }
+      // A full channel is not a server fault either — it is a state the operator can fix, and the
+      // message already says how. 502 would file it with the outages nobody can act on.
+      if (mapped.code === "BROADCAST_LIMIT_REACHED") {
+        res.status(409).json(toErrorBody(mapped));
+        return;
+      }
       res.status(502).json(toErrorBody(mapped));
     }
   });
 
+  /**
+   * Retire the broadcasts this app created and nobody used (PRD-16 §5, issue 064).
+   *
+   * The same sweep the prepare route runs, on the operator's press — for the moment they meet a
+   * full channel and want it cleared now rather than on the next preparation.
+   */
+  router.post("/retire", async (_req, res) => {
+    if (!ctx.store.get().service.apiEnabled) {
+      res.status(409).json(toErrorBody(new AppError("SERVICE_DISABLED")));
+      return;
+    }
+    try {
+      res.json(await runSweep(ctx));
+    } catch (err) {
+      res.status(502).json(toErrorBody(mapYouTubeError(err)));
+    }
+  });
+
+  /**
+   * Delete one broadcast this app created, deliberately (PRD-16 §5, issue 064).
+   *
+   * Two guards, and they are the feature:
+   *
+   *   - **The id must be in the ownership record.** Nothing else is ever deletable through this
+   *     app. A broadcast a human made in Studio looks identical on the API, so the record is the
+   *     only thing that can tell them apart — and being unable to delete someone else's show is
+   *     worth more than being able to delete ours from one more place.
+   *   - **`confirm` must be sent.** The dashboard asks the question in a dialog; this is the same
+   *     question for a stale tab or a direct call, and the refusal carries the text so they ask
+   *     it the same way. The sibling of the stream-binding confirmation in issue 051.
+   */
+  router.delete("/prepared/:id", async (req, res) => {
+    if (!ctx.store.get().service.apiEnabled) {
+      res.status(409).json(toErrorBody(new AppError("SERVICE_DISABLED")));
+      return;
+    }
+    const id = req.params.id;
+    const record = ctx.store.get().preparedBroadcasts.find((p) => p.id === id);
+    if (!record) {
+      res.status(404).json(
+        toErrorBody(
+          new AppError(
+            "NO_TARGET_FOUND",
+            `Broadcast ${id} is not one this app created, so it is not this app's to delete. ` +
+              `Delete it in YouTube Studio if that is really what you want.`,
+          ),
+        ),
+      );
+      return;
+    }
+    // Aired broadcasts are recordings, and deleting one takes the recording with it. The dialog
+    // already hides the button; this is the same refusal for a stale tab or a direct call, and it
+    // is the sweep's rule (`planSweep` never touches an aired record) held at the route too.
+    if (record.airedAt !== null) {
+      res.status(409).json(
+        toErrorBody(
+          new AppError(
+            "INVALID_REQUEST",
+            `“${record.title}” has been on air, so it is a recording now. ` +
+              `Delete it in YouTube Studio if that is really what you want.`,
+          ),
+        ),
+      );
+      return;
+    }
+    if (record.retiredAt !== null) {
+      res.status(409).json(
+        toErrorBody(
+          new AppError("INVALID_REQUEST", `“${record.title}” has already been removed from YouTube.`),
+        ),
+      );
+      return;
+    }
+
+    const confirmation = deleteConfirmation(record);
+    if ((req.body as { confirm?: unknown } | undefined)?.confirm !== true) {
+      res
+        .status(409)
+        .json({ ...toErrorBody(new AppError("CONFIRMATION_REQUIRED", confirmation.warning)), confirmation });
+      return;
+    }
+
+    try {
+      const reason = "Deleted by hand from the dashboard.";
+      const retired = await retireOne(ctx.yt, record, { now: Date.now(), reason });
+      await upsertPrepared(ctx, retired);
+      ctx.logger.push({
+        level: "info",
+        category: "action",
+        code: null,
+        message: `Deleted “${retired.title}” from YouTube — ${reason} Its link no longer works.`,
+      });
+      void ctx.cache.refresh({ force: true });
+      res.json({ retired, quotaUnits: QUOTA_COST.write });
+    } catch (err) {
+      res.status(502).json(toErrorBody(mapYouTubeError(err)));
+    }
+  });
+
   return router;
+}
+
+/** Upserts one ownership record by id, leaving the rest of the list alone. */
+async function upsertPrepared(ctx: AppContext, record: PreparedBroadcast): Promise<void> {
+  await ctx.store.update((s) => {
+    s.preparedBroadcasts = [...s.preparedBroadcasts.filter((p) => p.id !== record.id), record];
+  });
+}
+
+/**
+ * The sweep, with its results written to the store and said out loud in the activity feed —
+ * "recorded where the operator can see what was removed and why".
+ */
+async function runSweep(ctx: AppContext): Promise<SweepResult> {
+  const result = await sweepBroadcasts(ctx.yt, ctx.store.get().preparedBroadcasts, {
+    now: Date.now(),
+    onUpdate: (record) => upsertPrepared(ctx, record),
+  });
+  for (const r of result.retired) {
+    ctx.logger.push({
+      level: "info",
+      category: "action",
+      code: null,
+      message: `Retired “${r.title}” — ${r.retiredReason}`,
+    });
+  }
+  for (const g of result.gone) {
+    ctx.logger.push({
+      level: "info",
+      category: "action",
+      code: null,
+      message: `“${g.title}” is no longer on YouTube — ${g.retiredReason}`,
+    });
+  }
+  for (const f of result.failed) {
+    ctx.logger.push({
+      level: "warn",
+      category: "action",
+      code: null,
+      message: `Could not retire “${f.title}” — ${f.message}`,
+    });
+  }
+  return result;
+}
+
+/**
+ * The sweep as a courtesy before a preparation: it must never be the reason tonight's broadcast
+ * does not get made. A cleanup that cannot run is a note in the feed, not a failed press.
+ */
+async function sweepQuietly(ctx: AppContext): Promise<number> {
+  try {
+    return (await runSweep(ctx)).quotaUnits;
+  } catch (err) {
+    ctx.logger.push({
+      level: "warn",
+      category: "action",
+      code: null,
+      message: `Could not clear old broadcasts before creating this one — ${mapYouTubeError(err).message}`,
+    });
+    // The read that failed still cost its unit in most refusals, but the tracker is the authority
+    // on what was actually spent; a sweep that got nowhere adds nothing to this press's total.
+    return 0;
+  }
 }
 
 const prepareBody = z.object({

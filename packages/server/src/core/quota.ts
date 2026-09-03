@@ -151,6 +151,10 @@ export function instrumentQuota(yt: youtube_v3.Youtube, tracker: QuotaTracker): 
   // writes a preparation costs were invisible to the budget the dashboard prints — and a
   // preparation is the most expensive thing an operator does in one press.
   b.insert = meter(b.insert.bind(b), QUOTA_COST.write);
+  // Retiring a ghost is a write too (issue 064). A sweep that removed a dozen would otherwise
+  // spend 600 units the dashboard never printed — on the very day the channel was full, which is
+  // the day the budget is most worth reading.
+  b.delete = meter(b.delete.bind(b), QUOTA_COST.write);
   const v = yt.videos;
   v.list = meter(v.list.bind(v), QUOTA_COST.read);
   v.update = meter(v.update.bind(v), QUOTA_COST.write);

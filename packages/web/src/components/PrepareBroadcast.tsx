@@ -9,8 +9,10 @@ import type {
 } from "../api.js";
 import { api } from "../api.js";
 import { StreamSelect } from "./StreamSelect.js";
+import { PreparedList } from "./PreparedList.js";
+import { ApiError } from "../api.js";
 import { CategorySelect } from "./CategorySelect.js";
-import { describePrepareCost, isoToLocalInput, localInputToIso } from "../lib/prepareForm.js";
+import { describePrepareCost, localInputToIso } from "../lib/prepareForm.js";
 import { extractVars, resolvePresetText } from "../lib/template.js";
 
 const PRIVACY: PrivacyStatus[] = ["public", "unlisted", "private"];
@@ -73,6 +75,11 @@ export function PrepareBroadcast({
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   /** Values for a templated preset's `{name}` variables, exactly as the fill popup collects them. */
   const [vars, setVars] = useState<Record<string, string>>({});
+  /**
+   * The channel is too full for another broadcast (issue 064). Held apart from the error text
+   * because it is the one refusal here the operator can fix with a press rather than a decision.
+   */
+  const [channelFull, setChannelFull] = useState(false);
 
   const preset = useMemo(
     () => presets.find((p) => p.id === presetId) ?? null,
@@ -149,6 +156,7 @@ export function PrepareBroadcast({
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create the broadcast.");
+      setChannelFull(err instanceof ApiError && err.code === "BROADCAST_LIMIT_REACHED");
       setBusy(false);
       return;
     } finally {
@@ -159,13 +167,48 @@ export function PrepareBroadcast({
     // a refresh that fails is a stale list, not a broadcast that was never made.
     setFresh(result.prepared);
     setWarning(result.warning);
+    setChannelFull(false);
     setCopiedUrl(null);
-    onPrepared();
+    await reload();
+  }
+
+  /** Removes one, after the list has asked the question. */
+  async function remove(id: string) {
+    try {
+      await api.broadcasts.deletePrepared(id);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete the broadcast.");
+    }
+    await reload();
+  }
+
+  /** Clears the ghosts on the operator's press — the answer to a channel that is too full. */
+  async function clearOld() {
+    setBusy(true);
+    try {
+      const { retired } = await api.broadcasts.retire();
+      setError(
+        retired.length === 0
+          ? "Nothing here was old enough to remove. The broadcasts filling the channel were not made by this app — delete them in YouTube Studio."
+          : null,
+      );
+      setChannelFull(retired.length === 0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not clear the old broadcasts.");
+    } finally {
+      setBusy(false);
+    }
+    await reload();
+  }
+
+  async function reload() {
     try {
       setPrepared(await api.broadcasts.prepared());
     } catch {
-      // The link above is the output; a list that will not reload does not change it.
+      // A list that will not reload does not change what is on the channel.
     }
+    onPrepared();
   }
 
   function copy(url: string) {
@@ -175,7 +218,10 @@ export function PrepareBroadcast({
     );
   }
 
-  const earlier = prepared.filter((p) => p.id !== fresh?.id);
+  // The one just made is in this list too, not filtered out of it. The strip above is the
+  // artifact — the link to hand out — and the list is the record of what exists on the channel;
+  // the row is where a preparation made with the wrong title is deleted, which is the likeliest
+  // deletion there is (issue 064).
 
   return (
     <section className="panel">
@@ -211,7 +257,16 @@ export function PrepareBroadcast({
           </div>
         ) : null}
 
-        {error ? <p className="prep__error">{error}</p> : null}
+        {error ? (
+          <div className="prep__error">
+            <p>{error}</p>
+            {channelFull ? (
+              <button type="button" className="btn btn--sm" onClick={() => void clearOld()} disabled={busy}>
+                {busy ? "Clearing…" : "Clear old broadcasts"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         {riding ? null : (
           <>
@@ -342,26 +397,12 @@ export function PrepareBroadcast({
           </>
         )}
 
-        {earlier.length > 0 ? (
-          <div className="prep__earlier">
-            <span className="eyebrow">Made here</span>
-            <ul className="prep__list">
-              {earlier.map((p) => (
-                <li key={p.id} className="prep__item">
-                  <span className="prep__item-title">{p.title}</span>
-                  <span className="prep__item-when">
-                    {p.scheduledStartTime
-                      ? isoToLocalInput(p.scheduledStartTime).replace("T", ", ")
-                      : "no start time"}
-                  </span>
-                  <button type="button" className="btn btn--ghost btn--sm" onClick={() => copy(p.watchUrl)}>
-                    {copiedUrl === p.watchUrl ? "Copied" : "Copy link"}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
+        <PreparedList
+          items={prepared}
+          copiedUrl={copiedUrl}
+          onCopy={copy}
+          onDelete={remove}
+        />
       </div>
     </section>
   );

@@ -28,6 +28,23 @@ describe("mapYouTubeError", () => {
     expect(mapYouTubeError(ytError(403, ["rateLimitExceeded"])).code).toBe("YOUTUBE_QUOTA_EXCEEDED");
   });
 
+  // Issue 064: the channel is full of broadcasts, which is a 403 with a limit-shaped reason —
+  // before this it fell through to YOUTUBE_AUTH_ERROR and raised a reconnect banner over a
+  // perfectly good sign-in, while the actual fix (delete some) went unsaid.
+  it.each(["limitExceeded", "userBroadcastsExceedLimit"])(
+    "maps a 403 %s to BROADCAST_LIMIT_REACHED, not an auth error",
+    (reason) => {
+      const err = mapYouTubeError(ytError(403, [reason], "too many broadcasts"));
+      expect(err.code).toBe("BROADCAST_LIMIT_REACHED");
+      expect(isAuthError(err)).toBe(false);
+    },
+  );
+
+  it("says what to do about a full channel, since the reason string alone does not", () => {
+    const err = mapYouTubeError(ytError(403, ["limitExceeded"]));
+    expect(err.message).toMatch(/delete|remove|retire|clean/i);
+  });
+
   it("maps a 401 to YOUTUBE_AUTH_ERROR", () => {
     expect(mapYouTubeError(ytError(401)).code).toBe("YOUTUBE_AUTH_ERROR");
   });

@@ -253,6 +253,20 @@ describe("what an entry is called", () => {
     expect(preset.action).toBe("ran a preset");
   });
 
+  it("names taking a broadcast off the channel, and calls it notable", () => {
+    // The one irreversible outward-facing action in the app: an unlabelled path here would hide
+    // it from the panel's "notable only" filter, where preparing one is already visible.
+    expect(describeAction("DELETE", "/api/dashboard/broadcasts/prepared/ours-1")).toMatchObject({
+      action: "deleted a prepared broadcast",
+      target: "ours-1",
+      notable: true,
+    });
+    expect(describeAction("POST", "/api/dashboard/broadcasts/retire")).toMatchObject({
+      action: "cleared old broadcasts",
+      notable: true,
+    });
+  });
+
   it("falls back to the bare request rather than inventing a name", () => {
     expect(describeAction("PUT", "/api/dashboard/webhook")).toMatchObject({
       action: "PUT /api/dashboard/webhook",
