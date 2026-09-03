@@ -132,6 +132,31 @@ describe("setup status and channel eligibility (issue 061)", () => {
     }
   });
 
+  // The credential POST is the only way onto a headless host, where `connectYouTube` — and so its
+  // reset — never runs. Without this, channel A's refusal would disable creation on channel B.
+  it("forgets riding mode when credentials are replaced", async () => {
+    await store.update((s) => {
+      s.liveEligibility = {
+        mode: "riding",
+        reason: "livePermissionBlocked",
+        message: "no",
+        checkedAt: "2026-09-01T00:00:00.000Z",
+      };
+    });
+    const { url, close } = await mount({ store, configured: true, requestRestart: () => {} });
+    try {
+      const res = await fetch(`${url}/api/setup`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ clientId: "b.apps", clientSecret: "sec", refreshToken: "1//b" }),
+      });
+      expect(res.status).toBe(200);
+      expect(store.get().liveEligibility.mode).toBe("unknown");
+    } finally {
+      await close();
+    }
+  });
+
   it("forgets riding mode on disconnect — the next connect may be another channel", async () => {
     await store.update((s) => {
       s.liveEligibility = {

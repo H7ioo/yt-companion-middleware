@@ -409,20 +409,29 @@ export class StateCache {
       // The reason rides on the AppError: the calls in broadcasts.ts map their errors at the call
       // site, so the Gaxios body is long gone by the time a failure reaches here.
       const refusal = mapped.reason ?? eligibilityRefusal(err);
-      if (refusal) {
-        await noteRidingMode(this.store, {
-          reason: refusal,
-          message: mapped.message,
-          now: new Date().toISOString(),
-        });
-      }
+      const entered = refusal
+        ? await noteRidingMode(this.store, {
+            reason: refusal,
+            message: mapped.message,
+            now: new Date().toISOString(),
+          })
+        : false;
       await this.recordSuccess();
-      this.logger?.push({
-        level: "warn",
-        category: "system",
-        code: mapped.code,
-        message: mapped.message,
-      });
+      if (entered) {
+        // Only on the transition. The refusal repeats every poll for as long as the channel stays
+        // ineligible — which can be months — so logging it unconditionally would push the rest of
+        // the Activity ring buffer out with copies of one standing fact.
+        this.logger?.push({
+          level: "warn",
+          category: "system",
+          code: mapped.code,
+          message: mapped.message,
+        });
+        // `recordSuccess` returns early on an already-healthy connection, so nothing above has
+        // touched the cache: without this, the mode reaches `changeSignature` but no subscriber is
+        // ever told to re-read it, and the notice waits for an unrelated field to move.
+        this.events?.emitChange();
+      }
       return;
     }
     const kind = isAuthError(mapped) ? "auth" : isNetworkError(mapped) ? "network" : "transient";

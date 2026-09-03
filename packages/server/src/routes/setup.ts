@@ -149,6 +149,10 @@ export function setupRouter(deps: SetupDeps): Router {
       await store.update((s) => {
         s.credentials = creds;
       });
+      // Same reasoning as /disconnect: these credentials may belong to another channel, and on a
+      // headless host this route is the only way in — `connectYouTube`'s reset never runs there
+      // (issue 061).
+      await resetEligibility(store);
       // Respond first, then restart — the restart is deferred so this response flushes.
       res.json({ ok: true, restarting: true });
       requestRestart();

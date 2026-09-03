@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import type { youtube_v3 } from "googleapis";
 import { JsonStore } from "../storage/jsonStore.js";
 import { StateCache } from "./stateCache.js";
+import { StateEvents } from "./events.js";
 import { Logger } from "./logger.js";
 import { AppError } from "./errors.js";
 import {
@@ -898,12 +899,12 @@ describe("StateCache riding-mode detection", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
-  const run = async (err: unknown) => {
+  const run = async (err: unknown, events?: StateEvents) => {
     const cache = new StateCache(
       failingClient(err),
       store,
       { refreshIntervalMs: 60_000, healthFailureThreshold: 3 },
-      undefined,
+      events,
       logger,
     );
     await cache.refresh();
@@ -935,6 +936,47 @@ describe("StateCache riding-mode detection", () => {
     const [entry] = logger.list();
     expect(entry.code).toBe("LIVE_NOT_ELIGIBLE");
     expect(entry.level).toBe("warn");
+  });
+
+  // The mode is a snapshot field, so entering it has to push. Health stays "ok" through this
+  // path, which means nothing else in the refresh writes the cache — without an explicit signal
+  // the notice would sit in the store until some unrelated field moved.
+  it("tells subscribers the moment it enters riding mode", async () => {
+    const events = new StateEvents();
+    let ticks = 0;
+    events.onChange(() => {
+      ticks += 1;
+    });
+    await run(refusal("livePermissionBlocked"), events);
+    expect(ticks).toBeGreaterThan(0);
+  });
+
+  // A permanent refusal comes back on every poll. One log line per poll would fill the 200-entry
+  // ring buffer with copies of a single standing fact and push the rest of the Activity out.
+  it("logs and signals once, not once per poll", async () => {
+    const events = new StateEvents();
+    let ticks = 0;
+    events.onChange(() => {
+      ticks += 1;
+    });
+    const cache = await run(refusal("livePermissionBlocked"), events);
+    const afterFirst = ticks;
+    await cache.refresh();
+    await cache.refresh();
+    expect(logger.list().filter((e) => e.code === "LIVE_NOT_ELIGIBLE")).toHaveLength(1);
+    expect(ticks).toBe(afterFirst);
+  });
+
+  // googleapis is not consistent about where it puts the status; mapYouTubeError already reads
+  // all three, and reading fewer here would send a real refusal down the auth path.
+  it("records riding mode when the 403 rides on `status` rather than `response.status`", async () => {
+    await run({
+      status: 403,
+      response: { data: { error: { errors: [{ reason: "liveStreamingNotEnabled" }] } } },
+      message: "The user is not enabled for live streaming.",
+    });
+    expect(store.get().liveEligibility.mode).toBe("riding");
+    expect(store.get().cache.health).toBe("ok");
   });
 
   it("does not enter riding mode on a 5xx", async () => {

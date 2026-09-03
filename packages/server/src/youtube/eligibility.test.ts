@@ -49,6 +49,14 @@ describe("eligibilityRefusal", () => {
     expect(eligibilityRefusal({ code: "ECONNREFUSED", message: "no route" })).toBeNull();
   });
 
+  // googleapis puts the status on `response.status` most of the time and on a bare `status` or
+  // `code` the rest — the same three places mapYouTubeError reads.
+  it("recognises a refusal whose 403 rides on `status` or `code`", () => {
+    const data = { error: { errors: [{ reason: "livePermissionBlocked" }] } };
+    expect(eligibilityRefusal({ status: 403, response: { data } })).toBe("livePermissionBlocked");
+    expect(eligibilityRefusal({ code: 403, response: { data } })).toBe("livePermissionBlocked");
+  });
+
   it("returns null for a plain 403 with no reason", () => {
     expect(eligibilityRefusal(ytError(403))).toBeNull();
   });

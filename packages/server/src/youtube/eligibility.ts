@@ -36,10 +36,15 @@ export type EligibilityReason = (typeof ELIGIBILITY_REASONS)[number];
  */
 export function eligibilityRefusal(err: unknown): EligibilityReason | null {
   const e = err as {
+    code?: number | string;
+    status?: number;
     response?: { status?: number; data?: { error?: { errors?: Array<{ reason?: string }> } } };
   };
-  if (e?.response?.status !== 403) return null;
-  const reasons = e.response.data?.error?.errors?.map((x) => x.reason ?? "") ?? [];
+  // Same status hunt as `mapYouTubeError`: googleapis puts the code on `response.status` most of
+  // the time, but a bare `status`/`code` is common enough that reading only the first would send
+  // a real refusal down the auth path and raise a reconnect banner no reconnect can clear.
+  if (Number(e?.response?.status ?? e?.status ?? e?.code) !== 403) return null;
+  const reasons = e.response?.data?.error?.errors?.map((x) => x.reason ?? "") ?? [];
   return (
     (ELIGIBILITY_REASONS as readonly string[]).find((r) => reasons.includes(r)) as
       | EligibilityReason
@@ -58,13 +63,16 @@ export function isEligibilityError(err: unknown): boolean {
  * Idempotent by design: the poll loop can meet the same refusal every minute, and re-stamping
  * `checkedAt` each time would present a months-old finding as something that just happened. The
  * first observation is the one that dates it.
+ *
+ * Returns true only when this call actually changed the stored mode, so callers can log and
+ * notify on the transition rather than on every poll that meets the same standing refusal.
  */
 export async function noteRidingMode(
   store: JsonStore,
   obs: { reason: string; message: string | null; now: string },
-): Promise<void> {
+): Promise<boolean> {
   const held = store.get().liveEligibility;
-  if (held.mode === "riding" && held.reason === obs.reason) return;
+  if (held.mode === "riding" && held.reason === obs.reason) return false;
   await store.update((s) => {
     s.liveEligibility = {
       mode: "riding",
@@ -73,6 +81,7 @@ export async function noteRidingMode(
       checkedAt: obs.now,
     };
   });
+  return true;
 }
 
 /**
