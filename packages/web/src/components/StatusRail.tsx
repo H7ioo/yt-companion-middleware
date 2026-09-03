@@ -35,7 +35,6 @@ export function StatusRail({
   onRefresh,
   refreshing,
   onToggleApi,
-  onOpenSettings,
   version,
   onShowWhatsNew,
   account,
@@ -45,7 +44,6 @@ export function StatusRail({
   onRefresh: () => void;
   refreshing: boolean;
   onToggleApi: (next: boolean) => void;
-  onOpenSettings: () => void;
   /** Running app version, once the app info lands. Null on hosts that never report one. */
   version: string | null;
   /** Reopens What's New for the running build — the on-demand path (PRD-09 §B.2). */
@@ -74,9 +72,6 @@ export function StatusRail({
         <a className="rail__manual" href="/guide" target="_blank" rel="noreferrer">
           Operator manual &amp; Companion setup &rarr;
         </a>
-        <button className="rail__settings" type="button" onClick={onOpenSettings}>
-          <span aria-hidden="true">⚙</span> Settings
-        </button>
       </div>
 
       {/* Main breaker — cuts every YouTube call so an idle rig spends zero quota. */}

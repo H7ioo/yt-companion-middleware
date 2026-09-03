@@ -25,7 +25,11 @@ interface Props {
   canAdminister: boolean;
   onSaveSettings: (next: DefaultSettings) => void;
   flash: (message: string, kind?: "ok" | "err") => void;
-  onClose: () => void;
+  /**
+   * Dismiss handler. Present when this is opened as a modal; absent when it is the Settings page,
+   * which is left by navigating away and so has no close button, no overlay and no Escape key.
+   */
+  onClose?: () => void;
 }
 
 type Busy = "idle" | "connecting" | "waiting" | "saving" | "disconnecting";
@@ -91,7 +95,7 @@ export function SettingsPanel({
   // someone comes looking for — "X changed the title" is routine, "X made Y an admin" is not.
   const [auditEntries, setAuditEntries] = useState<AuditEntry[] | null>(null);
   const [auditNotableOnly, setAuditNotableOnly] = useState(true);
-  useEscape(busy === "idle" ? onClose : () => {});
+  useEscape(busy === "idle" && onClose ? onClose : () => {});
 
   const loadStatus = () => api.setup.status().then(setStatus).catch(() => {});
   useEffect(() => {
@@ -463,15 +467,16 @@ export function SettingsPanel({
     </form>
   );
 
-  return (
-    <div className="overlay" onClick={busy === "idle" ? onClose : undefined}>
-      <div className="modal settings" onClick={(e) => e.stopPropagation()}>
+  const body = (
+    <>
         <div className="settings__head">
           <span className="eyebrow">Settings</span>
           <h2>Connection &amp; defaults</h2>
-          <button className="settings__x" type="button" onClick={onClose} aria-label="Close settings" disabled={working}>
-            ✕
-          </button>
+          {onClose ? (
+            <button className="settings__x" type="button" onClick={onClose} aria-label="Close settings" disabled={working}>
+              ✕
+            </button>
+          ) : null}
         </div>
 
         {/* ---- Connection ---- */}
@@ -1046,6 +1051,17 @@ export function SettingsPanel({
             The category saves when you leave the field; the stream binding asks first.
           </p>
         </section>
+    </>
+  );
+
+  // The page form (navbar + pages): the same sections on the dashboard's own surface, with the
+  // overlay and the dismiss affordances left off. The modal form is still what the reauth banner
+  // and any other in-flow prompt opens over the top.
+  if (!onClose) return <div className="settings settings--page">{body}</div>;
+  return (
+    <div className="overlay" onClick={busy === "idle" ? onClose : undefined}>
+      <div className="modal settings" onClick={(e) => e.stopPropagation()}>
+        {body}
       </div>
     </div>
   );

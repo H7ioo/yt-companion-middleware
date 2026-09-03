@@ -717,3 +717,45 @@ describe("the connection card on a hosted deployment", () => {
     expect(screen.queryByRole("button", { name: /paste credentials instead/i })).toBeNull();
   });
 });
+
+/**
+ * The same sections in two shapes (navbar + pages): a modal opened over the dashboard, and the
+ * Settings page you navigate to. Only the chrome differs, so the page must not lose a section on
+ * the way — and must not keep a close button that leads nowhere.
+ */
+describe("SettingsPanel as a page", () => {
+  it("drops the overlay and the close button when there is nothing to close", async () => {
+    status.mockResolvedValue(setupStatus());
+    const { container } = render(
+      <SettingsPanel
+        settings={{ defaultCategory: null, defaultStreamBoundId: null }}
+        categories={[]}
+        streams={[]}
+        canAdminister
+        onSaveSettings={() => {}}
+        flash={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText(/YouTube connection/i)).toBeTruthy();
+    expect(container.querySelector(".overlay")).toBeNull();
+    expect(container.querySelector(".settings--page")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /close settings/i })).toBeNull();
+  });
+
+  it("keeps the app defaults, which used to be the only reason to open it", async () => {
+    status.mockResolvedValue(setupStatus());
+    render(
+      <SettingsPanel
+        settings={{ defaultCategory: null, defaultStreamBoundId: null }}
+        categories={[]}
+        streams={[]}
+        canAdminister
+        onSaveSettings={() => {}}
+        flash={() => {}}
+      />,
+    );
+
+    expect(await screen.findByLabelText(/default category/i)).toBeTruthy();
+  });
+});

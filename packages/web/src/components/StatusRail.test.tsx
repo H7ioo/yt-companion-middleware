@@ -36,7 +36,6 @@ const props = {
   onRefresh: () => {},
   refreshing: false,
   onToggleApi: () => {},
-  onOpenSettings: () => {},
   version: null,
   onShowWhatsNew: () => {},
   // No signed-in account: the desktop/LAN default, where authentication is dormant (issue 043).
@@ -243,14 +242,6 @@ describe("StatusRail", () => {
       fireEvent.click(screen.getByRole("button", { name: "v2.3.0" }));
       expect(onShowWhatsNew).toHaveBeenCalledTimes(1);
     });
-  });
-
-  it("opens settings on demand", () => {
-    const onOpenSettings = vi.fn();
-    render(<StatusRail {...props} state={state()} onOpenSettings={onOpenSettings} />);
-
-    fireEvent.click(screen.getByRole("button", { name: /Settings/ }));
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
   it("refreshes on demand, and locks the button while one is in flight", () => {
