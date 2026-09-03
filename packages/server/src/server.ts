@@ -9,6 +9,7 @@ import type { CredentialsState } from "./storage/schema.js";
 import { JsonStore } from "./storage/jsonStore.js";
 import { createYouTubeClient } from "./youtube/client.js";
 import { connectYouTube } from "./youtube/connect.js";
+import { HostedOAuth } from "./youtube/hostedOAuth.js";
 import { StateCache } from "./core/stateCache.js";
 import { ActionRunner } from "./core/actionRunner.js";
 import { QuotaTracker, instrumentQuota } from "./core/quota.js";
@@ -115,6 +116,21 @@ async function bootOnce(
       }
     : undefined;
 
+  // The hosted connect flow (issue 052). Its precondition is knowing the public origin Google
+  // will redirect back to — which is also the honest test for "is this a hosted deployment", so
+  // PUBLIC_ORIGIN is what turns it on. Independent of `oauth` above: the Electron host has a
+  // browser to drive and does not need this, and a headless host has no browser and cannot use
+  // that. `applyCredentials` is the same late-bound reference, so a hosted reconnect rebuilds the
+  // YouTube client in-process too (PRD-03 §2.4).
+  const hosted = config.publicOrigin
+    ? new HostedOAuth({
+        store,
+        publicOrigin: config.publicOrigin,
+        bundledClient: options.bundledClient,
+        applyCredentials: (c) => applyCredentials(c),
+      })
+    : undefined;
+
   // Who did what, before anything that could be done (issue 050). Ahead of every route mount,
   // boot routes included: it hooks the response on the way in, so a route mounted first would
   // answer — connect YouTube, sign in, save credentials — without leaving a trace.
@@ -126,7 +142,7 @@ async function bootOnce(
   // first launch after an update is often the first launch full stop.
   mountBootRoutes(app, {
     auth,
-    setup: { store, configured, requestRestart, oauth },
+    setup: { store, configured, requestRestart, oauth, hosted },
     appInfo: {
       version: options.appVersion ?? packageVersion(),
       changelog: loadChangelog(options.changelogPath),

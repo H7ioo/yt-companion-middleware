@@ -218,6 +218,9 @@ export interface LogEntry {
 export type OAuthFlow = "bundled" | "override" | "env";
 
 /** Setup-screen status: whether credentials are present (booleans only — secrets never leave the server). */
+/** How YouTube consent can be run on this host — see {@link SetupStatus.connectMode}. */
+export type ConnectMode = "in-app" | "redirect";
+
 export interface SetupStatus {
   configured: boolean;
   hasClientId: boolean;
@@ -227,11 +230,22 @@ export interface SetupStatus {
   activeFlow: OAuthFlow | null;
   /** A bundled OAuth client shipped with this build, so one-click "Connect YouTube" is offered. */
   hasBundledClient: boolean;
-  /** The host can run the in-app OAuth flow (Electron); false for headless/Docker boots. */
-  canConnect: boolean;
   /**
-   * The loopback redirect URI the in-app flow listens on. Shown to operators using their own
-   * OAuth client so they can register it as an authorized redirect (PRD-03 §3 override flow).
+   * How YouTube consent can be run from here, or null when it cannot be (issue 052).
+   *
+   * - `in-app`   — the host can drive the system browser (Electron): the server opens consent
+   *                itself and holds the request open until it finishes.
+   * - `redirect` — the deployment knows its public origin: the server hands the browser a consent
+   *                URL and Google redirects it back to the public callback.
+   *
+   * Not a boolean, because the two are driven differently and a dashboard that could not tell
+   * them apart would offer a button that dead-ends on one of the two hosts.
+   */
+  connectMode: ConnectMode | null;
+  /**
+   * The redirect URI to register on the Google OAuth client, for whichever flow is live here: the
+   * loopback address for `in-app`, the public callback for `redirect`. Copied by hand into the
+   * Google console, so it is shown verbatim (PRD-03 §3 override flow, PRD-15 §5).
    */
   redirectUri: string;
   /**

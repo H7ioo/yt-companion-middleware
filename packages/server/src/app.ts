@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type RequestHandler } from "express";
 import fs from "node:fs";
 import path from "node:path";
 import type { AppContext } from "./routes/context.js";
@@ -17,7 +17,12 @@ import { serviceRouter } from "./routes/service.js";
 import { logsRouter } from "./routes/logs.js";
 import { streamHandler } from "./routes/stream.js";
 import { fillRequestRouter, notifyRouter } from "./routes/fillRequest.js";
-import { setupRouter, setupStatusHandler, type SetupDeps } from "./routes/setup.js";
+import {
+  setupCallbackHandler,
+  setupRouter,
+  setupStatusHandler,
+  type SetupDeps,
+} from "./routes/setup.js";
 import { appInfoRouter, type AppInfoDeps } from "./routes/appInfo.js";
 import { authRouter } from "./routes/auth.js";
 import { peopleRouter } from "./routes/people.js";
@@ -71,10 +76,51 @@ export const GUARD_EXEMPTIONS: ReadonlyArray<{ mount: string; why: string }> = [
     why: "The static API console page. The endpoints it calls are guarded on their own merits.",
   },
   {
+    mount: "/api/setup/oauth/callback",
+    why:
+      "Guarded — by requireConnectCallback(), which admits only an admin — but it refuses in the " +
+      "currency the route answers in. Google navigates a *browser* here, so a 401 JSON body would " +
+      "strand the admin on a page of machine text with the connect lost; a signed-out or " +
+      "non-admin caller is instead sent back to the dashboard with a message and changes nothing.",
+  },
+  {
     mount: "SPA",
     why: "The dashboard bundle's catch-all — it serves the login page itself (PRD-15 §6).",
   },
 ];
+
+/**
+ * The admin guard for the hosted OAuth callback (issue 052), stated as a redirect.
+ *
+ * Same question as `requireAdmin()` — is this an admin? — and the same answer for the same
+ * reasons; only the refusal differs. This route is reached by Google redirecting the admin's
+ * browser, and a session that expired while they were choosing a channel would otherwise end the
+ * connect on a raw JSON 401, which is precisely the page the callback exists not to render.
+ *
+ * Nothing is exchanged when this refuses: the state nonce is left unspent, so the same link works
+ * again once they have signed back in.
+ */
+export function requireConnectCallback(auth: Auth): RequestHandler {
+  return (req, res, next) => {
+    void (async () => {
+      // Dormant with the rest of authentication, exactly as the guards it stands in for are: a
+      // deployment with no accounts has no admin to be.
+      if (!auth.required) {
+        next();
+        return;
+      }
+      const caller = await auth.currentCaller(req);
+      if (caller?.kind === "session" && caller.actor.account.role === "admin") {
+        next();
+        return;
+      }
+      const message = caller
+        ? "Only an admin can connect the YouTube channel — ask one to finish the sign-in."
+        : "Your sign-in expired while you were at Google. Sign in again, then start the connect once more.";
+      res.redirect(`/?${new URLSearchParams({ connect_error: message }).toString()}`);
+    })().catch(next);
+  };
+}
 
 /**
  * Mounts only an admin may reach (issue 045, PRD-15 §1).
@@ -150,6 +196,14 @@ export function mountBootRoutes(
   // built on it (see setupStatusHandler). Registered before the mount below so the admin guard
   // there cannot swallow it, and audited as a mount of its own.
   app.get("/api/setup/status", deps.auth.requireSession(), setupStatusHandler(deps.setup));
+  // The hosted flow's return trip. Registered ahead of the admin mount below for the same reason
+  // status is — so that mount's guards cannot answer it — but guarded in its own right, with a
+  // refusal a browser can read (see requireConnectCallback).
+  app.get(
+    "/api/setup/oauth/callback",
+    requireConnectCallback(deps.auth),
+    setupCallbackHandler(deps.setup),
+  );
   app.use(
     "/api/setup",
     deps.auth.requireSession(),

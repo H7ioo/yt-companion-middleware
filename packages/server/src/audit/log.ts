@@ -359,6 +359,11 @@ const ROUTES: ReadonlyArray<{
   // The YouTube connection. Getting these wrong loses the channel, not one stream.
   { method: "POST", pattern: /^\/api\/setup$/i, action: "changed the YouTube credentials", notable: true },
   { method: "POST", pattern: /^\/api\/setup\/oauth\/start$/i, action: "connected YouTube", notable: true },
+  // The hosted flow's two halves (issue 052). Starting it is a click that may go nowhere, so it
+  // is recorded and left routine; the callback is where the credentials actually change, and the
+  // handler overrides these labels with what really happened — see `noteAudit`.
+  { method: "POST", pattern: /^\/api\/setup\/oauth\/authorize$/i, action: "started a browser sign-in for YouTube", notable: false },
+  { method: "GET", pattern: /^\/api\/setup\/oauth\/callback$/i, action: "returned from the YouTube sign-in", notable: false },
   { method: "POST", pattern: /^\/api\/setup\/disconnect$/i, action: "disconnected YouTube", notable: true },
   // Running the show: recorded, because "who changed the title" is a real question, but routine.
   { method: "POST", pattern: /^\/api(\/dashboard)?\/action\/preset$/i, action: "ran a preset", notable: false },

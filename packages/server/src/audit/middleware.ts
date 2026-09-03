@@ -19,6 +19,42 @@ import type { AuditLog } from "./log.js";
 /** Methods that change something. A GET is a read, and reads are the feed's business, not this. */
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/**
+ * The reads that are nonetheless actions.
+ *
+ * The hosted OAuth callback (issue 052) is a GET only because Google *navigates a browser* to it;
+ * what happens behind it is the channel's credentials being replaced — the most consequential
+ * thing on this server. A method-only filter skipped it, and "who reconnected the channel" was
+ * unanswerable on exactly the deployments that have more than one admin to ask about.
+ */
+const AUDITED_READS = new Set(["/api/setup/oauth/callback"]);
+
+/** Where a handler leaves its own account of what it did. See {@link noteAudit}. */
+const NOTE = Symbol("auditNote");
+
+/** What a handler can say about its own request when the path alone does not carry it. */
+export interface AuditNote {
+  action: string;
+  notable: boolean;
+  target?: string | null;
+}
+
+/**
+ * Lets a handler name what it actually did, overriding the naming table.
+ *
+ * Needed where one route has two outcomes that are not the same event: the OAuth callback answers
+ * with a 302 whether it connected the channel or refused a planted code, so the status the
+ * middleware sees cannot tell them apart and a table keyed on the path alone would record every
+ * abandoned attempt as a reconnect.
+ */
+export function noteAudit(req: Request, note: AuditNote): void {
+  (req as Request & { [NOTE]?: AuditNote })[NOTE] = note;
+}
+
+function noteOf(req: Request): AuditNote | undefined {
+  return (req as Request & { [NOTE]?: AuditNote })[NOTE];
+}
+
 export interface AuditTrailDeps {
   audit: AuditLog;
   auth: Auth;
@@ -29,7 +65,8 @@ export function auditTrail({ audit, auth }: AuditTrailDeps): RequestHandler {
     // Lowercased for the prefix test only: Express routes case-insensitively by default, so
     // `/API/Dashboard/...` reaches the same handler and has to reach the log the same way. The
     // path stored below is still the one the caller actually used.
-    if (!MUTATING.has(req.method) || !req.path.toLowerCase().startsWith("/api/")) {
+    const route = req.path.toLowerCase().replace(/\/+$/, "");
+    if ((!MUTATING.has(req.method) && !AUDITED_READS.has(route)) || !route.startsWith("/api/")) {
       next();
       return;
     }
@@ -50,6 +87,8 @@ export function auditTrail({ audit, auth }: AuditTrailDeps): RequestHandler {
         status: res.statusCode,
         body,
         ...namedTarget(calledPath, body),
+        // Last, so a handler's own account of what it did beats anything derived from the path.
+        ...noteOf(req),
       });
     });
     next();

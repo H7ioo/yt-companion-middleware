@@ -4,13 +4,16 @@ import type { SetupStatus } from "../api.js";
 /**
  * How the YouTube connection can be changed from this host.
  *
- * - `in-app`  — the host can drive the system browser (Electron), so consent runs inline.
- * - `manual`  — the credentials are in the app's own store, but there is no browser to drive
- *               (headless/Docker), so they are replaced by pasting a fresh refresh token.
- * - `env`     — supplied out-of-band via env vars or the CLI; the store holds nothing, so
- *               nothing here can change them.
+ * - `in-app`   — the host can drive the system browser (Electron), so consent runs inline.
+ * - `redirect` — a hosted deployment (issue 052): no browser to drive, but it knows its public
+ *                origin, so consent runs in the admin's *own* browser and returns to the callback.
+ * - `manual`   — the credentials are in the app's own store, and there is neither a browser to
+ *                drive nor a public origin to return to, so they are replaced by pasting a fresh
+ *                refresh token.
+ * - `env`      — supplied out-of-band via env vars or the CLI; the store holds nothing, so
+ *                nothing here can change them.
  */
-export type ConnectionMode = "in-app" | "manual" | "env";
+export type ConnectionMode = "in-app" | "redirect" | "manual" | "env";
 
 /** Display model for the Settings connection section — pure, so it is testable without a DOM. */
 export interface ConnectionView {
@@ -43,10 +46,12 @@ const FLOW_LABEL: Record<NonNullable<SetupStatus["activeFlow"]>, string> = {
 
 export function describeConnection(status: SetupStatus): ConnectionView {
   // Env/CLI credentials live outside the app's store, so the in-app controls can't touch them.
-  // Everything else is store-backed and *is* the app's to change — the host only decides how:
-  // with a browser to drive, consent runs inline; without one, a token is pasted.
+  // Everything else is store-backed and *is* the app's to change — the host only decides how, and
+  // the server is the one that knows. `manual` is the fallback rather than a case of its own: it
+  // is what is left when the host can neither drive a browser nor be returned to by one, and it
+  // is the only mode that still asks a human to carry a refresh token by hand.
   const mode: ConnectionMode =
-    status.activeFlow === "env" ? "env" : status.canConnect ? "in-app" : "manual";
+    status.activeFlow === "env" ? "env" : (status.connectMode ?? "manual");
   return {
     connected: status.configured,
     flowLabel: status.activeFlow ? FLOW_LABEL[status.activeFlow] : null,

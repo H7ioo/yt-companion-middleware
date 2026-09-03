@@ -45,6 +45,14 @@ export interface AppConfig {
    * throttle key per attempt. Set TRUST_PROXY only when something you control is in front.
    */
   trustProxy: boolean | number | string;
+  /**
+   * The public origin this deployment answers on, e.g. `https://live.example.org` (PRD-15). Empty
+   * on the desktop, LAN and direct-Docker cases, and that emptiness is meaningful: it is what
+   * decides whether the hosted connect flow exists at all (issue 052). Google redirects the
+   * admin's browser back here after consent, so it must match the redirect URI registered on the
+   * OAuth client exactly — see {@link hostedRedirectUri}.
+   */
+  publicOrigin: string;
 }
 
 /**
@@ -69,6 +77,7 @@ export function loadConfig(): AppConfig {
     quotaLimit: optionalInt("YT_QUOTA_LIMIT", 10000),
     admin: adminSeed(),
     trustProxy: trustProxySetting(),
+    publicOrigin: publicOrigin(),
   };
 }
 
@@ -84,6 +93,38 @@ function trustProxySetting(): AppConfig["trustProxy"] {
   if (raw.toLowerCase() === "true") return true;
   const hops = Number.parseInt(raw, 10);
   return String(hops) === raw ? hops : raw;
+}
+
+/**
+ * PUBLIC_ORIGIN, normalised to a bare scheme://host[:port] with no trailing slash.
+ *
+ * Strict on purpose. A malformed origin does not break anything at boot — it builds a redirect URI
+ * that no longer matches the one registered on the Google client, and the first symptom is
+ * `redirect_uri_mismatch` in a browser, minutes into a connect attempt. Refusing the value here
+ * costs a restart; accepting it costs a debugging session at the wrong moment.
+ */
+function publicOrigin(): string {
+  const raw = optional("PUBLIC_ORIGIN");
+  if (!raw) return "";
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(
+      `PUBLIC_ORIGIN is not a URL: ${raw} — set it to the full origin this server answers on, e.g. https://live.example.org`,
+    );
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error(`PUBLIC_ORIGIN must be http or https, not ${url.protocol.replace(":", "")}`);
+  }
+  // A path, query or fragment means the value is not an origin, and quietly trimming it would
+  // hide a typo that only ever shows up as a redirect mismatch.
+  if (url.pathname !== "/" || url.search || url.hash) {
+    throw new Error(
+      `PUBLIC_ORIGIN must be an origin with no path: ${raw} — use ${url.protocol}//${url.host}`,
+    );
+  }
+  return `${url.protocol}//${url.host}`;
 }
 
 function adminSeed(): AppConfig["admin"] {

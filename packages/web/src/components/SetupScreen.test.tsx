@@ -9,6 +9,7 @@ import { SetupScreen } from "./SetupScreen.js";
 const status = vi.fn<() => Promise<SetupStatus>>();
 const connect = vi.fn<(override?: { clientId: string; clientSecret: string }) => Promise<unknown>>();
 const save = vi.fn<(creds: unknown) => Promise<unknown>>();
+const authorize = vi.fn<(override?: { clientId: string; clientSecret: string }) => Promise<{ url: string }>>();
 
 vi.mock("../api.js", () => ({
   api: {
@@ -16,6 +17,7 @@ vi.mock("../api.js", () => ({
       status: () => status(),
       connect: (override?: { clientId: string; clientSecret: string }) => connect(override),
       save: (creds: unknown) => save(creds),
+      authorize: (override?: { clientId: string; clientSecret: string }) => authorize(override),
     },
   },
 }));
@@ -27,7 +29,7 @@ const setupStatus = (over: Partial<SetupStatus> = {}): SetupStatus =>
     hasClientSecret: false,
     hasRefreshToken: false,
     activeFlow: null,
-    canConnect: true,
+    connectMode: "in-app",
     hasBundledClient: true,
     redirectUri: "http://127.0.0.1:8723/oauth/callback",
     ...over,
@@ -37,6 +39,8 @@ beforeEach(() => {
   status.mockReset();
   connect.mockReset();
   save.mockReset();
+  authorize.mockReset();
+  authorize.mockResolvedValue({ url: "https://accounts.google.com/o/oauth2/v2/auth?state=abc" });
   status.mockResolvedValue(setupStatus());
   connect.mockResolvedValue({ ok: true });
   save.mockResolvedValue({ ok: true, restarting: true });
@@ -172,7 +176,7 @@ describe("SetupScreen", () => {
 
   describe("a headless host — Docker, no browser to drive", () => {
     beforeEach(() =>
-      status.mockResolvedValue(setupStatus({ canConnect: false, hasBundledClient: false })),
+      status.mockResolvedValue(setupStatus({ connectMode: null, hasBundledClient: false })),
     );
 
     it("asks for the refresh token, because there is no consent screen to open", async () => {
@@ -200,8 +204,8 @@ describe("SetupScreen", () => {
       vi.useFakeTimers();
       const onReady = vi.fn();
       status
-        .mockResolvedValueOnce(setupStatus({ canConnect: false, hasBundledClient: false }))
-        .mockResolvedValue(setupStatus({ canConnect: false, hasBundledClient: false, configured: true }));
+        .mockResolvedValueOnce(setupStatus({ connectMode: null, hasBundledClient: false }))
+        .mockResolvedValue(setupStatus({ connectMode: null, hasBundledClient: false, configured: true }));
       render(<SetupScreen onReady={onReady} />);
 
       await vi.waitFor(() => screen.getByLabelText("Refresh token"));
@@ -254,5 +258,180 @@ describe("SetupScreen", () => {
     // canConnect stays false, so this is the paste-the-token form — the safe assumption when
     // the host's capabilities are unknown.
     expect(await screen.findByLabelText("Refresh token")).toBeDefined();
+  });
+});
+
+/**
+ * The hosted deployment (issue 052). It is headless — nothing here can open a browser — but it is
+ * not the paste-a-refresh-token case: the admin's own browser does the consent and returns through
+ * the public callback, so what the screen must do is send them there, not send them to a CLI.
+ */
+describe("SetupScreen on a hosted deployment", () => {
+  const HOSTED = {
+    connectMode: "redirect" as const,
+    hasBundledClient: false,
+    redirectUri: "https://live.example.org/api/setup/oauth/callback",
+  };
+  let assign: ReturnType<typeof vi.fn>;
+  let realLocation: Location;
+
+  beforeEach(() => {
+    status.mockResolvedValue(setupStatus(HOSTED));
+    assign = vi.fn();
+    realLocation = window.location;
+    // jsdom refuses a real navigation, and a real one would end the test anyway.
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...window.location, assign },
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, "location", { configurable: true, value: realLocation });
+  });
+
+  it("never asks for a refresh token", async () => {
+    render(<SetupScreen onReady={() => {}} />);
+
+    await screen.findByLabelText("Client ID");
+    expect(screen.queryByLabelText("Refresh token")).toBeNull();
+  });
+
+  it("shows the public callback as the URI to register, not the loopback one", async () => {
+    render(<SetupScreen onReady={() => {}} />);
+
+    // Registered by hand in the Google console; a wrong one fails at consent, not at boot.
+    expect(await screen.findByText(HOSTED.redirectUri)).toBeDefined();
+  });
+
+  it("sends the browser to Google's consent screen with the entered client", async () => {
+    render(<SetupScreen onReady={() => {}} />);
+
+    await screen.findByLabelText("Client ID");
+    fireEvent.change(field("Client ID"), { target: { value: " mine.apps " } });
+    fireEvent.change(field("Client secret"), { target: { value: " GOCSPX-x " } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Google" }));
+
+    await vi.waitFor(() =>
+      expect(authorize).toHaveBeenCalledWith({ clientId: "mine.apps", clientSecret: "GOCSPX-x" }),
+    );
+    await vi.waitFor(() =>
+      expect(assign).toHaveBeenCalledWith("https://accounts.google.com/o/oauth2/v2/auth?state=abc"),
+    );
+    // The in-app flow is the wrong one here and would hang: nothing on this host can open a
+    // browser, so the request would sit open until it timed out.
+    expect(connect).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("uses the bundled client in one click when the build ships one", async () => {
+    status.mockResolvedValue(setupStatus({ ...HOSTED, hasBundledClient: true }));
+    render(<SetupScreen onReady={() => {}} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Connect YouTube" }));
+
+    await vi.waitFor(() => expect(authorize).toHaveBeenCalledWith(undefined));
+    await vi.waitFor(() => expect(assign).toHaveBeenCalled());
+  });
+
+  it("offers the paste form as a way out when Google will not come back here", async () => {
+    // Setting PUBLIC_ORIGIN moves a headless host from `manual` to `redirect`, which took the
+    // paste form away entirely. An unregistered redirect URI or a Workspace policy then left an
+    // admin with one button that could not work and no other way in.
+    render(<SetupScreen onReady={() => {}} />);
+
+    await screen.findByLabelText("Client ID");
+    expect(screen.queryByLabelText("Refresh token")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Google won’t send me back here/ }),
+    );
+
+    expect(field("Refresh token")).toBeDefined();
+    // The consent form is gone rather than doubled — two "Client ID" fields on one page is an
+    // ambiguous label and a form that submits the wrong half.
+    expect(screen.getAllByLabelText("Client ID")).toHaveLength(1);
+  });
+
+  it("saves pasted credentials from that fallback, without going to Google", async () => {
+    vi.useFakeTimers();
+    const onReady = vi.fn();
+    status
+      .mockResolvedValueOnce(setupStatus(HOSTED))
+      .mockResolvedValue(setupStatus({ ...HOSTED, configured: true }));
+    render(<SetupScreen onReady={onReady} />);
+
+    await vi.waitFor(() => expect(screen.queryByLabelText("Client ID")).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: /Google won’t send me back here/ }));
+    fireEvent.change(field("Client ID"), { target: { value: "mine.apps" } });
+    fireEvent.change(field("Client secret"), { target: { value: "GOCSPX-x" } });
+    fireEvent.change(field("Refresh token"), { target: { value: "1//token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect channel" }));
+
+    await vi.waitFor(() =>
+      expect(save).toHaveBeenCalledWith({
+        clientId: "mine.apps",
+        clientSecret: "GOCSPX-x",
+        refreshToken: "1//token",
+      }),
+    );
+    await settleRestart();
+    await vi.waitFor(() => expect(onReady).toHaveBeenCalled());
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it("stays put and explains itself when the flow cannot be started", async () => {
+    authorize.mockRejectedValue(new Error("No OAuth client available"));
+    render(<SetupScreen onReady={() => {}} />);
+
+    await screen.findByLabelText("Client ID");
+    fireEvent.change(field("Client ID"), { target: { value: "mine.apps" } });
+    fireEvent.change(field("Client secret"), { target: { value: "GOCSPX-x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Google" }));
+
+    expect(await screen.findByText("No OAuth client available")).toBeDefined();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+});
+
+/**
+ * The other half of the round trip: consent failed, Google sent the browser back through the
+ * callback, and the server put its explanation in the query string. The screen has to surface it —
+ * the admin left this page and came back to a fresh mount that remembers nothing.
+ */
+describe("SetupScreen after a failed hosted consent", () => {
+  afterEach(() => window.history.replaceState(null, "", "/"));
+
+  it("waits out the first-run restart instead of showing the setup form over a connect that worked", async () => {
+    // On first run there is no YouTube client to hot-swap, so the callback asks for a restart —
+    // and the load that carries `connected=youtube` can be answered by the instance on its way
+    // out, still saying `configured: false`. Rendering setup here threw the success away.
+    vi.useFakeTimers();
+    const onReady = vi.fn();
+    status
+      .mockResolvedValueOnce(setupStatus({ connectMode: "redirect", hasBundledClient: false }))
+      .mockResolvedValue(
+        setupStatus({ connectMode: "redirect", hasBundledClient: false, configured: true }),
+      );
+    window.history.replaceState(null, "", "/?connected=youtube");
+
+    render(<SetupScreen onReady={onReady} />);
+
+    await settleRestart();
+    await vi.waitFor(() => expect(onReady).toHaveBeenCalled());
+    expect(window.location.search).not.toContain("connected");
+  });
+
+  it("shows what the server said, then clears it from the address bar", async () => {
+    status.mockResolvedValue(
+      setupStatus({ connectMode: "redirect", hasBundledClient: false }),
+    );
+    window.history.replaceState(null, "", "/?connect_error=Google%20refused%20the%20sign-in");
+
+    render(<SetupScreen onReady={() => {}} />);
+
+    expect(await screen.findByText("Google refused the sign-in")).toBeDefined();
+    // Cleared, so a reload does not replay an error already dealt with.
+    expect(window.location.search).not.toContain("connect_error");
   });
 });

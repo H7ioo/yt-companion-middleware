@@ -14,10 +14,12 @@ interface Props {
 
 /**
  * Reauth affordance (PRD-03 §4, issue 015). Rendered only when `health === "auth_error"`: the
- * saved YouTube sign-in has stopped working and no retry will fix it. On an Electron host whose
- * credentials came through the in-app flow, Reconnect re-runs the OAuth consent inline; elsewhere
- * (Docker/headless, env/CLI) it routes to Settings, where the connection guidance lives. On a
- * successful reconnect we refresh state so health drops back to healthy and this banner unmounts.
+ * saved YouTube sign-in has stopped working and no retry will fix it. Reconnect re-runs consent
+ * inline wherever the app can run it — the Electron host drives the system browser, and a hosted
+ * deployment sends *this* browser to Google (issue 052). Where it cannot (a headless host with no
+ * public origin, or env/CLI credentials) it routes to Settings, where the connection guidance and
+ * the paste form live. On a successful reconnect we refresh state so health drops back to healthy
+ * and this banner unmounts.
  *
  * Never shown for `degraded` or `offline` — those are transient and self-heal on the next poll.
  *
@@ -33,18 +35,26 @@ export function ReauthBanner({ canAdminister, onReconnected, onOpenSettings, fla
     if (canAdminister) api.setup.status().then(setStatus).catch(() => {});
   }, [canAdminister]);
 
-  // Until the status lands, assume the in-app flow is unavailable so we never dead-end a click.
-  // Only `in-app` reconnects here: a headless host's credentials are replaceable too, but by
-  // pasting a token into a form, which belongs in Settings and not in a one-button banner.
-  const inApp = status ? describeConnection(status).mode === "in-app" : false;
+  // Until the status lands, assume consent cannot run here so we never dead-end a click. The two
+  // modes that can run it are the two that need no typing: a `manual` host still has to be sent to
+  // Settings, because replacing its credentials means pasting a token into a form.
+  const mode = status ? describeConnection(status).mode : null;
+  const canConsent = mode === "in-app" || mode === "redirect";
 
   const reconnect = async () => {
-    if (!inApp) {
+    if (!canConsent) {
       onOpenSettings();
       return;
     }
     setBusy(true);
     try {
+      if (mode === "redirect") {
+        // Leaves the page for Google and returns through the server's callback, so nothing after
+        // this runs — and there is no banner left to un-busy.
+        const { url } = await api.setup.authorize();
+        window.location.assign(url);
+        return;
+      }
       await api.setup.connect();
       await onReconnected();
       flash("YouTube reconnected");
@@ -74,7 +84,11 @@ export function ReauthBanner({ canAdminister, onReconnected, onOpenSettings, fla
           onClick={reconnect}
           disabled={busy}
         >
-          {busy ? "Waiting for your browser…" : inApp ? "Reconnect" : "Reconnect in settings"}
+          {busy && mode === "in-app"
+            ? "Waiting for your browser…"
+            : canConsent
+              ? "Reconnect"
+              : "Reconnect in settings"}
         </button>
       ) : null}
     </div>
