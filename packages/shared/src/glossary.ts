@@ -340,3 +340,52 @@ export const LIVE_ELIGIBILITY_GLOSSARY: Record<LiveEligibilityMode, LiveEligibil
 export function canCreateBroadcasts(eligibility: LiveEligibility): boolean {
   return eligibility.mode !== "riding";
 }
+
+/**
+ * The prepared-broadcast slice of the glossary: is tonight's broadcast made, and will the encoder
+ * actually reach it? (PRD-16 §2, issue 063.)
+ *
+ * Three states, because two would hide the one that matters. "Prepared" and "nothing prepared" are
+ * the obvious pair; the third — prepared but not bound — is the half-finished preparation issue
+ * 062 deliberately leaves on the channel when the bind fails after the insert. That broadcast has
+ * a public link the audience may already hold, and nothing the encoder pushes will ever arrive on
+ * it. Folding it into "prepared" would light a green key over exactly the fault the operator has
+ * until the show starts to fix.
+ */
+export type PreparedState = "prepared" | "unbound" | "none";
+
+export interface PreparedTerm {
+  /** Display name for the state ("Prepared and bound"). */
+  label: string;
+  /** One plain-language sentence: what has and has not been done, in the operator's terms. */
+  meaning: string;
+  /** The Companion key colour this state lights, named for the guide table. */
+  keyColor: "Green" | "Yellow" | "Grey" | "Red";
+  /** What the operator does about it, in one sentence. */
+  remedy: string;
+}
+
+export const PREPARED_GLOSSARY: Record<PreparedState, PreparedTerm> = {
+  prepared: {
+    label: "Prepared and bound",
+    meaning:
+      "Tonight's broadcast exists on the channel with its title and link already set, and it is bound to the ingestion key the encoder pushes to.",
+    keyColor: "Green",
+    remedy: "Nothing to do — start the encoder when it is time.",
+  },
+  unbound: {
+    label: "Prepared, not bound",
+    meaning:
+      "The broadcast exists and its link works, but no ingestion key is bound to it — so nothing the encoder sends will reach it.",
+    keyColor: "Yellow",
+    remedy:
+      "Bind the key to it in YouTube Studio, or delete it and prepare again. Do not prepare a second one on top: that puts two links in the world.",
+  },
+  none: {
+    label: "Nothing prepared",
+    meaning: "This app has not created a broadcast for the show ahead — there is nothing waiting on the channel.",
+    keyColor: "Grey",
+    remedy:
+      "Prepare one, or carry on without: this app can still ride along with a broadcast made in YouTube Studio.",
+  },
+};

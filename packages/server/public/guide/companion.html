@@ -305,6 +305,27 @@
                   </td>
                 </tr>
                 <tr>
+                  <td><strong>Prepare tonight's broadcast</strong></td>
+                  <td>
+                    <code>Preset</code>, <code>Start time</code>, <code>Template vars</code>,
+                    <code>Title</code>, <code>Privacy</code>, <code>Category</code>,
+                    <code>Ingestion key to bind</code>
+                  </td>
+                  <td>
+                    Creates the broadcast on YouTube with its title already set,
+                    binds it to the <em>existing</em> key OBS holds, and puts its
+                    share link on <code>$(ytmeta:prepared_url)</code>. The start
+                    time takes <code>19:30</code> (tonight, in the Companion
+                    machine's time zone — past by under an hour it stays today,
+                    past by more it rolls to tomorrow), <code>+45m</code>,
+                    <code>now</code>, or a full date and time. About 100 quota
+                    units, 150 with a category. It is a deliberate press that puts
+                    a public link into the world — applying a preset never creates
+                    anything. Pair it with the <strong>Prepared broadcast is…</strong>
+                    feedback.
+                  </td>
+                </tr>
+                <tr>
                   <td><strong>API master switch (kill switch): set / toggle</strong></td>
                   <td><em>set:</em> <code>API</code> (enabled / disabled); <em>toggle:</em> —</td>
                   <td>
@@ -378,6 +399,7 @@
                 <tr><td><strong>Health state is…</strong></td><td>boolean</td><td>When <code>health</code> equals the chosen value. Default amber.</td></tr>
                 <tr><td><strong>Signal in is…</strong></td><td>boolean</td><td>When YouTube's view of the ingestion key equals the chosen value — <code>receiving</code>, <code>problems</code>, <code>no-data</code>, <code>unknown</code>. This is “is video actually arriving?”, not health: the middleware can be reaching YouTube fine while the encoder pushes nothing. Default amber with black text.</td></tr>
                 <tr><td><strong>Active preset is…</strong></td><td>boolean</td><td>When the chosen preset is the active one — highlights its key. Default violet.</td></tr>
+                <tr><td><strong>Prepared broadcast is…</strong></td><td>boolean</td><td>When the next broadcast <em>this app created</em> is in the chosen state — <code>prepared</code> (made and bound to the ingestion key), <code>unbound</code> (made, but nothing the encoder sends reaches it), <code>none</code>. The pre-show “is tonight ready?” question on a key. <code>unbound</code> is the one worth lighting: the share link works and no video will ever arrive on it. Default amber with black text.</td></tr>
               </tbody>
             </table>
           </div>

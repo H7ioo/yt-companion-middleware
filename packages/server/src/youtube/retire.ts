@@ -13,7 +13,7 @@
  * list at all. It asks YouTube only about ids it already owns, and deletes only from that answer.
  */
 import type { youtube_v3 } from "googleapis";
-import { describeRetireReason, type PreparedBroadcast } from "../storage/schema.js";
+import { describeRetireReason, RETIRE_GRACE_MS, type PreparedBroadcast } from "../storage/schema.js";
 import { AppError } from "../core/errors.js";
 import { QUOTA_COST } from "../core/quota.js";
 import { mapYouTubeError } from "./client.js";
@@ -23,8 +23,13 @@ import { mapYouTubeError } from "./client.js";
  * leftover. Twelve hours, the same window `pickUpcoming` calls an upcoming broadcast stale: a show
  * that has not started half a day after its slot is not going to, and anything still ahead of it —
  * or running late by an hour — is left entirely alone.
+ *
+ * Defined in the shared contract and re-exported here: the prepared readout on the state push
+ * (issue 063) reports a broadcast as standing over exactly the window this sweep leaves it alone
+ * for, and two copies of the number would let the lamp and the sweep disagree about the same
+ * broadcast.
  */
-export const RETIRE_GRACE_MS = 12 * 60 * 60 * 1000;
+export { RETIRE_GRACE_MS } from "@app/shared";
 
 /**
  * How long a record is protected from being called gone just because YouTube did not name it.
