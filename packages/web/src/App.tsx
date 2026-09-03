@@ -590,6 +590,7 @@ export function App() {
           categories={categories}
           apiEnabled={apiEnabled}
           eligibility={state?.liveEligibility ?? null}
+          defaultCategory={settings.defaultCategory}
           onPrepared={refreshSession}
         />
 

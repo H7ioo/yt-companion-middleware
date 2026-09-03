@@ -106,14 +106,17 @@ export function broadcastsRouter(ctx: AppContext): Router {
     }
 
     try {
-      const prepared = await prepareBroadcast(ctx.yt, input, {
+      const { broadcast: prepared, warning } = await prepareBroadcast(ctx.yt, input, {
         now: new Date().toISOString(),
         // Persisted between the insert and the bind, on purpose: from the moment the broadcast
         // exists it is ours to clean up (issue 064), and a bind that fails afterwards must not
-        // leave a broadcast on the channel that nothing may ever delete.
-        onCreated: async (record) => {
+        // leave a broadcast on the channel that nothing may ever delete. Upserted by id, because
+        // the same record is written again — with the key it is actually bound to — once the
+        // bind lands.
+        onRecord: async (record) => {
           await ctx.store.update((s) => {
-            s.preparedBroadcasts = [...s.preparedBroadcasts, record];
+            const rest = s.preparedBroadcasts.filter((p) => p.id !== record.id);
+            s.preparedBroadcasts = [...rest, record];
           });
         },
       });
@@ -121,15 +124,20 @@ export function broadcastsRouter(ctx: AppContext): Router {
       // also what clears a riding-mode finding from before the channel crossed the threshold.
       await noteDriving(ctx.store, prepared.createdAt);
       ctx.logger.push({
-        level: "info",
+        level: warning ? "warn" : "info",
         category: "action",
         code: null,
-        message: `Prepared “${prepared.title}” — ${prepared.watchUrl}`,
+        message: warning
+          ? `Prepared “${prepared.title}” — ${prepared.watchUrl} — ${warning}`
+          : `Prepared “${prepared.title}” — ${prepared.watchUrl}`,
       });
       // A prepared broadcast is usually the next thing to air, so the rail should not wait up to
       // 60s to say so.
       void ctx.cache.refresh({ force: true });
-      res.json({ prepared, quotaUnits: prepareCost(input) });
+      // 200 even for a half-finished preparation: the broadcast is on the channel with a public
+      // link, and an error body would hide the id the operator needs to fix or delete it — and
+      // would have them press create again, putting a second public broadcast out there.
+      res.json({ prepared, quotaUnits: prepareCost(input), warning });
     } catch (err) {
       const mapped = mapYouTubeError(err);
       if (isEligibilityError(mapped)) {
@@ -221,10 +229,13 @@ function resolvePrepareInput(
     );
   }
 
-  const category =
+  // `category: null` in the body is an explicit "leave YouTube's own default alone" and is
+  // honoured as given — collapsing it into the app default would make "no category" impossible
+  // to ask for, and would spend a read and a write nobody asked to spend.
+  const categoryId =
     body.category !== undefined
       ? body.category
-      : (preset?.category ?? null);
+      : (preset?.category ?? state.defaults.defaultCategory ?? null);
 
   return {
     title,
@@ -232,7 +243,7 @@ function resolvePrepareInput(
     privacyStatus: body.privacyStatus ?? preset?.privacyStatus ?? "unlisted",
     scheduledStartTime: scheduled.toISOString(),
     streamId,
-    categoryId: category ?? state.defaults.defaultCategory,
+    categoryId,
     presetId: preset?.id ?? null,
   };
 }

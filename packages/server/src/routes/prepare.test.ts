@@ -13,6 +13,7 @@ import type { Preset } from "../storage/schema.js";
 /** What the fake channel should do on the next insert. */
 interface FakeState {
   insertError?: unknown;
+  bindError?: unknown;
   inserts: any[];
   binds: any[];
   categoryUpdates: any[];
@@ -28,6 +29,7 @@ function fakeYt(state: FakeState): youtube_v3.Youtube {
       },
       bind: async (params: any) => {
         state.binds.push(params);
+        if (state.bindError) throw state.bindError;
         return { data: { id: params.id } };
       },
     },
@@ -264,6 +266,55 @@ describe("POST /api/dashboard/broadcasts/prepare", () => {
     expect(eligibility.mode).toBe("riding");
     expect(eligibility.reason).toBe("liveStreamingNotEnabled");
     expect(store.get().preparedBroadcasts).toHaveLength(0);
+  });
+
+  it("hands back the link and a warning when the bind fails after the broadcast exists", async () => {
+    const state: FakeState = {
+      inserts: [],
+      binds: [],
+      categoryUpdates: [],
+      bindError: new Error("bind exploded"),
+    };
+    const url = await mount(state);
+    const res = await post(url, { presetId: "friday", scheduledStartTime: "2026-09-04T18:00:00.000Z" });
+
+    // Not a 502: the broadcast is on the channel, and an error body would hide the link the
+    // operator needs — and get a second public broadcast created on the retry.
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { prepared: any; warning: string | null };
+    expect(body.prepared.watchUrl).toBe("https://www.youtube.com/watch?v=new-1");
+    expect(body.warning).toContain("could not be bound");
+    // The record does not claim a key it never bound.
+    expect(store.get().preparedBroadcasts).toHaveLength(1);
+    expect(store.get().preparedBroadcasts[0].streamId).toBeNull();
+  });
+
+  it("honours an explicit `category: null` instead of falling back to the app default", async () => {
+    await store.update((s) => {
+      s.defaults = { defaultCategory: "24", defaultStreamBoundId: "stream-default" };
+    });
+    const state: FakeState = { inserts: [], binds: [], categoryUpdates: [] };
+    const url = await mount(state);
+    const res = await post(url, {
+      presetId: "friday",
+      category: null,
+      scheduledStartTime: "2026-09-04T18:00:00.000Z",
+    });
+    expect(res.status).toBe(200);
+    // "No category" is askable, and costs neither the read nor the write that setting one does.
+    expect(state.categoryUpdates).toHaveLength(0);
+    expect(((await res.json()) as any).quotaUnits).toBe(100);
+  });
+
+  it("inherits the app default category when the request says nothing about one", async () => {
+    await store.update((s) => {
+      s.defaults = { defaultCategory: "24", defaultStreamBoundId: "stream-default" };
+    });
+    const state: FakeState = { inserts: [], binds: [], categoryUpdates: [] };
+    const url = await mount(state);
+    const res = await post(url, { presetId: "friday", scheduledStartTime: "2026-09-04T18:00:00.000Z" });
+    expect(state.categoryUpdates[0].requestBody.snippet.categoryId).toBe("24");
+    expect(((await res.json()) as any).quotaUnits).toBe(151);
   });
 
   it("rejects a scheduled start that is not a timestamp", async () => {

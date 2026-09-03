@@ -58,6 +58,7 @@ function mount(over: Partial<Parameters<typeof PrepareBroadcast>[0]> = {}) {
       categories={[{ id: "24", title: "Entertainment" }]}
       apiEnabled
       eligibility={driving}
+      defaultCategory={null}
       onPrepared={() => {}}
       {...over}
     />,
@@ -66,7 +67,7 @@ function mount(over: Partial<Parameters<typeof PrepareBroadcast>[0]> = {}) {
 
 beforeEach(() => {
   prepare.mockReset();
-  prepare.mockResolvedValue({ prepared: made(), quotaUnits: 100 });
+  prepare.mockResolvedValue({ prepared: made(), quotaUnits: 100, warning: null });
   preparedList.mockReset();
   preparedList.mockResolvedValue([]);
 });
@@ -165,5 +166,109 @@ describe("PrepareBroadcast", () => {
     mount();
     expect(await screen.findByText("Last Friday")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Copy link" })).toHaveLength(1);
+  });
+
+  it("counts an inherited category into the stated cost, not just a chosen one", async () => {
+    mount({ defaultCategory: "24" });
+    // The operator picked nothing, but the app default still costs the read and the write.
+    expect(await screen.findByText(/151 of the day's 10,000/)).toBeTruthy();
+  });
+
+  describe("a templated preset", () => {
+    const templated = preset({ title: "Service — {topic}", description: "Doors at 7" });
+
+    it("asks for the variables and shows the title as it will actually be created", async () => {
+      mount({ presets: [templated] });
+      fireEvent.change(await screen.findByLabelText("From preset"), {
+        target: { value: "friday" },
+      });
+      fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+
+      // Unanswered, the raw template is not offered as the title, and nothing may be created.
+      expect(
+        (screen.getByRole("button", { name: "Create broadcast" }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+
+      fireEvent.change(screen.getByLabelText("topic"), { target: { value: "Harvest" } });
+      expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe("Service — Harvest");
+      expect(
+        (screen.getByRole("button", { name: "Create broadcast" }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
+
+    it("sends the values, so the broadcast is not created under the fallback text", async () => {
+      mount({ presets: [templated] });
+      fireEvent.change(await screen.findByLabelText("From preset"), {
+        target: { value: "friday" },
+      });
+      fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+      fireEvent.change(screen.getByLabelText("topic"), { target: { value: "Harvest" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
+
+      await waitFor(() => expect(prepare).toHaveBeenCalledTimes(1));
+      expect(prepare.mock.calls[0][0].vars).toEqual({ topic: "Harvest" });
+    });
+  });
+
+  describe("once the broadcast exists", () => {
+    async function create() {
+      fireEvent.change(await screen.findByLabelText("From preset"), {
+        target: { value: "friday" },
+      });
+      fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
+    }
+
+    it("says what did not land, next to the link that did", async () => {
+      prepare.mockResolvedValue({
+        prepared: made({ streamId: null }),
+        quotaUnits: 100,
+        warning: "The broadcast exists, but the ingestion key could not be bound to it.",
+      });
+      mount();
+      await create();
+
+      expect(await screen.findByText("https://www.youtube.com/watch?v=made-1")).toBeTruthy();
+      expect(screen.getByText(/could not be bound/)).toBeTruthy();
+    });
+
+    it("still shows the link when the list refresh fails — the broadcast was made either way", async () => {
+      preparedList.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error("network"));
+      const onPrepared = vi.fn();
+      mount({ onPrepared });
+      await create();
+
+      expect(await screen.findByText("https://www.youtube.com/watch?v=made-1")).toBeTruthy();
+      expect(screen.queryByText("Could not create the broadcast.")).toBeNull();
+      await waitFor(() => expect(onPrepared).toHaveBeenCalled());
+    });
+
+    it("says “Copied” only on the link that was actually copied", async () => {
+      const writeText = vi.fn(async () => {});
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText },
+        configurable: true,
+      });
+      preparedList.mockResolvedValue([
+        made({
+          id: "old-1",
+          title: "Last Friday",
+          watchUrl: "https://www.youtube.com/watch?v=old-1",
+        }),
+      ]);
+      mount();
+      await create();
+      await screen.findByText("https://www.youtube.com/watch?v=made-1");
+
+      // Two links stand: the fresh one in the strip, and the earlier one in the list below.
+      const buttons = await screen.findAllByRole("button", { name: "Copy link" });
+      expect(buttons).toHaveLength(2);
+      fireEvent.click(buttons[1]);
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy());
+      // The fresh link's button still offers to copy — it is not what is on the clipboard.
+      expect(screen.getAllByRole("button", { name: "Copy link" })).toHaveLength(1);
+      expect(writeText).toHaveBeenCalledWith("https://www.youtube.com/watch?v=old-1");
+    });
   });
 });

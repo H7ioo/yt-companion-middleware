@@ -11,6 +11,7 @@ import { api } from "../api.js";
 import { StreamSelect } from "./StreamSelect.js";
 import { CategorySelect } from "./CategorySelect.js";
 import { describePrepareCost, isoToLocalInput, localInputToIso } from "../lib/prepareForm.js";
+import { extractVars, resolvePresetText } from "../lib/template.js";
 
 const PRIVACY: PrivacyStatus[] = ["public", "unlisted", "private"];
 
@@ -22,6 +23,11 @@ interface Props {
   apiEnabled: boolean;
   /** Riding mode disables creation, because YouTube will refuse it (issue 061). */
   eligibility: LiveEligibility | null;
+  /**
+   * The app default category, so the cost line can say what the preparation will actually spend:
+   * a category the operator never picked here still costs the read and the write that set it.
+   */
+  defaultCategory: string | null;
   /** Refetches dashboard state, so the rail follows a broadcast that is now the next to air. */
   onPrepared: () => void;
 }
@@ -47,6 +53,7 @@ export function PrepareBroadcast({
   categories,
   apiEnabled,
   eligibility,
+  defaultCategory,
   onPrepared,
 }: Props) {
   const [presetId, setPresetId] = useState<string>("");
@@ -60,13 +67,33 @@ export function PrepareBroadcast({
   const [prepared, setPrepared] = useState<PreparedBroadcast[]>([]);
   /** The one just created — the panel's whole output, kept apart so it can lead. */
   const [fresh, setFresh] = useState<PreparedBroadcast | null>(null);
-  const [copied, setCopied] = useState(false);
+  /** What the broadcast is missing when only part of the preparation landed. */
+  const [warning, setWarning] = useState<string | null>(null);
+  /** The link last copied, not a bare flag: two Copy buttons must not both say "Copied". */
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  /** Values for a templated preset's `{name}` variables, exactly as the fill popup collects them. */
+  const [vars, setVars] = useState<Record<string, string>>({});
 
   const preset = useMemo(
     () => presets.find((p) => p.id === presetId) ?? null,
     [presets, presetId],
   );
   const riding = eligibility?.mode === "riding";
+
+  // A templated preset is prepared with the same variables the apply path takes. Without them the
+  // insert either refuses (MISSING_TEMPLATE_VARS) or creates the broadcast under the preset's
+  // fallback text — neither is what the operator read on the button.
+  const varFields = useMemo(() => (preset ? extractVars(preset) : []), [preset]);
+  const resolved = useMemo(
+    () => (preset ? resolvePresetText(preset, vars) : null),
+    [preset, vars],
+  );
+
+  // Variables belong to the preset that declared them; carrying values across a change would
+  // send a value for a name the new preset does not have.
+  useEffect(() => {
+    setVars({});
+  }, [presetId]);
 
   useEffect(() => {
     // Free: an ownership record from our own store, not a YouTube read.
@@ -85,36 +112,65 @@ export function PrepareBroadcast({
   }, [preset]);
 
   const startIso = localInputToIso(startsAt);
-  const named = preset ? preset.title : title.trim();
-  const ready = apiEnabled && !riding && !busy && startIso !== null && named.length > 0;
+  const named = preset ? (resolved?.title ?? "") : title.trim();
+  const ready =
+    apiEnabled &&
+    !riding &&
+    !busy &&
+    startIso !== null &&
+    named.length > 0 &&
+    (resolved?.missing.length ?? 0) === 0;
+
+  /**
+   * What the broadcast will actually be filed under — the form's own pick, then the preset's,
+   * then the app default. The cost line reads this rather than the field, because an inherited
+   * category costs the same read and write as a chosen one.
+   */
+  const effectiveCategory = category ?? preset?.category ?? defaultCategory;
 
   async function create() {
     if (!startIso) return;
     setBusy(true);
     setError(null);
+    // Blanks are left out so the server applies the inline default or the field's fallback,
+    // exactly as the fill popup does.
+    const sending = Object.fromEntries(Object.entries(vars).filter(([, v]) => v.trim() !== ""));
+
+    let result: Awaited<ReturnType<typeof api.broadcasts.prepare>>;
     try {
-      const result = await api.broadcasts.prepare({
+      result = await api.broadcasts.prepare({
         presetId: preset?.id ?? null,
         ...(preset ? {} : { title: title.trim() }),
+        ...(preset && Object.keys(sending).length > 0 ? { vars: sending } : {}),
         privacyStatus,
         ...(streamId ? { streamId } : {}),
         ...(category === null ? {} : { category }),
         scheduledStartTime: startIso,
       });
-      setFresh(result.prepared);
-      setCopied(false);
-      setPrepared(await api.broadcasts.prepared());
-      onPrepared();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create the broadcast.");
+      setBusy(false);
+      return;
     } finally {
       setBusy(false);
+    }
+
+    // Past this line the broadcast exists. Nothing below may be reported as "could not create":
+    // a refresh that fails is a stale list, not a broadcast that was never made.
+    setFresh(result.prepared);
+    setWarning(result.warning);
+    setCopiedUrl(null);
+    onPrepared();
+    try {
+      setPrepared(await api.broadcasts.prepared());
+    } catch {
+      // The link above is the output; a list that will not reload does not change it.
     }
   }
 
   function copy(url: string) {
     void navigator.clipboard.writeText(url).then(
-      () => setCopied(true),
+      () => setCopiedUrl(url),
       () => setError("Could not copy the link — select it and copy by hand."),
     );
   }
@@ -142,12 +198,16 @@ export function PrepareBroadcast({
             <div className="prep__link">
               <code className="mono prep__link-url">{fresh.watchUrl}</code>
               <button type="button" className="btn btn--sm" onClick={() => copy(fresh.watchUrl)}>
-                {copied ? "Copied" : "Copy link"}
+                {copiedUrl === fresh.watchUrl ? "Copied" : "Copy link"}
               </button>
             </div>
-            <p className="prep__made-note">
-              It starts on its own when OBS starts, and ends when OBS stops.
-            </p>
+            {warning ? (
+              <p className="prep__warning">{warning}</p>
+            ) : (
+              <p className="prep__made-note">
+                It starts on its own when OBS starts, and ends when OBS stops.
+              </p>
+            )}
           </div>
         ) : null}
 
@@ -182,13 +242,36 @@ export function PrepareBroadcast({
                 <label htmlFor="prep-title">Title</label>
                 <input
                   id="prep-title"
-                  value={preset ? preset.title : title}
+                  // The preset's title *as it will be created* — the raw `{topic}` template is
+                  // not what goes on air, and showing it here is how a broadcast gets named
+                  // after a placeholder.
+                  value={preset ? (resolved?.title ?? "") : title}
                   onChange={(e) => setTitle(e.target.value)}
                   disabled={busy || preset !== null}
                   placeholder="Friday service"
                 />
               </div>
             </div>
+
+            {varFields.length > 0 ? (
+              <div className="field--row prep__row prep__vars">
+                {varFields.map((v) => (
+                  <div className="field" key={v.name}>
+                    <label htmlFor={`prep-var-${v.name}`}>{v.name}</label>
+                    <input
+                      id={`prep-var-${v.name}`}
+                      value={vars[v.name] ?? ""}
+                      placeholder={
+                        v.default != null ? v.default : v.required ? "required" : "leave blank for fallback"
+                      }
+                      aria-invalid={v.required && (vars[v.name] ?? "").trim() === ""}
+                      disabled={busy}
+                      onChange={(e) => setVars((prev) => ({ ...prev, [v.name]: e.target.value }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             <div className="field--row prep__row">
               <div className="field">
@@ -254,7 +337,7 @@ export function PrepareBroadcast({
               >
                 {busy ? "Creating…" : "Create broadcast"}
               </button>
-              <span className="prep__cost">{describePrepareCost(category !== null)}</span>
+              <span className="prep__cost">{describePrepareCost(effectiveCategory !== null)}</span>
             </div>
           </>
         )}
@@ -272,7 +355,7 @@ export function PrepareBroadcast({
                       : "no start time"}
                   </span>
                   <button type="button" className="btn btn--ghost btn--sm" onClick={() => copy(p.watchUrl)}>
-                    Copy link
+                    {copiedUrl === p.watchUrl ? "Copied" : "Copy link"}
                   </button>
                 </li>
               ))}

@@ -41,15 +41,31 @@ export interface PrepareOptions {
   /** ISO timestamp for the ownership record; injected so tests are not clock-dependent. */
   now: string;
   /**
-   * Called the moment the broadcast exists on YouTube, **before** the bind.
+   * Upserts the ownership record by id. Called the moment the broadcast exists on YouTube —
+   * **before** the bind — and again once the bind has actually landed.
    *
    * The ownership record is the only thing that ever makes a broadcast a cleanup candidate
    * (issue 064) — no API field distinguishes one this app made from one a human made in Studio.
    * A bind that fails after a successful insert would otherwise leave a broadcast on the channel
    * that nothing may ever delete, and those accumulate until `insert` itself starts failing with
-   * `limitExceeded` on the night it matters most.
+   * `limitExceeded` on the night it matters most. It is written with `streamId: null` because at
+   * that point no key is bound, and the schema means that field literally.
    */
-  onCreated?: (record: PreparedBroadcast) => Promise<void>;
+  onRecord?: (record: PreparedBroadcast) => Promise<void>;
+}
+
+/**
+ * The broadcast, plus whatever did not land after it already existed.
+ *
+ * A bind or category write that fails is *not* an error the caller may throw away: the broadcast
+ * is on the channel with a public link, and an operator told only "it failed" presses again and
+ * puts a second one there. So the id and the watch URL always come back, and the part that did
+ * not happen is said in words next to them.
+ */
+export interface PrepareResult {
+  broadcast: PreparedBroadcast;
+  /** What still needs doing by hand, or null when the whole preparation landed. */
+  warning: string | null;
 }
 
 /** The public link, ready to copy the moment the broadcast exists. */
@@ -90,7 +106,7 @@ export async function prepareBroadcast(
   yt: youtube_v3.Youtube,
   input: PrepareInput,
   opts: PrepareOptions,
-): Promise<PreparedBroadcast> {
+): Promise<PrepareResult> {
   let created: youtube_v3.Schema$LiveBroadcast;
   try {
     const res = await yt.liveBroadcasts.insert({
@@ -118,12 +134,14 @@ export async function prepareBroadcast(
     title: input.title,
     privacyStatus: input.privacyStatus,
     scheduledStartTime: input.scheduledStartTime,
-    streamId: input.streamId,
+    // Null until the bind lands: the field says which key is bound, and claiming one that is not
+    // would make an unfeedable broadcast look ready in every list that reads this record.
+    streamId: null,
     watchUrl: watchUrlFor(id),
     createdAt: opts.now,
     presetId: input.presetId,
   };
-  await opts.onCreated?.(record);
+  await opts.onRecord?.(record);
 
   try {
     await yt.liveBroadcasts.bind({
@@ -132,14 +150,32 @@ export async function prepareBroadcast(
       streamId: input.streamId,
     });
   } catch (err) {
-    throw mapYouTubeError(err);
+    return {
+      broadcast: record,
+      warning:
+        `The broadcast exists, but the ingestion key could not be bound to it ` +
+        `(${mapYouTubeError(err).message}). Bind it in YouTube Studio, or delete it and try ` +
+        `again — do not press create a second time, that makes a duplicate.`,
+    };
   }
+
+  const bound: PreparedBroadcast = { ...record, streamId: input.streamId };
+  await opts.onRecord?.(bound);
 
   if (input.categoryId !== null) {
-    await setVideoCategory(yt, id, input.categoryId);
+    try {
+      await setVideoCategory(yt, id, input.categoryId);
+    } catch (err) {
+      return {
+        broadcast: bound,
+        warning:
+          `The broadcast is created and bound, but its category could not be set ` +
+          `(${mapYouTubeError(err).message}). Set it in YouTube Studio — everything else is ready.`,
+      };
+    }
   }
 
-  return record;
+  return { broadcast: bound, warning: null };
 }
 
 /**

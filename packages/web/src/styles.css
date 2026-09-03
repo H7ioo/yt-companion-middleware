@@ -2626,6 +2626,13 @@ textarea {
   color: var(--ink-dim);
   font-size: 12.5px;
 }
+/* Said inside the strip, not above it: the half-finished preparation and the link it produced
+   are one fact, and an operator who reads the warning somewhere else presses create again. */
+.prep__warning {
+  margin: 10px 0 0;
+  color: var(--warn);
+  font-size: 12.5px;
+}
 /* Two controls to a row at desk width, stacked on a phone — the panel is read on both, and a
    datetime field squeezed into a third of a narrow screen is unusable. */
 .prep__row {
@@ -2634,6 +2641,11 @@ textarea {
 }
 .prep__row > .field {
   flex: 1 1 220px;
+}
+/* Template variables sit between the preset and the start time — the order they are answered in,
+   and above the fields that do not change what the broadcast is called. */
+.prep__vars {
+  margin-bottom: 16px;
 }
 .prep__go {
   display: flex;

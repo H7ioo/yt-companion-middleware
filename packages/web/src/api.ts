@@ -287,7 +287,7 @@ export const api = {
     prepared: () => req<PreparedBroadcast[]>("/api/dashboard/broadcasts/prepared"),
     /** Creates tonight's broadcast and binds it to the existing key — 100 quota units (issue 062). */
     prepare: (input: PrepareInput) =>
-      req<{ prepared: PreparedBroadcast; quotaUnits: number }>(
+      req<{ prepared: PreparedBroadcast; quotaUnits: number; warning: string | null }>(
         "/api/dashboard/broadcasts/prepare",
         { method: "POST", body: JSON.stringify(input) },
       ),

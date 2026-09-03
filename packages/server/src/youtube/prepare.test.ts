@@ -90,7 +90,10 @@ describe("watchUrlFor", () => {
 describe("prepareBroadcast", () => {
   it("inserts, then binds the existing key — and never creates a stream", async () => {
     const { yt, spy, calls } = fakeYt();
-    const record = await prepareBroadcast(yt, INPUT, { now: "2026-09-03T10:00:00.000Z" });
+    const { broadcast: record, warning } = await prepareBroadcast(yt, INPUT, {
+      now: "2026-09-03T10:00:00.000Z",
+    });
+    expect(warning).toBeNull();
 
     expect(calls.map((c) => c.method)).toEqual(["liveBroadcasts.insert", "liveBroadcasts.bind"]);
     expect(calls[1].params).toMatchObject({ id: "new-1", streamId: "stream-9" });
@@ -122,21 +125,60 @@ describe("prepareBroadcast", () => {
   });
 
   it("records ownership before the bind, so a failed bind still leaves a cleanable broadcast", async () => {
-    const seen: string[] = [];
+    const seen: Array<string | null> = [];
     const { yt } = fakeYt({
       bind: () => {
         throw new Error("bind exploded");
       },
     });
-    await expect(
-      prepareBroadcast(yt, INPUT, {
-        now: "2026-09-03T10:00:00.000Z",
-        onCreated: async (rec) => {
-          seen.push(rec.id);
-        },
-      }),
-    ).rejects.toBeInstanceOf(AppError);
-    expect(seen).toEqual(["new-1"]);
+    const result = await prepareBroadcast(yt, INPUT, {
+      now: "2026-09-03T10:00:00.000Z",
+      onRecord: async (rec) => {
+        seen.push(rec.streamId);
+      },
+    });
+    // The record is written before the bind, and with no key on it — the bind never landed.
+    expect(seen).toEqual([null]);
+    expect(result.broadcast.streamId).toBeNull();
+  });
+
+  it("hands back the link when the bind fails, rather than an error that hides the broadcast", async () => {
+    const { yt } = fakeYt({
+      bind: () => {
+        throw new Error("bind exploded");
+      },
+    });
+    const result = await prepareBroadcast(yt, INPUT, { now: "2026-09-03T10:00:00.000Z" });
+    // The broadcast is on the channel; telling the operator only "it failed" gets a duplicate.
+    expect(result.broadcast.id).toBe("new-1");
+    expect(result.broadcast.watchUrl).toBe("https://www.youtube.com/watch?v=new-1");
+    expect(result.warning).toContain("could not be bound");
+  });
+
+  it("records the bound key once the bind has actually landed", async () => {
+    const seen: Array<string | null> = [];
+    const { yt } = fakeYt();
+    const result = await prepareBroadcast(yt, INPUT, {
+      now: "2026-09-03T10:00:00.000Z",
+      onRecord: async (rec) => {
+        seen.push(rec.streamId);
+      },
+    });
+    expect(seen).toEqual([null, "stream-9"]);
+    expect(result.broadcast.streamId).toBe("stream-9");
+  });
+
+  it("keeps the broadcast when only the category write fails, and says what is left to do", async () => {
+    const { yt, spy } = fakeYt();
+    (spy.videos.update as any).mockImplementation(async () => {
+      throw new Error("category exploded");
+    });
+    const result = await prepareBroadcast(yt, { ...INPUT, categoryId: "24" }, {
+      now: "2026-09-03T10:00:00.000Z",
+    });
+    expect(result.broadcast.id).toBe("new-1");
+    expect(result.broadcast.streamId).toBe("stream-9");
+    expect(result.warning).toContain("category");
   });
 
   it("surfaces a refused insert as riding mode rather than a raw YouTube error", async () => {
