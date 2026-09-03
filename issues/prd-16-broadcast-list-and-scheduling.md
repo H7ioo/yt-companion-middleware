@@ -39,27 +39,33 @@ The API side is confirmed against the docs: `contentDetails.enableAutoStart` and
 `enableAutoStop` are settable on `liveBroadcasts.insert` and `update`, and YouTube's own guide
 names them as the way to skip the testing stage and let the encoder start the show.
 
-## Prerequisite — Test 3
+## Prerequisite — Test 3: settled 2026-09-03, the app's broadcast wins
 
-**Nothing in this PRD is built until this runs.** Rounds 1 and 2 validated a broadcast *Studio*
-created. This PRD depends on a broadcast *the app* created behaving identically. It should — same
-resource, same settings — but that assumption is the foundation of the whole feature.
+**Run on the production channel, and the answer is yes.** A broadcast this app inserted took the
+stream, with its own title on the first frame, *while a Studio-created broadcast sat `ready` and
+bound to the same key*. That is the contested case, not the easy one — the PRD stands.
 
-1. Insert a broadcast through the API with title, description, privacy and scheduled start.
-2. Bind it to the channel's existing reusable stream — the key OBS already holds.
-3. Set `enableAutoStart` and `enableAutoStop` to true.
-4. Start OBS. Observe which broadcast airs and with what title from the first frame.
+Measured with
+[`test3-app-created-broadcast.mjs`](../packages/server/scripts/test3-app-created-broadcast.mjs),
+which inserts, binds and configures without touching any product code path.
 
-Record in the same pass:
+| Question | Finding |
+| --- | --- |
+| Which broadcast aired? | **Ours** — `3UIZTEgkWWY`, live at `09:15:09Z`, ~2m43s after insert. |
+| Title on the first frame? | Ours, verbatim. Set at insert, never patched. |
+| Was there a rival? | Yes — Studio's `IWqRP7awcvc`, `ready`, bound to the same key. It did not air. |
+| Is `insert` permitted? | **Yes.** No refusal. The channel is at 37k subscribers, far past the 50-sub gate. |
+| `enableAutoStart` vs `enableMonitorStream`? | **They coexist.** Both returned `true` after the bind, with `broadcastStreamDelayMs: 0`. Auto-start does *not* require monitor stream off. |
+| Did `enableAutoStop` work? | **Yes.** The broadcast went `complete` on its own once OBS stopped — no manual end needed. |
+| Time in "preparing"? | Not separately observable — the broadcast reported `ready` from insert and went `live` on ingest. There is no distinct preparing dwell to design around. |
 
-- whether `insert` is permitted at all on this channel (the refusal is explicit — see §Riding mode);
-- whether `enableAutoStart` coexists with `contentDetails.monitorStream.enableMonitorStream`, or
-  requires it off. [`dry-run-resolve.mjs`](../packages/server/scripts/dry-run-resolve.mjs) already
-  prints both;
-- how long the broadcast sits in "preparing".
+Two consequences for the work downstream:
 
-If the app's own broadcast loses, this PRD is dead and the work becomes making the Studio detour
-shorter instead.
+- **Riding mode (issue 061) is not this channel's state.** It stays built and tested against
+  fixtures, because a *different* channel may hit it, but it is not the path this deployment takes.
+- **A rival `ready` broadcast does not protect an operator from a mistake.** Ours won on the same
+  key without warning. That is exactly why issue 062 must never insert as a side effect, and why
+  issue 064's ownership record is the only safe basis for cleanup.
 
 ## Solution
 
