@@ -7,6 +7,7 @@ import type {
   TargetPin,
 } from "./schema.js";
 import type { IngestionState } from "./glossary.js";
+import type { PreparedReadout } from "./prepared.js";
 
 /**
  * HTTP/DTO contract types — the response shapes the server produces and the web app consumes.
@@ -174,6 +175,14 @@ export interface DashboardState {
    * allows this channel to do, and the operator is the one who needs to know.
    */
   liveEligibility: LiveEligibility;
+  /**
+   * Whether a broadcast is prepared for the show ahead, and whether the encoder will reach it
+   * (issue 063). Derived from the ownership record, so it costs nothing and rides this push
+   * rather than being fetched — which is what lets a Companion key hold the answer without
+   * polling, and what keeps that key honest when the broadcast was prepared from the dashboard
+   * instead of the deck.
+   */
+  prepared: PreparedReadout;
 }
 
 /**

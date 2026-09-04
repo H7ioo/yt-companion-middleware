@@ -17,6 +17,7 @@ import {
 	linkVariables,
 	mapVariables,
 	nextApiEnabled,
+	prepareBody,
 	presetButtons,
 	presetChoices,
 	streamChoices,
@@ -38,6 +39,7 @@ const FEEDBACK_IDS = [
 	'ingestion_state',
 	'active_preset',
 	'link_down',
+	'prepared_state',
 ]
 
 /**
@@ -219,6 +221,54 @@ class YtMiddlewareInstance extends InstanceBase {
 			const message = errText(err)
 			this.log('error', `${path} failed: ${message}`)
 			// A transport failure is still a failed action: record it on `last_error` too.
+			this.setVariableValues({ last_error: formatLastError({ message: `${path} failed: ${message}` }) })
+		}
+	}
+
+	/**
+	 * Creates the broadcast (issue 063), and says out loud what came back.
+	 *
+	 * Not routed through `postAction`, for two reasons the operator feels. The prepare route answers
+	 * with an HTTP status rather than the action bus's always-200 envelope \u2014 a refused insert is a
+	 * 409 \u2014 and, more importantly, a preparation can half-land: the broadcast exists on the channel
+	 * with a public link while the bind did not happen. That comes back as a 200 with a `warning`,
+	 * and reporting it as success would leave a key showing green over a broadcast the encoder can
+	 * never reach. Both halves are logged, and the failure half reaches `last_error` so a key can
+	 * carry it \u2014 which is how riding mode (issue 061) shows up on the deck: YouTube refusing the
+	 * channel, in YouTube's own words, rather than a press that silently did nothing.
+	 *
+	 * No refresh afterwards: the server pushes a fresh state frame, and the prepared readout rides
+	 * it, so the feedback and `$(ytmeta:prepared_url)` update themselves.
+	 * @param {Record<string, any>} body
+	 */
+	async prepareBroadcast(body) {
+		const path = '/api/dashboard/broadcasts/prepare'
+		try {
+			const res = await fetch(joinUrl(this.config.url, path), {
+				method: 'POST',
+				headers: this.headers(),
+				body: JSON.stringify(body),
+			})
+			const json = /** @type {any} */ (await res.json().catch(() => ({})))
+			if (!res.ok) {
+				this.noteAuthFailure(res.status)
+				const error = json?.error ?? { message: `HTTP ${res.status}` }
+				this.log('warn', `${path} rejected: ${error.code ?? 'unknown'} ${error.message ?? ''}`)
+				this.setVariableValues({ last_error: formatLastError(error) })
+				return
+			}
+			const prepared = json?.prepared
+			this.log('info', `Prepared \u201c${prepared?.title ?? 'broadcast'}\u201d \u2014 ${prepared?.watchUrl ?? 'no link returned'}`)
+			if (json?.warning) {
+				// The broadcast is on the channel either way, so this is a warning and not an error \u2014
+				// but it is the one an operator must not press through, and pressing again makes a second
+				// public link rather than fixing the first.
+				this.log('warn', `${path}: ${json.warning}`)
+				this.setVariableValues({ last_error: formatLastError({ code: 'PREPARE_INCOMPLETE', message: json.warning }) })
+			}
+		} catch (err) {
+			const message = errText(err)
+			this.log('error', `${path} failed: ${message}`)
 			this.setVariableValues({ last_error: formatLastError({ message: `${path} failed: ${message}` }) })
 		}
 	}
@@ -428,6 +478,12 @@ class YtMiddlewareInstance extends InstanceBase {
 			{ variableId: 'ingestion_label', name: 'Signal in, in words ("Receiving video")' },
 			{ variableId: 'ingestion_key', name: 'Ingestion key the reading is about' },
 			{ variableId: 'ingestion_checked_at', name: 'When the signal was last read (ISO)' },
+			{ variableId: 'prepared_state', name: 'Prepared broadcast (prepared/unbound/none)' },
+			{ variableId: 'prepared_label', name: 'Prepared, in words ("Prepared and bound")' },
+			{ variableId: 'prepared_title', name: 'Prepared broadcast title' },
+			{ variableId: 'prepared_url', name: 'Prepared broadcast share link' },
+			{ variableId: 'prepared_start', name: 'Prepared broadcast scheduled start (ISO)' },
+			{ variableId: 'prepared_id', name: 'Prepared broadcast id' },
 			{ variableId: 'last_error', name: 'Last action error (code + message)' },
 			{ variableId: 'dashboard_url', name: 'Dashboard base URL' },
 			{ variableId: 'link', name: 'Server link (connected/connecting/disconnected)' },
@@ -555,6 +611,27 @@ class YtMiddlewareInstance extends InstanceBase {
 				],
 				callback: (fb) => this.latest?.ingestion?.state === fb.options.which,
 			},
+			prepared_state: {
+				type: 'boolean',
+				name: 'Prepared broadcast is…',
+				description:
+					'True when the next broadcast this app created is in the selected state — the pre-show "is tonight made, and will the encoder reach it?" question, answered on a key instead of in Studio. "Prepared, not bound" is the one worth a key of its own: the broadcast exists and its link works, but nothing the encoder sends will arrive on it. Amber by default, because the state that needs a key is the one that is not ready.',
+				defaultStyle: { bgcolor: COMPANION_COLORS.apiOff, color: combineRgb(0, 0, 0) },
+				options: [
+					{
+						type: 'dropdown',
+						id: 'which',
+						label: 'Prepared',
+						default: 'unbound',
+						choices: [
+							{ id: 'prepared', label: 'Prepared and bound' },
+							{ id: 'unbound', label: 'Prepared, not bound' },
+							{ id: 'none', label: 'Nothing prepared' },
+						],
+					},
+				],
+				callback: (fb) => this.latest?.prepared?.state === fb.options.which,
+			},
 			active_preset: {
 				type: 'boolean',
 				name: 'Active preset is…',
@@ -623,6 +700,84 @@ class YtMiddlewareInstance extends InstanceBase {
 				// middleware to surface the fill page instead: any open dashboard pops the fill dialog, and
 				// with ntfy configured server-side the operator's phone gets a tap-to-open notification.
 				callback: (a) => this.postAction('/api/dashboard/fill-request', { presetId: a.options.presetId }),
+			},
+			prepare_broadcast: {
+				name: 'Prepare tonight\u2019s broadcast',
+				description:
+					'Creates the broadcast on YouTube from a preset, binds it to the ingestion key OBS already holds, and puts its share link on $(ytmeta:prepared_url). A deliberate press \u2014 it puts a public link into the world \u2014 and never a side effect of applying a preset.',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'presetId',
+						label: 'Preset',
+						// Blank by default, and clearable: this action puts a public link into the world, so
+						// the preset is a choice the operator makes rather than whichever one happens to sort
+						// first. The blank entry is also the only way to reach the title-only path below.
+						default: '',
+						choices: [{ id: '', label: '\u2014 none (use the title below) \u2014' }, ...presetChoices(this.presets)],
+					},
+					{
+						type: 'textinput',
+						id: 'start',
+						label: 'Start time (19:30, +45m, now, or a full date and time)',
+						default: '19:30',
+						useVariables: true,
+						tooltip:
+							'A clock time means tonight, in this machine\u2019s time zone \u2014 already past by under an hour it stays today, past by more it rolls to tomorrow. YouTube requires a start time on every broadcast it creates.',
+					},
+					{
+						type: 'textinput',
+						id: 'vars',
+						label: 'Template vars (JSON, optional)',
+						default: '',
+						useVariables: true,
+					},
+					{
+						type: 'textinput',
+						id: 'title',
+						label: 'Title (overrides the preset\u2019s \u2014 required when no preset is chosen)',
+						default: '',
+						useVariables: true,
+					},
+					{
+						type: 'dropdown',
+						id: 'privacyStatus',
+						label: 'Privacy',
+						default: '',
+						choices: [
+							{ id: '', label: '\u2014 inherit preset \u2014' },
+							{ id: 'public', label: 'public' },
+							{ id: 'unlisted', label: 'unlisted' },
+							{ id: 'private', label: 'private' },
+						],
+					},
+					{ type: 'dropdown', id: 'category', label: 'Category', default: '', choices: categoryChoices(this.categories) },
+					{ type: 'dropdown', id: 'streamId', label: 'Ingestion key to bind', default: '', choices: streamChoices(this.streams) },
+				],
+				callback: async (a) => {
+					const { body, error, warning } = prepareBody(
+						{
+							presetId: a.options.presetId,
+							vars: await this.parseVariablesInString(String(a.options.vars ?? '')),
+							title: await this.parseVariablesInString(String(a.options.title ?? '')),
+							privacyStatus: a.options.privacyStatus,
+							category: a.options.category,
+							streamId: a.options.streamId,
+							start: await this.parseVariablesInString(String(a.options.start ?? '')),
+						},
+						Date.now(),
+					)
+					if (warning) this.log('warn', `prepare_broadcast: ${warning}`)
+					if (error || !body) {
+						// Refused before the request: creating a broadcast is a write that puts a public link
+						// into the world, so a press that could not have worked never becomes one.
+						const message = error ?? 'Nothing to prepare.'
+						this.log('warn', `prepare_broadcast: ${message}`)
+						this.setVariableValues({ last_error: formatLastError({ code: 'INVALID_REQUEST', message }) })
+						return
+					}
+					return this.prepareBroadcast(body)
+				},
 			},
 			update: {
 				name: 'Update live metadata',
@@ -817,6 +972,46 @@ class YtMiddlewareInstance extends InstanceBase {
 					options: {},
 					style: { bgcolor: COMPANION_COLORS.apiOff, color: black },
 				}),
+			},
+			prepare_btn: {
+				type: 'button',
+				category: 'State & controls',
+				name: 'Prepare tonight\u2019s broadcast',
+				style: { text: 'PREPARE\\n$(ytmeta:prepared_state)', size: '14', color: white, bgcolor: COMPANION_COLORS.privacy },
+				// Options left at their defaults on purpose: the preset and the start time are the two
+				// things the operator has to choose, and a button that guessed them would create a
+				// public broadcast from a guess.
+				steps: [{ down: [{ actionId: 'prepare_broadcast', options: {} }], up: [] }],
+				feedbacks: [
+					{
+						feedbackId: 'prepared_state',
+						options: { which: 'unbound' },
+						style: { bgcolor: COMPANION_COLORS.apiOff, color: black },
+					},
+					linkDownOverlay,
+				],
+			},
+			prepared_indicator: {
+				type: 'button',
+				category: 'State & controls',
+				name: 'Prepared broadcast',
+				style: { text: '$(ytmeta:prepared_label)', size: 'auto', color: white, bgcolor: COMPANION_COLORS.indicator },
+				steps: [{ down: [], up: [] }],
+				feedbacks: [
+					// Green only when the encoder will actually reach it; amber for the half-finished
+					// preparation, which is the reading this key exists for.
+					{
+						feedbackId: 'prepared_state',
+						options: { which: 'prepared' },
+						style: { bgcolor: healthColor('ok'), color: white },
+					},
+					{
+						feedbackId: 'prepared_state',
+						options: { which: 'unbound' },
+						style: { bgcolor: COMPANION_COLORS.apiOff, color: black },
+					},
+					linkDownOverlay,
+				],
 			},
 			busy_indicator: {
 				type: 'button',

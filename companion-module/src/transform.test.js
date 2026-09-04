@@ -14,7 +14,10 @@ import {
   mapVariables,
   nextApiEnabled,
   presetButtons,
+  prepareBody,
+  preparedVariables,
   presetChoices,
+  resolveScheduledStart,
   streamChoices,
   toPng64,
   wsHandshakeOptions,
@@ -380,3 +383,187 @@ describe('mapVariables ingestion fields', () => {
     expect(vars.ingestion_label).toBe('Receiving video')
   })
 })
+
+describe('preparedVariables (issue 063)', () => {
+  it('maps the prepared readout onto variables the key can print', () => {
+    const vars = preparedVariables({
+      prepared: {
+        state: 'prepared',
+        label: 'Prepared and bound',
+        id: 'b1',
+        title: 'Friday night',
+        watchUrl: 'https://www.youtube.com/watch?v=b1',
+        scheduledStartTime: '2026-09-03T19:00:00.000Z',
+        streamId: 'stream-9',
+      },
+    });
+    expect(vars).toEqual({
+      prepared_state: 'prepared',
+      prepared_label: 'Prepared and bound',
+      prepared_id: 'b1',
+      prepared_title: 'Friday night',
+      prepared_url: 'https://www.youtube.com/watch?v=b1',
+      prepared_start: '2026-09-03T19:00:00.000Z',
+    });
+  });
+
+  // An old server that pushes no readout, or an early frame before the first push: the key must
+  // read blank rather than "prepared".
+  it('blanks every field when the frame carries no readout', () => {
+    const vars = preparedVariables({});
+    expect(vars.prepared_state).toBe('');
+    expect(vars.prepared_url).toBe('');
+    expect(vars.prepared_label).toBe('');
+  });
+
+  it('rides along on mapVariables, like the ingestion readout does', () => {
+    const vars = mapVariables({ prepared: { state: 'none', label: 'Nothing prepared' } });
+    expect(vars.prepared_state).toBe('none');
+    expect(vars.prepared_label).toBe('Nothing prepared');
+  });
+});
+
+describe('resolveScheduledStart (issue 063)', () => {
+  // Deliberately mid-evening, so "19:00" is still ahead and "17:00" is behind.
+  const NOW = Date.parse('2026-09-03T18:00:00.000Z');
+
+  it('reads a clock time as tonight, in the time zone of the machine running Companion', () => {
+    const at = new Date(NOW);
+    const wanted = new Date(at);
+    wanted.setHours(23, 30, 0, 0);
+    const { iso, error } = resolveScheduledStart('23:30', NOW);
+    expect(error).toBeUndefined();
+    expect(iso).toBe(wanted.toISOString());
+  });
+
+  // The show is at 19:30 every week; the operator presses at 19:33 because they forgot. Rolling
+  // that to tomorrow would schedule the broadcast for a day nobody asked for.
+  it('keeps a clock time that has only just passed on today', () => {
+    const at = new Date(NOW);
+    at.setHours(at.getHours(), at.getMinutes() - 10, 0, 0);
+    const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+    const { iso } = resolveScheduledStart(hhmm, NOW);
+    expect(Date.parse(iso)).toBeLessThan(NOW);
+    expect(NOW - Date.parse(iso)).toBeLessThan(60 * 60 * 1000);
+  });
+
+  it('rolls a clock time long past to tomorrow', () => {
+    const at = new Date(NOW);
+    at.setHours(at.getHours() - 5, 0, 0, 0);
+    const hhmm = `${String(at.getHours()).padStart(2, '0')}:00`;
+    const { iso } = resolveScheduledStart(hhmm, NOW);
+    expect(Date.parse(iso) - NOW).toBeGreaterThan(0);
+    expect(Date.parse(iso) - NOW).toBeLessThan(24 * 60 * 60 * 1000);
+  });
+
+  it('takes a relative offset in minutes or hours', () => {
+    expect(Date.parse(resolveScheduledStart('+30', NOW).iso)).toBe(NOW + 30 * 60_000);
+    expect(Date.parse(resolveScheduledStart('+30m', NOW).iso)).toBe(NOW + 30 * 60_000);
+    expect(Date.parse(resolveScheduledStart('+2h', NOW).iso)).toBe(NOW + 2 * 60 * 60_000);
+  });
+
+  it('takes "now" for a broadcast that starts as soon as the encoder does', () => {
+    expect(Date.parse(resolveScheduledStart('now', NOW).iso)).toBe(NOW);
+    expect(Date.parse(resolveScheduledStart('  NOW  ', NOW).iso)).toBe(NOW);
+  });
+
+  it('takes a full ISO timestamp unchanged', () => {
+    expect(resolveScheduledStart('2026-12-24T21:00:00.000Z', NOW).iso).toBe('2026-12-24T21:00:00.000Z');
+  });
+
+  // A key press cannot ask a follow-up question, so the refusal has to name the forms that work.
+  it('refuses a blank or unreadable time, and says what it accepts', () => {
+    expect(resolveScheduledStart('', NOW).error).toMatch(/start time/i);
+    expect(resolveScheduledStart('   ', NOW).error).toMatch(/start time/i);
+    const bad = resolveScheduledStart('half seven', NOW);
+    expect(bad.iso).toBeUndefined();
+    expect(bad.error).toMatch(/19:30/);
+  });
+
+  it('refuses an out-of-range clock time rather than wrapping it', () => {
+    expect(resolveScheduledStart('25:00', NOW).error).toBeTruthy();
+    expect(resolveScheduledStart('19:75', NOW).error).toBeTruthy();
+  });
+
+  // `Date.parse('1930')` is a valid date — the first of January, 1930 — so the dropped colon in
+  // `19:30` would sail through as a real start time and put a broadcast on the channel most of a
+  // century ago. Bare digits are refused so the typo comes back as a message instead.
+  it('refuses bare digits rather than reading them as a year', () => {
+    for (const typo of ['1930', '730', '2026']) {
+      const { iso, error } = resolveScheduledStart(typo, NOW);
+      expect(iso).toBeUndefined();
+      expect(error).toMatch(/19:30/);
+    }
+  });
+});
+
+describe('prepareBody (issue 063)', () => {
+  const NOW = Date.parse('2026-09-03T18:00:00.000Z');
+
+  it('sends the preset, its vars and the resolved start', () => {
+    const { body, error } = prepareBody(
+      { presetId: 'friday', vars: { name: 'Anwar' }, start: '2026-09-03T19:00:00.000Z' },
+      NOW,
+    );
+    expect(error).toBeUndefined();
+    expect(body).toEqual({
+      presetId: 'friday',
+      vars: { name: 'Anwar' },
+      scheduledStartTime: '2026-09-03T19:00:00.000Z',
+    });
+  });
+
+  // Every optional field is omitted rather than sent empty: the server's own fallback chain is
+  // preset → app default, and a blank string would win over both and create an untitled broadcast.
+  it('omits the fields the operator left alone', () => {
+    const { body } = prepareBody(
+      { presetId: 'friday', title: '', description: '  ', privacyStatus: '', category: '', streamId: '', start: 'now' },
+      NOW,
+    );
+    expect(Object.keys(body).sort()).toEqual(['presetId', 'scheduledStartTime']);
+  });
+
+  it('carries the overrides that were filled in', () => {
+    const { body } = prepareBody(
+      {
+        presetId: '',
+        title: 'Ad-hoc evening',
+        description: 'Doors at 7',
+        privacyStatus: 'public',
+        category: '24',
+        streamId: 'stream-9',
+        start: 'now',
+      },
+      NOW,
+    );
+    expect(body.title).toBe('Ad-hoc evening');
+    expect(body.description).toBe('Doors at 7');
+    expect(body.privacyStatus).toBe('public');
+    expect(body.category).toBe('24');
+    expect(body.streamId).toBe('stream-9');
+    expect(body.presetId).toBeUndefined();
+  });
+
+  it('refuses a press with neither a preset nor a title, before it costs a write', () => {
+    const { body, error } = prepareBody({ presetId: '', title: '', start: 'now' }, NOW);
+    expect(body).toBeUndefined();
+    expect(error).toMatch(/preset|title/i);
+  });
+
+  it('passes the start-time refusal straight through', () => {
+    const { error } = prepareBody({ presetId: 'friday', start: 'half seven' }, NOW);
+    expect(error).toMatch(/19:30/);
+  });
+
+  it('ignores unreadable vars JSON rather than dropping the press', () => {
+    const { body, warning } = prepareBody({ presetId: 'friday', vars: 'not json', start: 'now' }, NOW);
+    expect(body.presetId).toBe('friday');
+    expect(body.vars).toBeUndefined();
+    expect(warning).toMatch(/vars/i);
+  });
+
+  it('parses vars given as a JSON string, the way a key option carries them', () => {
+    const { body } = prepareBody({ presetId: 'friday', vars: '{"name":"Anwar"}', start: 'now' }, NOW);
+    expect(body.vars).toEqual({ name: 'Anwar' });
+  });
+});

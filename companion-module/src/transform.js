@@ -34,6 +34,7 @@ export function mapVariables(state, presets = []) {
     target_conflict: s.targetConflict?.code ?? '',
     target_conflict_message: s.targetConflict?.message ?? '',
     ...ingestionVariables(s),
+    ...preparedVariables(s),
   };
 }
 
@@ -59,6 +60,159 @@ export function ingestionVariables(state) {
     ingestion_key: ingestion?.streamTitle ?? '',
     ingestion_checked_at: ingestion?.checkedAt ?? '',
   };
+}
+
+/**
+ * The prepared-broadcast readout as Companion variables (issue 063) — is tonight's broadcast made,
+ * and will the encoder reach it?
+ *
+ * The state and its words are taken from the frame as-is, for the same reason the ingestion
+ * readout's are: the middleware resolves them from the shared glossary before pushing, and this
+ * module is bundled standalone and cannot import that glossary. A classifier re-written here is a
+ * copy that drifts the first time the wording is corrected.
+ *
+ * `prepared_url` is the one an operator actually asks for mid-setup — the link to send out — so it
+ * is a variable a key can print rather than something only the dashboard holds.
+ * @param {Record<string, any> | undefined} state
+ */
+export function preparedVariables(state) {
+  const prepared = state?.prepared ?? null;
+  return {
+    prepared_state: prepared?.state ?? '',
+    prepared_label: prepared?.label ?? '',
+    prepared_id: prepared?.id ?? '',
+    prepared_title: prepared?.title ?? '',
+    prepared_url: prepared?.watchUrl ?? '',
+    prepared_start: prepared?.scheduledStartTime ?? '',
+  };
+}
+
+/** How long after a clock time has passed it is still read as today rather than tomorrow. */
+const CLOCK_LOOKBACK_MS = 60 * 60 * 1000;
+
+/**
+ * Turns what an operator can type on a button option into the ISO instant the middleware needs
+ * (issue 063).
+ *
+ * A key press cannot open a date picker, and YouTube requires a scheduled start on every broadcast
+ * it creates — so the start time has to survive being typed once, months ago, into a button that
+ * is pressed every week. That rules out an ISO timestamp as the everyday form: it names one date.
+ * The forms that keep working are the ones relative to the press.
+ *
+ *   - `19:30`  — tonight at that time, in the time zone of the machine running Companion. Already
+ *                past by less than an hour, it stays today: the operator who presses at 19:33 for
+ *                a 19:30 show means tonight, and scheduling that a day out is not a small mistake.
+ *                Past by more, it rolls to tomorrow — which is what a morning press for an evening
+ *                repeat means.
+ *   - `+45`, `+45m`, `+2h` — that far from now.
+ *   - `now`    — immediately; the broadcast waits on the encoder.
+ *   - a full ISO timestamp, for the one-off scheduled weeks ahead.
+ *
+ * Returns the instant or the refusal, never both, and the refusal names the forms — there is no
+ * second chance to ask.
+ * @param {unknown} raw
+ * @param {number} nowMs
+ * @returns {{ iso?: string, error?: string }}
+ */
+export function resolveScheduledStart(raw, nowMs) {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (!text) {
+    return { error: 'No start time — a broadcast needs one. Try 19:30, +45m, now, or a full date and time.' };
+  }
+  const lower = text.toLowerCase();
+  if (lower === 'now') return { iso: new Date(nowMs).toISOString() };
+
+  const relative = /^\+\s*(\d+)\s*([mh]?)$/.exec(lower);
+  if (relative) {
+    const amount = Number(relative[1]);
+    const ms = relative[2] === 'h' ? amount * 60 * 60_000 : amount * 60_000;
+    return { iso: new Date(nowMs + ms).toISOString() };
+  }
+
+  const clock = /^(\d{1,2}):(\d{2})$/.exec(lower);
+  if (clock) {
+    const hours = Number(clock[1]);
+    const minutes = Number(clock[2]);
+    if (hours > 23 || minutes > 59) {
+      return { error: `“${text}” is not a time of day — hours run 0-23 and minutes 0-59.` };
+    }
+    const at = new Date(nowMs);
+    at.setHours(hours, minutes, 0, 0);
+    // Long past means they mean tomorrow; just past means they are running late.
+    if (nowMs - at.getTime() > CLOCK_LOOKBACK_MS) at.setDate(at.getDate() + 1);
+    return { iso: at.toISOString() };
+  }
+
+  // Bare digits are never a date here, whatever `Date.parse` makes of them: `1930` is the dropped
+  // colon in `19:30`, and parsing it to the first of January 1930 would send that as the start
+  // time of a real broadcast. Refused, so the typo is a message rather than a ghost on the channel.
+  if (!/^\d+$/.test(text)) {
+    const parsed = Date.parse(text);
+    if (!Number.isNaN(parsed)) return { iso: new Date(parsed).toISOString() };
+  }
+  return {
+    error: `“${text}” is not a start time this understands. Try 19:30, +45m, now, or a full date and time.`,
+  };
+}
+
+/**
+ * Builds the body for POST /api/dashboard/broadcasts/prepare from a button's options (issue 063).
+ *
+ * Everything refusable is refused here, before the request: creating a broadcast is a write that
+ * puts a public link into the world, and an insert that was going to fail anyway is a ghost on the
+ * channel somebody has to clean up.
+ *
+ * Blank options are **omitted, never sent empty**. The server's fallback chain is the option, then
+ * the preset's, then the app default — a blank string is a value and would win over both, which is
+ * how a key would create an untitled broadcast out of a field nobody filled in.
+ *
+ * @param {{ presetId?: unknown, vars?: unknown, title?: unknown, description?: unknown, privacyStatus?: unknown, category?: unknown, streamId?: unknown, start?: unknown }} options
+ * @param {number} nowMs
+ * @returns {{ body?: Record<string, any>, error?: string, warning?: string }}
+ */
+export function prepareBody(options, nowMs) {
+  const text = (/** @type {unknown} */ v) => (typeof v === 'string' ? v.trim() : '');
+  const presetId = text(options?.presetId);
+  const title = text(options?.title);
+  if (!presetId && !title) {
+    return { error: 'Nothing to prepare from — choose a preset, or type a title on the button.' };
+  }
+
+  const { iso, error } = resolveScheduledStart(options?.start, nowMs);
+  if (error) return { error };
+
+  /** @type {Record<string, any>} */
+  const body = { scheduledStartTime: iso };
+  if (presetId) body.presetId = presetId;
+  if (title) body.title = title;
+  const description = text(options?.description);
+  if (description) body.description = description;
+  const privacyStatus = text(options?.privacyStatus);
+  if (privacyStatus) body.privacyStatus = privacyStatus;
+  const category = text(options?.category);
+  if (category) body.category = category;
+  const streamId = text(options?.streamId);
+  if (streamId) body.streamId = streamId;
+
+  // Bad vars JSON does not cancel the press. The preset's own text is what gets used when a
+  // variable is missing, and the server refuses the whole thing if one is genuinely unresolved —
+  // so the honest outcome is to send the press without them and say so, not to swallow the button.
+  let warning;
+  const vars = options?.vars;
+  if (vars && typeof vars === 'object') {
+    body.vars = vars;
+  } else {
+    const rawVars = text(vars);
+    if (rawVars) {
+      try {
+        body.vars = JSON.parse(rawVars);
+      } catch (err) {
+        warning = `Ignoring unreadable template vars JSON: ${err instanceof Error ? err.message : String(err)}`
+      }
+    }
+  }
+
+  return warning ? { body, warning } : { body };
 }
 
 /**

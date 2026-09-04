@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { changeSignature, resolveDisplayLabel, type DashboardState } from "./snapshot.js";
 import type { JsonStore } from "../storage/jsonStore.js";
-import type { Preset, Store } from "../storage/schema.js";
+import type { Preset, PreparedBroadcast, Store } from "../storage/schema.js";
+import { summarizePrepared } from "@app/shared";
 
 /** Minimal JsonStore stand-in exposing just the presets `resolveDisplayLabel` reads. */
 function storeWith(presets: Preset[]): JsonStore {
@@ -35,6 +36,7 @@ function state(over: Partial<DashboardState> = {}): DashboardState {
     targetPin: null,
     ingestion: null,
     liveEligibility: { mode: "unknown", reason: null, message: null, checkedAt: null },
+    prepared: summarizePrepared([], Date.parse("2026-07-03T00:00:00.000Z")),
     busy: false,
     quota: { date: "2026-07-03", used: 0, limit: 10000, remaining: 10000 },
     undo: null,
@@ -187,5 +189,49 @@ describe("changeSignature and riding mode (issue 061)", () => {
       }),
     );
     expect(after).not.toBe(before);
+  });
+});
+
+describe("changeSignature and the prepared readout (issue 063)", () => {
+  const NOW = Date.parse("2026-07-03T00:00:00.000Z");
+  const record = (over: Partial<PreparedBroadcast> = {}): PreparedBroadcast => ({
+    id: "b1",
+    title: "Friday night",
+    privacyStatus: "unlisted",
+    scheduledStartTime: "2026-07-03T19:00:00.000Z",
+    streamId: "stream-9",
+    watchUrl: "https://www.youtube.com/watch?v=b1",
+    createdAt: "2026-07-03T00:00:00.000Z",
+    presetId: null,
+    airedAt: null,
+    retiredAt: null,
+    retiredReason: null,
+    ...over,
+  });
+
+  // The Companion feedback reads this off the push, so a preparation made on the dashboard has to
+  // reach the deck without anyone pressing anything.
+  it("changes when a broadcast becomes prepared", () => {
+    const before = changeSignature(state());
+    const after = changeSignature(state({ prepared: summarizePrepared([record()], NOW) }));
+    expect(after).not.toBe(before);
+  });
+
+  it("changes when the prepared broadcast turns out not to be bound", () => {
+    const bound = changeSignature(state({ prepared: summarizePrepared([record()], NOW) }));
+    const unbound = changeSignature(
+      state({ prepared: summarizePrepared([record({ streamId: null })], NOW) }),
+    );
+    expect(unbound).not.toBe(bound);
+  });
+
+  // Same state, different link: the key shows the watch URL, and the one the operator is about to
+  // send the audience must not be last night's.
+  it("changes when a different broadcast takes its place", () => {
+    const first = changeSignature(state({ prepared: summarizePrepared([record()], NOW) }));
+    const second = changeSignature(
+      state({ prepared: summarizePrepared([record({ id: "b2" })], NOW) }),
+    );
+    expect(second).not.toBe(first);
   });
 });

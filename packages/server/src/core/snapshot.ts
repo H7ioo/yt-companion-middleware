@@ -7,7 +7,7 @@ import { renderTextPng } from "./titleImage.js";
 // DashboardState is the shared API contract for the dashboard state / SSE / webhook payloads.
 export type { DashboardState } from "@app/shared";
 import { describeIngestion, type DashboardState, type IngestionReadout } from "@app/shared";
-import type { IngestionSnapshot } from "@app/shared";
+import { summarizePrepared, type IngestionSnapshot } from "@app/shared";
 
 /** Assembles the current state from its sources — the single source of truth for the state
  *  route, the SSE stream, and webhook payloads. */
@@ -40,6 +40,9 @@ export function buildDashboardState(
     targetPin: store.get().targetPin,
     ingestion: toIngestionReadout(c.ingestion),
     liveEligibility: store.get().liveEligibility,
+    // Read from the ownership record, not from YouTube: it is free, so the answer to "is tonight
+    // ready?" can ride every push instead of being a button somebody has to remember to press.
+    prepared: summarizePrepared(store.get().preparedBroadcasts, Date.now()),
   };
 }
 
@@ -114,5 +117,9 @@ export function changeSignature(s: DashboardState): string {
     // notice — and the disabled creation controls it explains — would wait for an unrelated
     // field to move, which on an idle channel can be a long time.
     s.liveEligibility.mode,
+    // The state and the broadcast it is about. Both, because preparing a second broadcast while
+    // one already stands leaves the state unchanged while the link on the key — and the thing the
+    // operator is about to send the audience — is a different one.
+    [s.prepared.state, s.prepared.id],
   ]);
 }

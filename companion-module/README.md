@@ -148,6 +148,10 @@ usual cause.
 | `last_error` | Code + message of the most recent **failed** action (e.g. `INVALID_PRESET: no such preset`). Blank until something fails; bind it to a key to see errors on-stream instead of only in the Log tab. Never cleared by a state update. |
 | `dashboard_url` | The configured base URL — handy for bookmarks and custom HTTP integrations. |
 | `link` | The state socket: `connected` / `connecting` / `disconnected`. |
+| `prepared_state` | The next broadcast **this app created**: `prepared` (made and bound to the ingestion key), `unbound` (made, but nothing the encoder sends reaches it), `none`. |
+| `prepared_label` | The same in words — *Prepared and bound* / *Prepared, not bound* / *Nothing prepared*. |
+| `prepared_title` / `prepared_start` / `prepared_id` | Its title, scheduled start (ISO) and YouTube id. |
+| `prepared_url` | Its share link, ready to read off a key the moment the broadcast exists. |
 | `link_up` | `true` only while the socket is up. Every other variable in this table is a reading the server pushed, so while this is `false` they are all as old as the outage. |
 
 ### Presets (drag-drop buttons)
@@ -159,7 +163,7 @@ is fully editable afterwards.
 | Category | What drops |
 |---|---|
 | **Apply preset** | One button **per middleware preset** (regenerated on **Refresh lists**): its slug as the text, the **Apply preset** action bound to that preset, and the **Active preset is…** feedback pointed at it — so the key applies, self-labels, and lights violet when it’s the one on air. |
-| **State & controls** | Fixed helpers: *Server link*, *Arabic-safe live title (image)*, *Arabic-safe button label (image)*, *On-air indicator*, *Busy indicator*, *Privacy toggle*, *Undo last change*, *Refresh from YouTube*, *Refresh lists*, *API kill switch (toggle)*. |
+| **State & controls** | Fixed helpers: *Server link*, *Arabic-safe live title (image)*, *Arabic-safe button label (image)*, *On-air indicator*, *Busy indicator*, *Privacy toggle*, *Undo last change*, *Refresh from YouTube*, *Refresh lists*, *API kill switch (toggle)*, *Prepare tonight's broadcast*, *Prepared broadcast*. |
 
 > The state-showing presets (*Server link*, both images, *On-air indicator*, *Busy indicator*)
 > carry the **Server unreachable** feedback as their last layer, so they turn magenta the moment
@@ -184,6 +188,7 @@ Image feedbacks are the reason this module exists; boolean feedbacks recolour ke
 | **Health state is…** | boolean | When `health` equals the dropdown value (`ok`/`degraded`/`auth_error`). Default: amber bg. |
 | **Signal in is…** | boolean | When YouTube's view of the ingestion key equals the dropdown value (`receiving` / `problems` / `no-data` / `unknown`) — is video actually arriving? Not health: the middleware can be reaching YouTube fine while the encoder is pushing nothing. Default: amber bg, black text. |
 | **Active preset is…** | boolean | When the dropdown-selected preset is the active one — highlights the applied preset’s key. Default: violet bg. |
+| **Prepared broadcast is…** | boolean | When the next broadcast this app created is in the dropdown state (`prepared` / `unbound` / `none`) — is tonight's broadcast made, and will the encoder reach it? *Prepared, not bound* is the one worth a key: the link works and nothing arrives on it. Default: amber bg, black text. |
 | **Server unreachable (no live link)** | boolean | Whenever the module is not holding the state socket — connecting, reconnecting or given up. Default: magenta bg. Distinct from `offline` health, which is the *server* saying it cannot reach YouTube; this one means the module cannot reach the server, so every reading on the deck is stale and every press lands nowhere. |
 
 ### Actions
@@ -201,6 +206,7 @@ so you never need to add a manual refresh after an action.
 | **Undo last change** | — | Reverts the last change (`$(ytmeta:undo_label)` shows what). |
 | **Refresh from YouTube** | — | Forces the middleware to refresh its cached state. |
 | **Refresh preset/category/stream lists** | — | Re-fetches the dropdown choices after you edit presets in the dashboard. |
+| **Prepare tonight's broadcast** | `Preset`, `Start time` (`19:30` / `+45m` / `+2h` / `now` / full date-time; supports `$(...)`), `Template vars` (JSON), `Title`, `Privacy`, `Category`, `Ingestion key to bind` | Creates the broadcast on YouTube from the preset with its metadata set at insert, binds it to the **existing** key OBS already holds, and puts its share link on `$(ytmeta:prepared_url)` (`POST /api/dashboard/broadcasts/prepare`). ~100 quota units, ~150 with a category. A clock time means tonight in this machine's time zone — past by under an hour it stays today, past by more it rolls to tomorrow. A deliberate press that puts a public link into the world; applying a preset never creates anything. A refusal from YouTube (including *riding along*, when it will not let the channel create broadcasts) lands on `$(ytmeta:last_error)`. |
 | **API master switch (kill switch): set** | `API` (enabled / disabled) | Turns the middleware's master switch on/off (`PUT /api/dashboard/service`). While off, the middleware makes no YouTube calls and rejects actions — stops quota burn on an idle service. |
 | **API master switch (kill switch): toggle** | — | Flips the switch based on current state. Pair with the **API disabled** feedback so the key shows on/off. |
 

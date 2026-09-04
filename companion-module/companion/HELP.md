@@ -42,7 +42,10 @@ Open the **Presets** tab for ready-made buttons — the quickest way to build a 
   one onto a key and it applies + self-labels + lights up when active, no config. After editing
   presets in the dashboard, run **Refresh preset/category/stream lists** so new ones appear.
 - **State & controls** category — Arabic-safe title/label images, on-air & busy indicators,
-  privacy toggle, undo, refresh, and the API kill-switch toggle.
+  privacy toggle, undo, refresh, the API kill-switch toggle, and the *Prepare tonight's broadcast*
+  key with its *Prepared broadcast* readout beside it. Set the preset and start time on the
+  prepare key after dropping it: it ships with neither, because a button that guessed them would
+  create a public broadcast from a guess.
 
 Every dropped button stays fully editable afterwards.
 
@@ -77,6 +80,11 @@ a key press goes nowhere. See **Server unreachable** below.
 YouTube is seeing on the ingestion key OBS pushes to. They fill themselves in while a broadcast is
 live or a title is waiting to land, and go blank when the dashboard has read nothing yet.
 
+`prepared_state` / `prepared_label` / `prepared_title` / `prepared_url` / `prepared_start` /
+`prepared_id` describe the next broadcast **this app created** — `prepared` (made and bound to the
+ingestion key), `unbound` (made, but nothing the encoder sends will reach it) or `none`.
+`prepared_url` is the share link, ready to read off a key the moment the broadcast exists.
+
 `last_error` holds the code + message of the most recent **failed** action (e.g.
 `INVALID_PRESET: no such preset`, `MISSING_TEMPLATE_VARS: …`). By default action errors surface
 only in Companion's **log panel**; bind `last_error` to a button's text to see the latest failure
@@ -102,6 +110,12 @@ changes when another action fails, so the last failure stays visible.
   encoder. The dropdown picks which state lights the key: *Receiving video*, *Arriving with
   problems*, *Nothing arriving*, *Not known*. Pair it with `$(ytmeta:ingestion_checked_at)` —
   "receiving video" from twenty minutes ago is a fact about twenty minutes ago.
+- **Prepared broadcast is…** — the pre-show question, answered on a key: is tonight's broadcast
+  made, and will the encoder reach it? The dropdown picks the state that lights: *Prepared and
+  bound*, *Prepared, not bound*, *Nothing prepared*. The middle one is the one worth a key —
+  the broadcast exists and its link works, but no ingestion key is bound, so nothing arrives.
+  Bind it in YouTube Studio or delete it and prepare again; do **not** prepare a second one on
+  top, that puts two links in the world.
 - **Health color (auto)** — recolors a key to the current middleware health, no config:
 
   | health | meaning | key color |
@@ -126,6 +140,16 @@ notification carrying the `/fill` deep link. Unclaimed requests expire after 60 
 There is no on-demand connection-check action: the module holds a live WebSocket, so health arrives
 in the pushed state frame (the `health` variable / *Health color* feedback) and a dropped link is
 detected automatically — the status pill and `health` reflect it without a button press.
+
+**Prepare tonight's broadcast** — creates the broadcast on YouTube from a preset, binds it to the
+ingestion key OBS already holds, and puts its share link on `$(ytmeta:prepared_url)`. One press,
+no screen. The *Start time* option takes `19:30` (tonight, in this machine's time zone — already
+past by under an hour it stays today, past by more it rolls to tomorrow), `+45m`, `+2h`, `now`, or
+a full date and time; YouTube requires a start on every broadcast it creates. Costs ~100 quota
+units (~150 with a category). It is a deliberate press that puts a public link into the world, and
+never a side effect of applying a preset. If YouTube refuses the channel — *riding along*, when it
+will not let this channel create broadcasts — the refusal lands on `last_error` in YouTube's own
+words rather than the press quietly doing nothing.
 
 **API master switch (kill switch): set / toggle** — turns the middleware's master switch on/off
 (`PUT /api/dashboard/service`). While off it makes no YouTube calls and rejects actions, so an
