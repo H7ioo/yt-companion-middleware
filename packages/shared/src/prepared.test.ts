@@ -69,17 +69,35 @@ describe("summarizePrepared (issue 063)", () => {
   });
 
   it("drops a broadcast whose start passed longer ago than the sweep's grace window", () => {
-    const stale = record({ scheduledStartTime: new Date(NOW - RETIRE_GRACE_MS - 60_000).toISOString() });
+    const stale = record({
+      scheduledStartTime: new Date(NOW - RETIRE_GRACE_MS - 60_000).toISOString(),
+      createdAt: new Date(NOW - RETIRE_GRACE_MS - 60_000).toISOString(),
+    });
     expect(summarizePrepared([stale], NOW).state).toBe("none");
   });
 
-  // Mirrors planSweep: a record with no usable scheduled start falls back to when it was created,
-  // so an undated leftover still ages out instead of standing forever.
-  it("ages an undated record out on its creation time instead", () => {
-    const fresh = record({ scheduledStartTime: null, createdAt: new Date(NOW - 60_000).toISOString() });
-    expect(summarizePrepared([fresh], NOW).state).toBe("prepared");
-    const old = record({ scheduledStartTime: null, createdAt: new Date(NOW - RETIRE_GRACE_MS - 1).toISOString() });
-    expect(summarizePrepared([old], NOW).state).toBe("none");
+  // The prepare route accepts a start time in the past, and the sweep counts half a day of the
+  // operator's own time before it calls such a record a leftover. If this readout aged it out on
+  // the slot alone, the key would read "Nothing prepared" the instant the press succeeded — over a
+  // public link standing on the channel, and inviting a second press that makes a second one.
+  it("keeps a just-created broadcast whose slot was already past", () => {
+    const backdated = record({
+      scheduledStartTime: new Date(NOW - RETIRE_GRACE_MS - 60_000).toISOString(),
+      createdAt: new Date(NOW - 1_000).toISOString(),
+    });
+    const readout = summarizePrepared([backdated], NOW);
+    expect(readout.state).toBe("prepared");
+    expect(readout.watchUrl).toBe("https://www.youtube.com/watch?v=b1");
+  });
+
+  // Mirrors planSweep, which never retires a record it cannot date: a broadcast with no usable
+  // start time is one nothing says the time of, so nothing can call it a leftover either.
+  it("keeps an undated record standing however old it is", () => {
+    const old = record({
+      scheduledStartTime: null,
+      createdAt: new Date(NOW - RETIRE_GRACE_MS * 10).toISOString(),
+    });
+    expect(summarizePrepared([old], NOW).state).toBe("prepared");
   });
 
   it("reports the soonest standing broadcast when several are prepared", () => {

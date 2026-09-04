@@ -7,7 +7,16 @@ import { ApiError } from "../api.js";
 
 const prepare = vi.fn();
 const preparedList = vi.fn<() => Promise<PreparedBroadcast[]>>();
-const retire = vi.fn(async () => ({ retired: [], aired: [], gone: [], failed: [], quotaUnits: 0 }));
+// Typed off the API surface rather than inferred from the empty default, so a test that resolves
+// it with real records is not fighting an inferred `never[]`.
+type RetireResult = Awaited<ReturnType<typeof import("../api.js").api.broadcasts.retire>>;
+const retire = vi.fn<() => Promise<RetireResult>>(async () => ({
+  retired: [],
+  aired: [],
+  gone: [],
+  failed: [],
+  quotaUnits: 0,
+}));
 const deletePrepared = vi.fn(async (_id: string) => ({ retired: made(), quotaUnits: 50 }));
 
 vi.mock("../api.js", async (importOriginal) => ({

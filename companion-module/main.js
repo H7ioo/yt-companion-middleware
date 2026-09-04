@@ -710,8 +710,11 @@ class YtMiddlewareInstance extends InstanceBase {
 						type: 'dropdown',
 						id: 'presetId',
 						label: 'Preset',
-						default: this.presets[0]?.id ?? '',
-						choices: presetChoices(this.presets),
+						// Blank by default, and clearable: this action puts a public link into the world, so
+						// the preset is a choice the operator makes rather than whichever one happens to sort
+						// first. The blank entry is also the only way to reach the title-only path below.
+						default: '',
+						choices: [{ id: '', label: '\u2014 none (use the title below) \u2014' }, ...presetChoices(this.presets)],
 					},
 					{
 						type: 'textinput',
@@ -732,7 +735,7 @@ class YtMiddlewareInstance extends InstanceBase {
 					{
 						type: 'textinput',
 						id: 'title',
-						label: 'Title (optional \u2014 overrides the preset\u2019s)',
+						label: 'Title (overrides the preset\u2019s \u2014 required when no preset is chosen)',
 						default: '',
 						useVariables: true,
 					},

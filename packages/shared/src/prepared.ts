@@ -44,8 +44,9 @@ export interface PreparedReadout extends PreparedTerm {
 /**
  * Reduces the ownership record to the next broadcast still standing, and says whether it is bound.
  *
- * Standing means: this app made it, it has not been on air, this app has not retired it, and its
- * slot has not passed by more than the sweep's grace window. Aired records are excluded because
+ * Standing means: this app made it, it has not been on air, this app has not retired it, and the
+ * sweep would not retire it either — both its slot and its own creation have to be past the grace
+ * window, and an undated record never ages out at all. Aired records are excluded because
  * the question has moved on — the on-air lamp answers it from then, and a "prepared" key still lit
  * through the service is one more surface showing yesterday's news.
  *
@@ -76,15 +77,23 @@ function empty(): Omit<PreparedReadout, keyof PreparedTerm | "state"> {
 
 function isStanding(record: PreparedBroadcast, nowMs: number): boolean {
   if (record.airedAt !== null || record.retiredAt !== null) return false;
-  // Falls back to `createdAt` exactly as planSweep does, so an undated record ages out rather than
-  // standing forever; an unparseable pair leaves it standing, because dropping a broadcast we
-  // cannot date would hide a real one over a bad timestamp.
-  const due = dueAt(record);
-  if (!Number.isFinite(due)) return true;
-  return nowMs - due < RETIRE_GRACE_MS;
+  // The sweep's three tests, in the sweep's order (`planSweep`), because a record this says is
+  // gone while the sweep leaves it alive is a key reading "Nothing prepared" over a public link
+  // still standing on the channel — and the next press makes a second one.
+  const scheduled = Date.parse(record.scheduledStartTime ?? "");
+  // A broadcast we cannot date is a broadcast we cannot call a leftover; the sweep never retires
+  // one, so neither does this.
+  if (Number.isNaN(scheduled)) return true;
+  if (nowMs - scheduled < RETIRE_GRACE_MS) return true;
+  // The same window measured from when we made it, because the prepare route accepts a start time
+  // in the past: a broadcast created a minute ago for a slot that was yesterday is past due the
+  // instant it exists, and it is precisely the one the operator just pressed for.
+  const created = Date.parse(record.createdAt ?? "");
+  return !Number.isNaN(created) && nowMs - created < RETIRE_GRACE_MS;
 }
 
-/** When this broadcast is due, in ms — its slot, or failing that when it was made. */
+/** When this broadcast is due, in ms — its slot, or failing that when it was made. Ordering only:
+ * whether a record has aged out is `isStanding`'s question, and it asks the sweep's way. */
 function dueAt(record: PreparedBroadcast): number {
   const scheduled = record.scheduledStartTime ? Date.parse(record.scheduledStartTime) : NaN;
   if (!Number.isNaN(scheduled)) return scheduled;

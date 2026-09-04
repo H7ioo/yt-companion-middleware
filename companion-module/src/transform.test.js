@@ -484,6 +484,17 @@ describe('resolveScheduledStart (issue 063)', () => {
     expect(resolveScheduledStart('25:00', NOW).error).toBeTruthy();
     expect(resolveScheduledStart('19:75', NOW).error).toBeTruthy();
   });
+
+  // `Date.parse('1930')` is a valid date — the first of January, 1930 — so the dropped colon in
+  // `19:30` would sail through as a real start time and put a broadcast on the channel most of a
+  // century ago. Bare digits are refused so the typo comes back as a message instead.
+  it('refuses bare digits rather than reading them as a year', () => {
+    for (const typo of ['1930', '730', '2026']) {
+      const { iso, error } = resolveScheduledStart(typo, NOW);
+      expect(iso).toBeUndefined();
+      expect(error).toMatch(/19:30/);
+    }
+  });
 });
 
 describe('prepareBody (issue 063)', () => {

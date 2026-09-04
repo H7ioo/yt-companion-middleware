@@ -143,8 +143,13 @@ export function resolveScheduledStart(raw, nowMs) {
     return { iso: at.toISOString() };
   }
 
-  const parsed = Date.parse(text);
-  if (!Number.isNaN(parsed)) return { iso: new Date(parsed).toISOString() };
+  // Bare digits are never a date here, whatever `Date.parse` makes of them: `1930` is the dropped
+  // colon in `19:30`, and parsing it to the first of January 1930 would send that as the start
+  // time of a real broadcast. Refused, so the typo is a message rather than a ghost on the channel.
+  if (!/^\d+$/.test(text)) {
+    const parsed = Date.parse(text);
+    if (!Number.isNaN(parsed)) return { iso: new Date(parsed).toISOString() };
+  }
   return {
     error: `“${text}” is not a start time this understands. Try 19:30, +45m, now, or a full date and time.`,
   };
