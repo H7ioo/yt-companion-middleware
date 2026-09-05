@@ -21,6 +21,35 @@ describe("listWhatWillAir", () => {
     expect(marked[0].reason).toBe("On air now — this is what viewers are watching.");
   });
 
+  // Issue 071: the row carries whether this app made it, because the delete confirmation's words
+  // turn on it — and nothing on the API resource says so.
+  it("marks the rows this app created, and leaves the rest unmarked", () => {
+    const listing = listWhatWillAir({
+      active: [],
+      upcoming: [
+        { id: "ours", snippet: { title: "Made here" }, status: { lifeCycleStatus: "ready" } },
+        { id: "theirs", snippet: { title: "Made in Studio" }, status: { lifeCycleStatus: "ready" } },
+      ],
+      streams: [],
+      defaultStreamBoundId: null,
+      appCreatedIds: new Set(["ours"]),
+    });
+
+    expect(listing.entries.find((e) => e.id === "ours")?.appCreated).toBe(true);
+    expect(listing.entries.find((e) => e.id === "theirs")?.appCreated).toBe(false);
+  });
+
+  it("calls nothing app-created when no ownership records are passed", () => {
+    const listing = listWhatWillAir({
+      active: [],
+      upcoming: [{ id: "ours", snippet: { title: "Made here" }, status: {} }],
+      streams: [],
+      defaultStreamBoundId: null,
+    });
+
+    expect(listing.entries[0].appCreated).toBe(false);
+  });
+
   it("marks the upcoming broadcast bound to the encoder's key with auto-start on", () => {
     const listing = listWhatWillAir({
       active: [],

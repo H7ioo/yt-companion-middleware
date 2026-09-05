@@ -19,7 +19,7 @@ const retire = vi.fn<() => Promise<RetireResult>>(async () => ({
   failed: [],
   quotaUnits: 0,
 }));
-const deletePrepared = vi.fn(async (_id: string) => ({ retired: made(), quotaUnits: 50 }));
+const remove = vi.fn(async (_id: string) => ({ retired: made(), appCreated: true, pinCleared: false, quotaUnits: 50 }));
 
 vi.mock("../api.js", async (importOriginal) => ({
   // Partial: ApiError is a real class the panel narrows refusals with, so the mock keeps it
@@ -30,7 +30,7 @@ vi.mock("../api.js", async (importOriginal) => ({
       prepare: (input: unknown) => prepare(input),
       prepared: () => preparedList(),
       retire: () => retire(),
-      deletePrepared: (id: string) => deletePrepared(id),
+      remove: (id: string) => remove(id),
     },
   },
 }));
@@ -96,8 +96,8 @@ beforeEach(() => {
   preparedList.mockResolvedValue([]);
   retire.mockReset();
   retire.mockResolvedValue({ retired: [], aired: [], gone: [], failed: [], quotaUnits: 0 });
-  deletePrepared.mockReset();
-  deletePrepared.mockResolvedValue({ retired: made(), quotaUnits: 50 });
+  remove.mockReset();
+  remove.mockResolvedValue({ retired: made(), appCreated: true, pinCleared: false, quotaUnits: 50 });
 });
 afterEach(cleanup);
 

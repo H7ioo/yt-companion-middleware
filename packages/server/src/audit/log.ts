@@ -378,10 +378,12 @@ const ROUTES: ReadonlyArray<{
   // Notable for the same reason, from the other end: these are the only actions in the app that
   // take a broadcast off the channel and break a link people already hold. Nothing undoes them.
   { method: "POST", pattern: /^\/api\/dashboard\/broadcasts\/retire$/i, action: "cleared old broadcasts", notable: true },
+  // Any broadcast on the channel since issue 071, not only the ones this app made — so the label
+  // no longer promises "prepared", and the id it captures is the whole of who-deleted-what.
   {
     method: "DELETE",
-    pattern: /^\/api\/dashboard\/broadcasts\/prepared\/([^/]+)$/i,
-    action: "deleted a prepared broadcast",
+    pattern: /^\/api\/dashboard\/broadcasts\/([^/]+)$/i,
+    action: "deleted a broadcast",
     notable: true,
   },
   { method: "PUT", pattern: /^\/api\/dashboard\/settings$/i, action: "changed the settings", notable: false },

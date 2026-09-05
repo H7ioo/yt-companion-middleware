@@ -256,9 +256,16 @@ describe("what an entry is called", () => {
   it("names taking a broadcast off the channel, and calls it notable", () => {
     // The one irreversible outward-facing action in the app: an unlabelled path here would hide
     // it from the panel's "notable only" filter, where preparing one is already visible.
-    expect(describeAction("DELETE", "/api/dashboard/broadcasts/prepared/ours-1")).toMatchObject({
-      action: "deleted a prepared broadcast",
+    expect(describeAction("DELETE", "/api/dashboard/broadcasts/ours-1")).toMatchObject({
+      action: "deleted a broadcast",
       target: "ours-1",
+      notable: true,
+    });
+    // Issue 071: the same record for a broadcast this app never made — "who deleted what" is the
+    // question, and it has the same answer whoever created the thing.
+    expect(describeAction("DELETE", "/api/dashboard/broadcasts/studio-9")).toMatchObject({
+      action: "deleted a broadcast",
+      target: "studio-9",
       notable: true,
     });
     expect(describeAction("POST", "/api/dashboard/broadcasts/retire")).toMatchObject({

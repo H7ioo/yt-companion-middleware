@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { youtube_v3 } from "googleapis";
 import { z } from "zod";
 import type { AppContext } from "./context.js";
 import { AppError, toErrorBody } from "../core/errors.js";
@@ -7,9 +8,9 @@ import { mapYouTubeError } from "../youtube/client.js";
 import { listBroadcasts } from "../youtube/broadcasts.js";
 import { listWhatWillAir } from "../youtube/willAir.js";
 import { listStreams } from "./streams.js";
-import { prepareBroadcast, type PrepareInput } from "../youtube/prepare.js";
-import { retireOne, sweepBroadcasts, type SweepResult } from "../youtube/retire.js";
-import { deleteConfirmation } from "@app/shared";
+import { prepareBroadcast, watchUrlFor, type PrepareInput } from "../youtube/prepare.js";
+import { airedAtOf, retireOne, sweepBroadcasts, type SweepResult } from "../youtube/retire.js";
+import { deleteConfirmation, subjectOf, type DeleteSubject } from "@app/shared";
 import { isEligibilityError, noteDriving, noteRidingMode } from "../youtube/eligibility.js";
 import { resolvePresetText } from "../core/template.js";
 import { privacyStatusSchema, type PreparedBroadcast } from "../storage/schema.js";
@@ -60,6 +61,10 @@ export function broadcastsRouter(ctx: AppContext): Router {
         upcoming,
         streams,
         defaultStreamBoundId: ctx.store.get().defaults.defaultStreamBoundId,
+        // Free — the ownership record is already in the store. It changes no verdict; it is what
+        // lets the row's delete confirmation know whether it may say anything about the link's
+        // reach (issue 071).
+        appCreatedIds: new Set(ctx.store.get().preparedBroadcasts.map((p) => p.id)),
       });
       res.json({ ...listing, quotaUnits: calls * QUOTA_COST.read });
     } catch (err) {
@@ -191,87 +196,183 @@ export function broadcastsRouter(ctx: AppContext): Router {
   });
 
   /**
-   * Delete one broadcast this app created, deliberately (PRD-16 §5, issue 064).
+   * Delete one broadcast from the channel, on the operator's press (PRD-16 §9, issue 071).
    *
-   * Two guards, and they are the feature:
+   * **The line is not who created the broadcast — it is whether a human is deciding.** Until
+   * issue 071 this route refused anything without an ownership record, which left a stale show
+   * scheduled in Studio with no way out of the app. That guard is still exactly right for the
+   * *automatic* sweep, which runs unattended and must never eat something a person scheduled
+   * (`planSweep` only ever looks at ids it already owns, and that is unchanged). An operator
+   * pressing Delete on a row they chose, and answering a question about it, is not the sweep.
    *
-   *   - **The id must be in the ownership record.** Nothing else is ever deletable through this
-   *     app. A broadcast a human made in Studio looks identical on the API, so the record is the
-   *     only thing that can tell them apart — and being unable to delete someone else's show is
-   *     worth more than being able to delete ours from one more place.
+   * What survives, for every broadcast alike:
+   *
    *   - **`confirm` must be sent.** The dashboard asks the question in a dialog; this is the same
-   *     question for a stale tab or a direct call, and the refusal carries the text so they ask
-   *     it the same way. The sibling of the stream-binding confirmation in issue 051.
+   *     question for a stale tab or a direct call, and the refusal carries the text so they ask it
+   *     the same way. The sibling of the stream-binding confirmation in issue 051.
+   *   - **A broadcast that has aired is never deletable.** That guard is about the artifact, not
+   *     about ownership: it is a recording people may still be watching, and deleting it takes the
+   *     recording with it.
+   *
+   * The two paths differ only in what the app knows. For one it created, the ownership record
+   * answers everything and the delete costs one write. For one it did not, nothing in the store
+   * describes the broadcast, so a single read buys the title, the privacy and — the part that
+   * matters — the lifecycle state the aired guard turns on. Trusting the caller's word for any of
+   * those would be trusting a stale tab about whether a show is on air.
    */
-  router.delete("/prepared/:id", async (req, res) => {
+  router.delete("/:id", async (req, res) => {
     if (!ctx.store.get().service.apiEnabled) {
       res.status(409).json(toErrorBody(new AppError("SERVICE_DISABLED")));
       return;
     }
     const id = req.params.id;
-    const record = ctx.store.get().preparedBroadcasts.find((p) => p.id === id);
-    if (!record) {
-      res.status(404).json(
-        toErrorBody(
-          new AppError(
-            "NO_TARGET_FOUND",
-            `Broadcast ${id} is not one this app created, so it is not this app's to delete. ` +
-              `Delete it in YouTube Studio if that is really what you want.`,
+    const record = ctx.store.get().preparedBroadcasts.find((p) => p.id === id) ?? null;
+    const confirmed = (req.body as { confirm?: unknown } | undefined)?.confirm === true;
+
+    let subject: DeleteSubject;
+    // A read spent only where the store cannot answer, and charged to the caller either way.
+    let readUnits = 0;
+
+    if (record) {
+      // Aired broadcasts are recordings, and deleting one takes the recording with it. The dialog
+      // already hides the button; this is the same refusal for a stale tab or a direct call, and
+      // it is the sweep's rule (`planSweep` never touches an aired record) held at the route too.
+      if (record.airedAt !== null) {
+        res.status(409).json(toErrorBody(airedRefusal(record.title)));
+        return;
+      }
+      if (record.retiredAt !== null) {
+        res.status(409).json(
+          toErrorBody(
+            new AppError("INVALID_REQUEST", `“${record.title}” has already been removed from YouTube.`),
           ),
-        ),
-      );
-      return;
-    }
-    // Aired broadcasts are recordings, and deleting one takes the recording with it. The dialog
-    // already hides the button; this is the same refusal for a stale tab or a direct call, and it
-    // is the sweep's rule (`planSweep` never touches an aired record) held at the route too.
-    if (record.airedAt !== null) {
-      res.status(409).json(
-        toErrorBody(
-          new AppError(
-            "INVALID_REQUEST",
-            `“${record.title}” has been on air, so it is a recording now. ` +
-              `Delete it in YouTube Studio if that is really what you want.`,
+        );
+        return;
+      }
+      subject = subjectOf(record);
+    } else {
+      let found: youtube_v3.Schema$LiveBroadcast | undefined;
+      try {
+        const answer = await ctx.yt.liveBroadcasts.list({
+          part: ["id", "snippet", "status"],
+          id: [id],
+          maxResults: 1,
+        });
+        readUnits = QUOTA_COST.read;
+        found = (answer.data.items ?? [])[0];
+      } catch (err) {
+        res.status(502).json(toErrorBody(mapYouTubeError(err)));
+        return;
+      }
+      if (!found?.id) {
+        res.status(404).json(
+          toErrorBody(
+            new AppError(
+              "NO_TARGET_FOUND",
+              `Broadcast ${id} is not on this channel, so there is nothing here to delete.`,
+            ),
           ),
-        ),
-      );
-      return;
-    }
-    if (record.retiredAt !== null) {
-      res.status(409).json(
-        toErrorBody(
-          new AppError("INVALID_REQUEST", `“${record.title}” has already been removed from YouTube.`),
-        ),
-      );
-      return;
+        );
+        return;
+      }
+      // The same rule as the record's `airedAt`, asked of the resource because there is no record
+      // to have stamped it. `airedAtOf` is the sweep's own reading of "has been on air", so a
+      // broadcast that is live, previewing or complete is refused by exactly one definition.
+      if (airedAtOf(found) !== null) {
+        res.status(409).json(toErrorBody(airedRefusal(found.snippet?.title ?? id)));
+        return;
+      }
+      subject = {
+        title: found.snippet?.title ?? id,
+        watchUrl: watchUrlFor(found.id),
+        privacyStatus: found.status?.privacyStatus ?? null,
+        appCreated: false,
+      };
     }
 
-    const confirmation = deleteConfirmation(record);
-    if ((req.body as { confirm?: unknown } | undefined)?.confirm !== true) {
+    const confirmation = deleteConfirmation(subject);
+    if (!confirmed) {
       res
         .status(409)
         .json({ ...toErrorBody(new AppError("CONFIRMATION_REQUIRED", confirmation.warning)), confirmation });
       return;
     }
 
+    const reason = "Deleted by hand from the dashboard.";
     try {
-      const reason = "Deleted by hand from the dashboard.";
-      const retired = await retireOne(ctx.yt, record, { now: Date.now(), reason });
-      await upsertPrepared(ctx, retired);
-      ctx.logger.push({
-        level: "info",
-        category: "action",
-        code: null,
-        message: `Deleted “${retired.title}” from YouTube — ${reason} Its link no longer works.`,
-      });
-      void ctx.cache.refresh({ force: true });
-      res.json({ retired, quotaUnits: QUOTA_COST.write });
+      if (record) {
+        // Still recorded as retired, so the "Made here" list keeps the row and its history rather
+        // than losing it — a cleanup the operator cannot see afterwards is indistinguishable from
+        // a broadcast that went missing.
+        await upsertPrepared(ctx, await retireOne(ctx.yt, record, { now: Date.now(), reason }));
+      } else {
+        await deleteUnowned(ctx.yt, id);
+      }
     } catch (err) {
       res.status(502).json(toErrorBody(mapYouTubeError(err)));
+      return;
     }
+
+    // The pin is an answer to "where do my actions land", and the broadcast it named is gone. It
+    // is cleared rather than left dangling — but the operator is told, because falling back to
+    // "choose automatically" without a word is the app quietly picking a different broadcast to
+    // write to (issue 071).
+    const pinCleared = ctx.store.get().targetPin?.id === id;
+    if (pinCleared) await ctx.store.update((s) => { s.targetPin = null; });
+
+    ctx.logger.push({
+      level: "info",
+      category: "action",
+      code: null,
+      message:
+        `Deleted “${subject.title}” from YouTube — ${reason} Its link no longer works.` +
+        (pinCleared ? " It was the edit target, so actions now choose automatically." : ""),
+    });
+    void ctx.cache.refresh({ force: true });
+    res.json({
+      // Present only for a broadcast this app created — there is no ownership record to return
+      // for one it did not, and inventing one would put a row in "Made here" that was never made
+      // here.
+      retired: record ? (ctx.store.get().preparedBroadcasts.find((p) => p.id === id) ?? null) : null,
+      appCreated: subject.appCreated,
+      pinCleared,
+      quotaUnits: readUnits + QUOTA_COST.write,
+    });
   });
 
   return router;
+}
+
+/**
+ * The one refusal that is about the artifact rather than about ownership: a broadcast that has
+ * been on air is a recording, and deleting it takes the recording with it. Written once so the
+ * owned and unowned paths refuse it in the same words (issue 071).
+ */
+function airedRefusal(title: string): AppError {
+  return new AppError(
+    "INVALID_REQUEST",
+    `“${title}” has been on air, so it is a recording now. ` +
+      `Delete it in YouTube Studio if that is really what you want.`,
+  );
+}
+
+/**
+ * Deletes a broadcast this app has no record of. No stamp to write afterwards — the record is
+ * what carries the history, and there is none — so the channel listing is the only place it
+ * disappears from, which is where the operator was looking when they pressed.
+ */
+async function deleteUnowned(yt: youtube_v3.Youtube, id: string): Promise<void> {
+  try {
+    await yt.liveBroadcasts.delete({ id });
+  } catch (err) {
+    // Already gone is the outcome asked for, exactly as it is in `retireOne`.
+    const status = Number(
+      (err as { response?: { status?: number }; status?: number; code?: number })?.response?.status ??
+        (err as { status?: number }).status ??
+        (err as { code?: number }).code,
+    );
+    if (status !== 404) throw err;
+  }
 }
 
 /** Upserts one ownership record by id, leaving the rest of the list alone. */
