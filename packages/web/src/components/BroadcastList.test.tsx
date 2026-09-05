@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { BroadcastListEntry, BroadcastListing, TargetPin } from "../api.js";
 import { BroadcastList, resetBroadcastCache } from "./BroadcastList.js";
+import { COPIED_MS } from "../lib/useCopied.js";
 
 const list = vi.fn<() => Promise<BroadcastListing>>();
 const pin = vi.fn<(id: string | null, label: string | null) => Promise<TargetPin | null>>();
@@ -207,6 +208,19 @@ describe("BroadcastList", () => {
     expect(screen.getByText(/No upcoming or live broadcasts/)).toBeTruthy();
   });
 
+  it("keeps a way back to automatic when the read itself fails", async () => {
+    // Quota exhaustion does not clear the pin, and with the Edit target panel retired this row
+    // is the only control that can (issue 072).
+    list.mockRejectedValue(new Error("Quota exhausted"));
+    const onPinned = vi.fn();
+    render(<BroadcastList apiEnabled pin={pinned({ id: "gone", label: "Last week" })} onPinned={onPinned} />);
+
+    expect(await screen.findByText(/Quota exhausted/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: /choose automatically/i }));
+
+    await waitFor(() => expect(pin).toHaveBeenCalledWith(null, null));
+  });
+
   it("offers no pinning at all while the API is paused", async () => {
     // The write itself would land, but the state re-read behind it is refused while paused, so
     // the panel would go on showing a pin the server no longer holds.
@@ -354,6 +368,25 @@ describe("BroadcastList, managing (issue 069)", () => {
     expect(within(other).getByRole("button", { name: "Copy link" })).toBeTruthy();
   });
 
+  it("hands the button back rather than saying “Copied” for the rest of the session", async () => {
+    const writeText = vi.fn<(value: string) => Promise<void>>().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    list.mockResolvedValue({ ...listing(), entries: [entry({ id: "a", title: "Tonight" })] });
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    const row = await screen.findByRole("listitem", { name: /Tonight/ });
+    fireEvent.click(within(row).getByRole("button", { name: "Copy link" }));
+    expect(await within(row).findByRole("button", { name: "Copied" })).toBeTruthy();
+
+    // "Copied" is feedback about something that just happened, so it expires. Left standing, it
+    // reads as a claim about the clipboard long after anything else has been copied — and the
+    // button stops looking pressable for a second copy of the same link.
+    await waitFor(
+      () => expect(within(row).getByRole("button", { name: "Copy link" })).toBeTruthy(),
+      { timeout: COPIED_MS + 1000 },
+    );
+  });
+
   it("says so when the clipboard refuses, rather than claiming the link was copied", async () => {
     const writeText = vi.fn<(value: string) => Promise<void>>().mockRejectedValue(new Error("no"));
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
@@ -366,7 +399,10 @@ describe("BroadcastList, managing (issue 069)", () => {
       }),
     );
 
-    expect(await screen.findByText(/copy the link by hand/i)).toBeTruthy();
+    expect(await screen.findByText(/copy it by hand/i)).toBeTruthy();
+    // The whole of the recovery: telling someone to copy by hand is useless unless the link is
+    // on the screen, and the row shows only the id.
+    expect(screen.getByText("https://www.youtube.com/watch?v=a")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
   });
 
@@ -445,7 +481,8 @@ describe("BroadcastList, without a Clipboard API (issue 069)", () => {
       }),
     );
 
-    expect(await screen.findByText(/copy the link by hand/i)).toBeTruthy();
+    expect(await screen.findByText(/copy it by hand/i)).toBeTruthy();
+    expect(screen.getByText("https://www.youtube.com/watch?v=a")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
   });
 });

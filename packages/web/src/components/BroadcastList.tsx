@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type BroadcastListEntry, type BroadcastListing, type TargetPin } from "../api.js";
 import { watchUrl } from "../lib/watch.js";
+import { useCopied } from "../lib/useCopied.js";
 
 interface Props {
   /**
@@ -78,8 +79,12 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   // The link last copied, so exactly one row says "Copied" — two rows claiming it is a lie about
-  // what is actually on the clipboard.
-  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  // what is actually on the clipboard. It expires (see `useCopied`): a row that says "Copied"
+  // for the rest of the session is no longer describing anything that just happened.
+  const [copiedUrl, setCopiedUrl] = useCopied();
+  // The link a copy failed on. Held as the URL rather than as a sentence, because the sentence
+  // asks the operator to select the link and the row never shows one — only the id and a button.
+  const [uncopiedUrl, setUncopiedUrl] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -117,21 +122,26 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
     }
   }
 
-  /** Puts the audience's link on the clipboard, or says plainly that it did not. */
+  /** Puts the audience's link on the clipboard, or shows the link so it can be taken by hand. */
   function copy(url: string) {
     // Read the API out before using it: this app is normally reached over plain HTTP on the LAN,
     // and there `navigator.clipboard` is not merely a failing promise but absent entirely. An
     // optional call on it short-circuits the whole chain, so the button would do nothing at all
-    // and the sentence below — the one thing that tells the operator to copy by hand — would
-    // never be shown.
+    // and the fallback below — the one thing that leaves the operator a link — would never be
+    // shown.
     const clipboard = navigator.clipboard;
-    const failed = () =>
-      setError("Could not reach the clipboard — select the link and copy the link by hand.");
+    // Telling someone to copy the link by hand only helps if there is a link on the screen: the
+    // row shows the broadcast's id and a button, never the URL. So the failure renders the URL
+    // itself, which is also the whole of the recovery.
+    const failed = () => setUncopiedUrl(url);
     if (!clipboard) {
       failed();
       return;
     }
-    void clipboard.writeText(url).then(() => setCopiedUrl(url), failed);
+    void clipboard.writeText(url).then(() => {
+      setUncopiedUrl(null);
+      setCopiedUrl(url);
+    }, failed);
   }
 
   useEffect(() => {
@@ -140,6 +150,8 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
     if (listing) return;
     void load();
   }, [apiEnabled, listing]);
+
+  const warning = listing ? disagreement(listing, pin) : null;
 
   return (
     <section className="panel">
@@ -183,6 +195,13 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
           <>
             {error ? <p className="patch__error">{error}</p> : null}
 
+            {uncopiedUrl ? (
+              <p className="patch__error rundown__uncopied" role="status">
+                Could not reach the clipboard — here is the link, copy it by hand:{" "}
+                <code className="mono prep__link-url">{uncopiedUrl}</code>
+              </p>
+            ) : null}
+
             {listing ? (
               <p className={`rundown__verdict rundown__verdict--${verdictTone(listing)}`}>
                 {listing.verdict}
@@ -195,9 +214,9 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
                 pin and the airing marker disagree, the general on-air lede otherwise. Two at
                 once is how an operator learns to skip both (issue 072). */}
             {listing ? (
-              disagreement(listing, pin) ? (
+              warning ? (
                 <p className="rundown__disagree" role="status">
-                  {disagreement(listing, pin)}
+                  {warning}
                 </p>
               ) : listing.entries.some((e) => e.isLive) ? (
                 <p className="patch__lede">
@@ -213,35 +232,36 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
               </p>
             ) : null}
 
-            {listing ? (
-              <div role="radiogroup" aria-label="Broadcast to target">
-                <ul className="rundown">
-                  {/* Letting the app choose is a row in the same group, not a button off to the
-                      side: it is one of the answers to "which broadcast do actions write to", and
-                      as an outside control it left the group with nothing checked whenever no pin
-                      was set — the state most installs sit in. Listed even when the channel has
-                      no broadcasts, because a pin on a deleted one still needs a way back. */}
-                  <AutomaticRow
-                    selected={pin === null}
+            {/* Rendered whether or not the listing could be read: when the read fails, the pin
+                is still in force and clearing it is the only way out, so the group must not
+                depend on the API answering (issue 072). */}
+            <div role="radiogroup" aria-label="Broadcast to target">
+              <ul className="rundown">
+                {/* Letting the app choose is a row in the same group, not a button off to the
+                    side: it is one of the answers to "which broadcast do actions write to", and
+                    as an outside control it left the group with nothing checked whenever no pin
+                    was set — the state most installs sit in. Listed even when the channel has
+                    no broadcasts, because a pin on a deleted one still needs a way back. */}
+                <AutomaticRow
+                  selected={pin === null}
+                  disabled={saving}
+                  onSelect={() => void choose(null)}
+                />
+                {listing?.entries.map((e) => (
+                  <Row
+                    key={e.id}
+                    entry={e}
+                    contested={listing.contested}
+                    pinned={pin?.id === e.id}
                     disabled={saving}
-                    onSelect={() => void choose(null)}
+                    onSelect={() => void choose(e)}
+                    manage={manage}
+                    copied={copiedUrl === watchUrl(e.id)}
+                    onCopy={() => copy(watchUrl(e.id))}
                   />
-                  {listing.entries.map((e) => (
-                    <Row
-                      key={e.id}
-                      entry={e}
-                      contested={listing.contested}
-                      pinned={pin?.id === e.id}
-                      disabled={saving}
-                      onSelect={() => void choose(e)}
-                      manage={manage}
-                      copied={copiedUrl === watchUrl(e.id)}
-                      onCopy={() => copy(watchUrl(e.id))}
-                    />
-                  ))}
-                </ul>
-              </div>
-            ) : null}
+                ))}
+              </ul>
+            </div>
 
             {listing && listing.entries.length === 0 ? (
               <p className="patch__empty">

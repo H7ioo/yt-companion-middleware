@@ -16,6 +16,7 @@ import { CategorySelect } from "./CategorySelect.js";
 import { describePrepareCost, isoToLocalInput, localInputToIso } from "../lib/prepareForm.js";
 import { bindingLabel } from "../lib/streamBinding.js";
 import { extractVars, resolvePresetText } from "../lib/template.js";
+import { useCopied } from "../lib/useCopied.js";
 
 const PRIVACY: PrivacyStatus[] = ["public", "unlisted", "private"];
 
@@ -76,7 +77,7 @@ export function PrepareBroadcast({
   /** What the broadcast is missing when only part of the preparation landed. */
   const [warning, setWarning] = useState<string | null>(null);
   /** The link last copied, not a bare flag: two Copy buttons must not both say "Copied". */
-  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  const [copiedUrl, setCopiedUrl] = useCopied();
   /** Values for a templated preset's `{name}` variables, exactly as the fill popup collects them. */
   const [vars, setVars] = useState<Record<string, string>>({});
   /**

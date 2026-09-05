@@ -2406,6 +2406,19 @@ textarea {
   border-radius: var(--radius);
 }
 
+/* The clipboard refused, so the link itself is the message: laid out as a line of prose with the
+   URL set as a plate the operator can drag a selection across. */
+.rundown__uncopied {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rundown__uncopied .prep__link-url {
+  flex: 1 1 260px;
+  user-select: all;
+}
+
 /* ---- Signal in (ingestion readout, issue 059) ---------------------------- */
 /* The rack's own signal language: one lamp, the state in display weight, the evidence beneath.
    Deliberately the same lamp vocabulary the tally and the health rail use — an operator reads
