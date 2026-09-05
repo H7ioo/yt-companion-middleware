@@ -13,9 +13,9 @@ interface Props {
    */
   apiEnabled: boolean | null;
   /**
-   * The pinned edit target, straight from dashboard state — the same value the Edit target panel
-   * renders (issue 058). Held as a prop rather than as this panel's own copy on purpose: the pin
-   * is one concept surfaced twice, and a local copy is how two surfaces start disagreeing.
+   * The pinned edit target, straight from dashboard state. Held as a prop rather than as this
+   * panel's own copy on purpose: the rail reads the same value, and a local copy is how two
+   * surfaces start disagreeing (issue 058).
    */
   pin: TargetPin | null;
   /** Refetches dashboard state, so the rail and the pin follow a pin set from here. */
@@ -60,11 +60,13 @@ export function resetBroadcastCache() {
  * Read on demand, never polled: a list refreshed on an interval costs more quota than the single
  * target the background loop already tracks, so the cost is stated and the operator asks.
  *
- * Selecting a row sets the **edit-target pin** (issue 058) — the same state the Edit target panel
- * writes, not a second one. The list is the better place to choose from, because it carries the
- * evidence the choice turns on; the pin stays the one answer to "which broadcast do my actions
- * apply to", and this panel says so out loud when the operator's choice and the airing marker
- * point at different broadcasts.
+ * Selecting a row sets the **edit-target pin** (issue 058), and since issue 072 this is the only
+ * control that writes it: an Edit target panel used to offer the same radio group over the same
+ * value, and one value with two controls is how two surfaces start disagreeing. The list won
+ * because it carries the evidence the choice turns on — the bound key, auto-start, privacy, the
+ * reason a broadcast is out. The pin stays the one answer to "which broadcast do my actions apply
+ * to", and this panel says so out loud when the operator's choice and the airing marker point at
+ * different broadcasts.
  */
 export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Props) {
   // Read once, at the top: `false` and `null` differ in what the panel says, but not in whether
@@ -166,7 +168,14 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
         {paused ? (
           <p className="patch__lede">
             The YouTube API is paused, so the broadcast list is not being read. Resume it to
-            see {manage ? "the channel's broadcasts" : "which broadcast will air"}.
+            see {manage ? "the channel's broadcasts" : "which broadcast will air"}.{" "}
+            {/* The one sentence the retired Edit target panel said that this list did not
+                (issue 072). A paused install still has a pin, and the question it answers —
+                "where do my actions land when I switch this back on" — is unanswerable from a
+                list that is not being read. */}
+            {pin
+              ? `Actions will target “${pin.label ?? pin.id}” once you resume.`
+              : "Nothing is pinned, so actions will choose automatically once you resume."}
           </p>
         ) : !known ? (
           <p className="patch__empty">Waiting for the connection…</p>
@@ -182,7 +191,21 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
               <p className="patch__empty">Reading the channel…</p>
             )}
 
-            {listing ? <Disagreement listing={listing} pin={pin} /> : null}
+            {/* Exactly one sentence about where actions land: the specific warning when the
+                pin and the airing marker disagree, the general on-air lede otherwise. Two at
+                once is how an operator learns to skip both (issue 072). */}
+            {listing ? (
+              disagreement(listing, pin) ? (
+                <p className="rundown__disagree" role="status">
+                  {disagreement(listing, pin)}
+                </p>
+              ) : listing.entries.some((e) => e.isLive) ? (
+                <p className="patch__lede">
+                  You are on air. Edits go to the live broadcast until it ends, whatever is
+                  targeted here.
+                </p>
+              ) : null
+            ) : null}
 
             {listing && listing.encoderSource === "only-key" ? (
               <p className="patch__lede">
@@ -371,23 +394,15 @@ function Row({
  * Silent when they agree, when nothing is pinned, and when nothing qualifies to air: the verdict
  * above already carries the last case, and repeating it here would train the operator to skip
  * this line on the night it matters.
+ *
+ * A message rather than an element, so the caller can tell whether it has anything to say and
+ * stand the general on-air lede down in its favour (issue 072).
  */
-function Disagreement({
-  listing,
-  pin,
-}: {
-  listing: BroadcastListing;
-  pin: TargetPin | null;
-}) {
+function disagreement(listing: BroadcastListing, pin: TargetPin | null): string | null {
   if (!pin) return null;
   const name = pin.label ?? pin.id;
   if (!listing.entries.some((e) => e.id === pin.id)) {
-    return (
-      <p className="rundown__disagree" role="status">
-        Actions target “{name}”, which is no longer on the channel. Pick a row below, or choose
-        automatically.
-      </p>
-    );
+    return `Actions target “${name}”, which is no longer on the channel. Pick a row below, or choose automatically.`;
   }
   const airing = listing.entries.filter((e) => e.willAir);
   if (airing.length === 0 || airing.some((e) => e.id === pin.id)) return null;
@@ -399,19 +414,9 @@ function Disagreement({
   const live = airing.filter((e) => e.isLive);
   if (live.length > 0) {
     const onAir = live.map((e) => `“${e.title}”`).join(" and ");
-    return (
-      <p className="rundown__disagree" role="status">
-        Actions target “{name}”, but {onAir} {live.length > 1 ? "are" : "is"} on air — edits
-        go to the live broadcast until it ends, not to “{name}”.
-      </p>
-    );
+    return `Actions target “${name}”, but ${onAir} ${live.length > 1 ? "are" : "is"} on air — edits go to the live broadcast until it ends, not to “${name}”.`;
   }
-  return (
-    <p className="rundown__disagree" role="status">
-      Actions target “{name}”, but {others} {airing.length > 1 ? "are" : "is"} what will air.
-      Editing “{name}” will not change what viewers see.
-    </p>
-  );
+  return `Actions target “${name}”, but ${others} ${airing.length > 1 ? "are" : "is"} what will air. Editing “${name}” will not change what viewers see.`;
 }
 
 /** Which lamp colour the verdict itself carries — the answer's shape, not its severity. */

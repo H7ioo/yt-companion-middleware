@@ -28,7 +28,6 @@ export type {
   FillRequest,
   NotifyState,
   TargetPin,
-  BroadcastCandidate,
   BroadcastListing,
   BroadcastListEntry,
   IngestionReadout,
@@ -64,7 +63,6 @@ import type {
   AppInfo,
   NotifyState,
   TargetPin,
-  BroadcastCandidate,
   BroadcastListing,
   IngestionReport,
   SessionInfo,
@@ -336,7 +334,6 @@ export const api = {
   },
   /** Which broadcast actions edit — the operator's choice, or null to choose automatically. */
   target: {
-    candidates: () => req<BroadcastCandidate[]>("/api/dashboard/target/candidates"),
     pin: (id: string | null, label: string | null) =>
       req<TargetPin | null>("/api/dashboard/target", {
         method: "PUT",

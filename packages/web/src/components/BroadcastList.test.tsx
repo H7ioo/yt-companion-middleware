@@ -272,8 +272,8 @@ describe("BroadcastList", () => {
   });
 
   it("will not let a live broadcast be picked, because actions already edit it", async () => {
-    // Same rule the Edit target panel enforces: while a broadcast is on air, actions go to it
-    // whatever is pinned, so offering the pick here would promise something untrue.
+    // While a broadcast is on air, actions go to it whatever is pinned, so offering the pick
+    // here would promise something untrue.
     list.mockResolvedValue({
       ...listing(),
       entries: [entry({ id: "on-air", title: "Tonight", isLive: true, willAir: true })],
@@ -447,5 +447,79 @@ describe("BroadcastList, without a Clipboard API (issue 069)", () => {
 
     expect(await screen.findByText(/copy the link by hand/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
+  });
+});
+
+/**
+ * What the retired Edit target panel said that this list did not (issue 072).
+ *
+ * Deleting a duplicate control is only safe if the sentences it carried alone survive the
+ * deletion. Two did: the paused-API line that names the broadcast actions resume onto, and the
+ * on-air lede. `Disagreement` already covers the on-air case when a pin points elsewhere — but
+ * with no pin at all it says nothing, which is the state most installs sit in.
+ */
+describe("BroadcastList, what the Edit target panel used to say (issue 072)", () => {
+  it("names the broadcast actions will resume onto while the API is paused", () => {
+    render(
+      <BroadcastList
+        apiEnabled={false}
+        pin={pinned({ id: "b1", label: "Friday service" })}
+        onPinned={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/Actions will target “Friday service” once you resume/)).toBeTruthy();
+  });
+
+  it("falls back to the pin's id when no label was recorded for it", () => {
+    render(
+      <BroadcastList apiEnabled={false} pin={pinned({ id: "b7", label: null })} onPinned={() => {}} />,
+    );
+
+    expect(screen.getByText(/Actions will target “b7” once you resume/)).toBeTruthy();
+  });
+
+  it("says a paused install with no pin will choose automatically, rather than naming nothing", () => {
+    render(<BroadcastList apiEnabled={false} pin={null} onPinned={() => {}} />);
+
+    expect(screen.getByText(/choose automatically once you resume/i)).toBeTruthy();
+  });
+
+  it("states that edits go to the live broadcast even when nothing is pinned", async () => {
+    list.mockResolvedValue(
+      listing({ entries: [entry({ id: "on-air", title: "Tonight", isLive: true, willAir: true })] }),
+    );
+    render(<BroadcastList apiEnabled pin={null} onPinned={() => {}} />);
+
+    expect(
+      await screen.findByText(/You are on air.*edits? go to the live broadcast/i),
+    ).toBeTruthy();
+  });
+
+  it("leaves the on-air lede off when nothing is live", async () => {
+    list.mockResolvedValue(listing({ entries: [entry({ id: "b1", title: "Tonight" })] }));
+    render(<BroadcastList apiEnabled pin={null} onPinned={() => {}} />);
+
+    await screen.findByText("Tonight");
+    expect(screen.queryByText(/You are on air/i)).toBeNull();
+  });
+
+  it("does not repeat itself: the on-air lede and the disagreement warning are one message, not two", async () => {
+    // Both would otherwise fire on the same render — the lede for the live row, the warning for
+    // the pin pointing away from it — and the warning is the more specific of the two.
+    list.mockResolvedValue(
+      listing({
+        entries: [
+          entry({ id: "on-air", title: "Tonight", isLive: true, willAir: true }),
+          entry({ id: "stray", title: "Leftover" }),
+        ],
+      }),
+    );
+    render(
+      <BroadcastList apiEnabled pin={pinned({ id: "stray", label: "Leftover" })} onPinned={() => {}} />,
+    );
+
+    await screen.findByRole("status");
+    expect(screen.queryByText(/You are on air/i)).toBeNull();
   });
 });
