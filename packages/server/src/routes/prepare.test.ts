@@ -125,6 +125,8 @@ describe("POST /api/dashboard/broadcasts/prepare", () => {
     expect(snippet.title).toBe("Friday night");
     expect(snippet.description).toBe("Doors at 7");
     expect(snippet.scheduledStartTime).toBe("2026-09-04T18:00:00.000Z");
+    // The preset's own privacy, not the public default: a preset is a recorded decision, and a
+    // default is only what applies when no decision was recorded (issue 074).
     expect(state.inserts[0].requestBody.status.privacyStatus).toBe("unlisted");
     expect(state.inserts[0].requestBody.contentDetails).toMatchObject({
       enableAutoStart: true,
@@ -194,6 +196,20 @@ describe("POST /api/dashboard/broadcasts/prepare", () => {
     expect(state.binds[0].streamId).toBe("stream-x");
     expect(state.categoryUpdates[0].requestBody.snippet.categoryId).toBe("24");
     expect(store.get().preparedBroadcasts[0].presetId).toBeNull();
+  });
+
+  it("creates a public broadcast when nothing names a privacy (issue 074)", async () => {
+    // The channel exists to broadcast publicly. An unlisted fallback means a show goes out
+    // unlisted every time nobody touched the field, which is the wrong way for this to fail.
+    const state: FakeState = { inserts: [], binds: [], categoryUpdates: [] };
+    const url = await mount(state);
+    const res = await post(url, {
+      title: "One-off",
+      streamId: "stream-x",
+      scheduledStartTime: "2026-09-04T18:00:00.000Z",
+    });
+    expect(res.status).toBe(200);
+    expect(state.inserts[0].requestBody.status.privacyStatus).toBe("public");
   });
 
   it("resolves the preset's template variables before the insert, never after", async () => {

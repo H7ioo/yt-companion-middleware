@@ -417,7 +417,11 @@ function resolvePrepareInput(
   return {
     title,
     description,
-    privacyStatus: body.privacyStatus ?? preset?.privacyStatus ?? "unlisted",
+    // Public is the fallback, because that is what this channel's broadcasts are for (issue 074).
+    // A safe-looking `unlisted` default is the one that fails quietly: nobody notices a service
+    // went out unlisted until it is over. A preset's own privacy still wins — it is a recorded
+    // decision, and a default only applies where none was recorded.
+    privacyStatus: body.privacyStatus ?? preset?.privacyStatus ?? "public",
     scheduledStartTime: scheduled.toISOString(),
     streamId,
     categoryId,
