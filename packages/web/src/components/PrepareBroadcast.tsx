@@ -13,7 +13,8 @@ import { StreamSelect } from "./StreamSelect.js";
 import { PreparedList } from "./PreparedList.js";
 import { ApiError } from "../api.js";
 import { CategorySelect } from "./CategorySelect.js";
-import { describePrepareCost, localInputToIso } from "../lib/prepareForm.js";
+import { describePrepareCost, isoToLocalInput, localInputToIso } from "../lib/prepareForm.js";
+import { bindingLabel } from "../lib/streamBinding.js";
 import { extractVars, resolvePresetText } from "../lib/template.js";
 
 const PRIVACY: PrivacyStatus[] = ["public", "unlisted", "private"];
@@ -61,7 +62,9 @@ export function PrepareBroadcast({
 }: Props) {
   const [presetId, setPresetId] = useState<string>("");
   const [title, setTitle] = useState("");
-  const [privacyStatus, setPrivacy] = useState<PrivacyStatus>("unlisted");
+  // Public, matching the server's own fallback (issue 074). The channel exists to broadcast
+  // publicly; a default of `unlisted` is the one that goes wrong without anyone noticing.
+  const [privacyStatus, setPrivacy] = useState<PrivacyStatus>("public");
   const [streamId, setStreamId] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [startsAt, setStartsAt] = useState("");
@@ -114,9 +117,11 @@ export function PrepareBroadcast({
   }, []);
 
   // A preset carries its own privacy; following it keeps the form honest about what will be
-  // created, and the operator can still override before pressing.
+  // created, and the operator can still override before pressing. Clearing the preset returns
+  // the field to the app default, so a preset's unlisted does not linger on a free-form
+  // broadcast the operator meant to be public.
   useEffect(() => {
-    if (preset) setPrivacy(preset.privacyStatus);
+    setPrivacy(preset ? preset.privacyStatus : "public");
   }, [preset]);
 
   const startIso = localInputToIso(startsAt);
@@ -248,12 +253,25 @@ export function PrepareBroadcast({
                 {copiedUrl === fresh.watchUrl ? "Copied" : "Copy link"}
               </button>
             </div>
+            {/* A half-finished preparation is the headline and replaces the details outright —
+                a tidy summary sitting beside "the key never bound" reads as if all is well. */}
             {warning ? (
               <p className="prep__warning">{warning}</p>
             ) : (
-              <p className="prep__made-note">
-                It starts on its own when OBS starts, and ends when OBS stops.
-              </p>
+              <dl className="prep__made-details" data-testid="prep-made-details">
+                <div>
+                  <dt>Starts</dt>
+                  <dd>{stamp(fresh.scheduledStartTime)}</dd>
+                </div>
+                <div>
+                  <dt>Privacy</dt>
+                  <dd>{fresh.privacyStatus ?? "as YouTube left it"}</dd>
+                </div>
+                <div>
+                  <dt>Key</dt>
+                  <dd>{bindingLabel(fresh.streamId, streams)}</dd>
+                </div>
+              </dl>
             )}
             {/* Where the broadcast lives from here (issue 069). This panel makes one and stops;
                 retiming, retitling and deleting are the collection's page, not this form's. */}
@@ -389,6 +407,12 @@ export function PrepareBroadcast({
               </div>
             </div>
 
+            {/* The most consequential thing about the broadcast being made, said before it is
+                made rather than only in the receipt afterwards (issue 074). */}
+            <p className="prep__terms">
+              It starts when OBS starts, and ends when OBS stops. Nothing else has to be pressed.
+            </p>
+
             <div className="prep__go">
               <button
                 type="button"
@@ -412,4 +436,9 @@ export function PrepareBroadcast({
       </div>
     </section>
   );
+}
+
+/** The operator's own clock, in the shape the panel's other timestamps use. */
+function stamp(iso: string | null): string {
+  return iso ? isoToLocalInput(iso).replace("T", ", ") : "no start time";
 }

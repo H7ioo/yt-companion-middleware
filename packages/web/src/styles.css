@@ -2699,6 +2699,41 @@ textarea {
   color: var(--ink-dim);
   font-size: 12.5px;
 }
+/* The receipt: what the broadcast was actually made with, read at a glance before the link goes
+   out to a hundred people (issue 074). Set as a label plate rather than prose — mono micro-labels
+   over their values, the same vocabulary the rest of the rack uses for machine facts. */
+.prep__made-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 22px;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: var(--seam-line);
+}
+.prep__made-details > div {
+  min-width: 0;
+}
+.prep__made-details dt {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.prep__made-details dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+/* What the broadcast will do on its own, said before the press rather than in the receipt.
+   Dimmer than the form, brighter than the cost line — it is a consequence, not a footnote. */
+.prep__terms {
+  margin: 0 0 10px;
+  color: var(--ink-dim);
+  font-size: 12.5px;
+}
 /* Said inside the strip, not above it: the half-finished preparation and the link it produced
    are one fact, and an operator who reads the warning somewhere else presses create again. */
 .prep__warning {

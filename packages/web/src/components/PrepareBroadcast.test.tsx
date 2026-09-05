@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router";
 import type { LiveEligibility, PreparedBroadcast, Preset, StreamInfo } from "../api.js";
 import { PrepareBroadcast } from "./PrepareBroadcast.js";
 import { ApiError } from "../api.js";
+import { isoToLocalInput } from "../lib/prepareForm.js";
 
 const prepare = vi.fn();
 const preparedList = vi.fn<() => Promise<PreparedBroadcast[]>>();
@@ -158,6 +159,36 @@ describe("PrepareBroadcast", () => {
     expect(link.getAttribute("href")).toBe("/broadcasts");
   });
 
+  it("opens on public — an untouched field must not put a service out unlisted (issue 074)", async () => {
+    mount();
+    const privacy = (await screen.findByLabelText("Privacy")) as HTMLSelectElement;
+    expect(privacy.value).toBe("public");
+  });
+
+  it("still follows a preset's own privacy over the default (issue 074)", async () => {
+    // The default is only what applies when nobody recorded a decision. The preset recorded one.
+    mount();
+    fireEvent.change(await screen.findByLabelText("From preset"), { target: { value: "friday" } });
+    expect((screen.getByLabelText("Privacy") as HTMLSelectElement).value).toBe("unlisted");
+  });
+
+  it("returns to public when the preset is cleared (issue 074)", async () => {
+    // Backing out of a preset backs out of its privacy too; otherwise the one-off inherits an
+    // unlisted the operator never picked, and the server's public fallback never gets a say.
+    mount();
+    const select = await screen.findByLabelText("From preset");
+    fireEvent.change(select, { target: { value: "friday" } });
+    fireEvent.change(select, { target: { value: "" } });
+    expect((screen.getByLabelText("Privacy") as HTMLSelectElement).value).toBe("public");
+  });
+
+  it("says the broadcast will follow the encoder, before the press rather than after", async () => {
+    mount();
+    expect(
+      await screen.findByText(/starts when OBS starts, and ends when OBS stops/i),
+    ).toBeTruthy();
+  });
+
   it("states what a preparation costs, where the decision is made", async () => {
     mount();
     expect(await screen.findByText(/100 of the day's 10,000/)).toBeTruthy();
@@ -288,6 +319,18 @@ describe("PrepareBroadcast", () => {
       fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
     }
 
+    it("shows what the broadcast was created with, not only its title and link", async () => {
+      // What an operator checks at a glance before sending the link to a hundred people.
+      mount();
+      await create();
+      await screen.findByText("https://www.youtube.com/watch?v=made-1");
+
+      const details = screen.getByTestId("prep-made-details").textContent ?? "";
+      expect(details).toContain(isoToLocalInput("2026-09-04T18:00:00.000Z").replace("T", ", "));
+      expect(details).toContain("unlisted");
+      expect(details).toContain("OBS key — abcd-efgh");
+    });
+
     it("says what did not land, next to the link that did", async () => {
       prepare.mockResolvedValue({
         prepared: made({ streamId: null }),
@@ -299,6 +342,8 @@ describe("PrepareBroadcast", () => {
 
       expect(await screen.findByText("https://www.youtube.com/watch?v=made-1")).toBeTruthy();
       expect(screen.getByText(/could not be bound/)).toBeTruthy();
+      // A half-finished preparation is the headline, not a footnote beside a tidy details line.
+      expect(screen.queryByTestId("prep-made-details")).toBeNull();
     });
 
     it("still shows the link when the list refresh fails — the broadcast was made either way", async () => {
