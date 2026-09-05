@@ -117,8 +117,13 @@ Two things stated in the UI, not just in the docs:
 
 Broadcasts this app created, that never aired and whose time has passed, are retired automatically.
 
-- **Only broadcasts this app created are ever candidates.** A human-made broadcast is never touched,
-  under any condition.
+- **Only broadcasts this app created are ever candidates for *automatic* retirement.** The
+  background cleanup never touches a human-made broadcast, under any condition. This guard is
+  about the app acting on its own, and it does not move.
+- **An operator's deliberate, confirmed press is not cleanup** (amended, see §9). Manual deletion
+  from the management surface may target any broadcast on the channel, because a human chose that
+  row and answered a question about it. The distinction that matters is not who created the
+  broadcast, it is whether a human is deciding.
 - This is not housekeeping. YouTube refuses `insert` once too many live or scheduled broadcasts
   exist (`limitExceeded` / `userBroadcastsExceedLimit`), so uncleaned ghosts eventually block
   preparation on the night it matters.
@@ -148,6 +153,39 @@ The shipped pin is what makes today's flow work. Selecting a broadcast in the li
 rather than competing with it — one concept, surfaced two ways. The pin remains the answer to
 "which broadcast do my actions apply to".
 
+### 9. Managing broadcasts — the surface, and editing (amended 2026-09-05)
+
+Shipping §1–§5 left broadcast work scattered: Schedule creates and deletes app-made ones, Live
+lists all of them and pins one, and everything else is a trip to Studio — the exact detour this
+PRD set out to end. Three corrections.
+
+**A Broadcasts page owns the collection.** Full list, per-row edit, delete, and the watch link.
+Live keeps its own copy of the list, but read-only plus pinning: the afternoon/showtime split
+(Schedule is done once at a keyboard, Live is watched during the show) is real and stays. The two
+surfaces render the same data with different powers, and neither is a second source of truth.
+
+**Editing exists, and its shape is YouTube's, not ours.** The API divides the fields in two, and
+the UI must show that division rather than discover it as an error:
+
+- Editable in **any** lifecycle state — `snippet.title`, `snippet.description`,
+  `snippet.scheduledStartTime`, `snippet.scheduledEndTime`, `status.privacyStatus`. Category is
+  not a broadcast field at all; it is `videos.update snippet.categoryId`, a second resource.
+- Editable **only while `created` or `ready`** — every `contentDetails` flag (`enableAutoStart`,
+  `enableAutoStop`, `enableDvr`, `enableClosedCaptions`, `enableEmbed`, `recordFromStart`,
+  `monitorStream`) and rebinding the ingestion key. YouTube returns `forbidden` /
+  `liveBroadcastBindingNotAllowed` once the broadcast is testing or live.
+
+A form that greys half its fields without saying why reads as broken. Each locked field states the
+reason in the operator's words, using the lifecycle vocabulary the app already speaks.
+
+**Editing rides on the existing write path.** `writeBroadcast` is already read-modify-write and
+already refuses a body that lost a field (§7). Editing adds a route and a form on top of it; it
+does not add new update-safety machinery, and any edit that bypasses that path is a bug.
+
+**Deleting covers any broadcast on the channel**, from the management surface, behind the existing
+struck-through-link confirmation. See the §5 amendment for why this does not weaken the cleanup
+guard.
+
 ## User Stories
 
 1. As a streamer, I see which broadcast will actually air, and why, without opening Studio.
@@ -165,6 +203,13 @@ rather than competing with it — one concept, surfaced two ways. The pin remain
 11. As a Companion operator, a key prepares tonight's broadcast from a preset, and a feedback shows
     whether one is prepared and bound.
 12. As a developer, the create/bind/schedule sequence is covered against a faked YouTube client.
+13. As an operator, I manage every broadcast on the channel from one page, without opening Studio.
+14. As an operator, I change a broadcast's title, time or privacy after it exists, and I am told
+    plainly which fields YouTube has locked and why.
+15. As an operator, I delete any broadcast on the channel from the app, having been asked to
+    confirm and shown the link I am destroying.
+16. As an operator, a panel that is still loading looks like it is loading, and the page does not
+    jump when the data arrives.
 
 ## Implementation Decisions
 
