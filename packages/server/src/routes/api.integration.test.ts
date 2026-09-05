@@ -733,13 +733,6 @@ describe("edit target pin", () => {
     ];
   });
 
-  it("offers every candidate and marks the one it would choose unaided", async () => {
-    const res = await call("GET", "/api/dashboard/target/candidates");
-    expect(res.status).toBe(200);
-    expect(res.body.map((c: any) => c.id).sort()).toEqual(["mine", "soon"]);
-    expect(res.body.find((c: any) => c.wouldPick).id).toBe("soon");
-  });
-
   it("sends the write to the pinned broadcast instead of the automatic pick", async () => {
     // Unpinned, an update lands on the soonest event.
     await call("POST", "/api/action/update", { title: "before" });
@@ -836,25 +829,6 @@ describe("edit target pin", () => {
     expect(cleared.body.targetConflict?.code ?? null).not.toBe("TARGET_DRIFT");
     // Unpinned with two upcoming, the ordinary ambiguity warning is the only one expected.
     expect(cleared.body.targetConflict?.code ?? null).toBe("MULTIPLE_UPCOMING");
-  });
-
-  it("sorts candidates closest-to-air first, with no scheduled start last", async () => {
-    h.state.upcoming = [
-      {
-        ...idle("undated", "No start time", 0),
-        snippet: { title: "No start time" },
-      },
-      idle("later", "Later", 9),
-      idle("mine", "The one I want", 5),
-    ];
-    const res = await call("GET", "/api/dashboard/target/candidates");
-    // "soon" is gone from this list, so the automatic pick heads it; an event with no scheduled
-    // start is the least identifiable row, not the most imminent one, so it sorts last.
-    expect(res.body.map((c: any) => c.id)).toEqual([
-      "mine",
-      "later",
-      "undated",
-    ]);
   });
 
   it("rejects an empty id rather than storing an unusable pin", async () => {

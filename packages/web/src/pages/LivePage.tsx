@@ -1,15 +1,17 @@
 import { BroadcastList } from "../components/BroadcastList.js";
 import { IngestionReadout } from "../components/IngestionReadout.js";
 import { WatchPanel } from "../components/WatchPanel.js";
-import { TargetPicker } from "../components/TargetPicker.js";
 import { useDashboard } from "./context.js";
 
 /**
  * Tonight, as it is happening (navbar + pages).
  *
  * The order is the order the questions get asked when something looks wrong: what will air, what
- * can be done to it right now, whether video is arriving, what the audience actually sees, and —
- * last, because it is set once and then left — which broadcast the actions write to.
+ * can be done to it right now, whether video is arriving, and what the audience actually sees.
+ *
+ * The list at the top is also where the edit target is chosen (issue 072). It used to be chosen
+ * twice — the list and an Edit target panel at the foot of the page were two radio groups over
+ * one value, which is how two surfaces start disagreeing, and read as two different questions.
  */
 export function LivePage() {
   const {
@@ -24,8 +26,8 @@ export function LivePage() {
   return (
     <>
       {/* What YouTube will actually feed when the encoder starts, and — since issue 058 — the
-          second surface for the same edit-target pin the picker below writes. First because
-          "which one airs" is the question that comes first (issue 057). */}
+          only control over the edit-target pin. First because "which one airs" is the question
+          that comes first (issue 057). */}
       <BroadcastList
         apiEnabled={state ? state.apiEnabled : null}
         pin={state?.targetPin ?? null}
@@ -95,13 +97,6 @@ export function LivePage() {
           picture, and the panel that answers "is video arriving right now" has to be the one
           read first. */}
       {state ? <WatchPanel status={state.status} /> : null}
-
-      {/* Which broadcast every action writes to, here and on the Presets page (PRD-12). */}
-      <TargetPicker
-        pin={state?.targetPin ?? null}
-        apiEnabled={apiEnabled}
-        onChanged={refreshSession}
-      />
     </>
   );
 }
