@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { BroadcastListEntry, BroadcastListing, TargetPin } from "../api.js";
-import { BroadcastList } from "./BroadcastList.js";
+import { BroadcastList, resetBroadcastCache } from "./BroadcastList.js";
 
 const list = vi.fn<() => Promise<BroadcastListing>>();
 const pin = vi.fn<(id: string | null, label: string | null) => Promise<TargetPin | null>>();
@@ -48,6 +48,8 @@ const listing = (over: Partial<BroadcastListing> = {}): BroadcastListing => ({
 });
 
 beforeEach(() => {
+  // The listing outlives a mount on purpose, so each test starts from a cold session.
+  resetBroadcastCache();
   list.mockReset();
   list.mockResolvedValue(listing());
   pin.mockReset();
@@ -398,5 +400,52 @@ describe("BroadcastList, managing (issue 069)", () => {
     );
     expect(list).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Copy link" })).toBeNull();
+  });
+});
+
+describe("BroadcastList, the session's one read (issue 069)", () => {
+  it("does not re-read the channel when the same list is mounted again on the other page", async () => {
+    list.mockResolvedValue({ ...listing(), entries: [entry({ title: "Tonight" })] });
+    const first = render(<BroadcastList apiEnabled pin={null} onPinned={() => {}} />);
+    await screen.findByText("Tonight");
+    expect(list).toHaveBeenCalledTimes(1);
+
+    // Live → Broadcasts is a fresh mount of this same panel. Three quota units per navigation is
+    // exactly what "read on demand, never polled" rules out.
+    first.unmount();
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    expect(await screen.findByText("Tonight")).toBeTruthy();
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it("still reads again when asked to refresh", async () => {
+    list.mockResolvedValue(listing());
+    const first = render(<BroadcastList apiEnabled pin={null} onPinned={() => {}} />);
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh list" }));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("BroadcastList, without a Clipboard API (issue 069)", () => {
+  it("says the link must be copied by hand, rather than doing nothing at all", async () => {
+    // Plain HTTP over the LAN is how this app is normally reached, and there the API is absent —
+    // not failing, absent.
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    list.mockResolvedValue({ ...listing(), entries: [entry({ id: "a", title: "Tonight" })] });
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    fireEvent.click(
+      within(await screen.findByRole("listitem", { name: /Tonight/ })).getByRole("button", {
+        name: "Copy link",
+      }),
+    );
+
+    expect(await screen.findByText(/copy the link by hand/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
   });
 });

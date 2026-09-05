@@ -33,6 +33,21 @@ interface Props {
 }
 
 /**
+ * The last listing read, held outside the component (issue 069).
+ *
+ * Live and Broadcasts render this same panel from two routes, so mounting is exactly what happens
+ * when the operator moves between them — and a fetch on every mount would charge three quota units
+ * per navigation, against a panel whose whole contract is "read on demand, never polled". The read
+ * belongs to the session, not to the mount; "Refresh list" is how it is asked for again.
+ */
+let cached: BroadcastListing | null = null;
+
+/** Drops the session's cached listing. For tests, and for a sign-out that changes whose channel this is. */
+export function resetBroadcastCache() {
+  cached = null;
+}
+
+/**
  * Answers the question that otherwise means opening Studio mid-show: **which broadcast will
  * actually air?** (PRD-16 §1, issue 057.)
  *
@@ -56,7 +71,7 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
   // it may spend quota.
   const paused = apiEnabled === false;
   const known = apiEnabled !== null;
-  const [listing, setListing] = useState<BroadcastListing | null>(null);
+  const [listing, setListing] = useState<BroadcastListing | null>(cached);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -68,7 +83,8 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
     setLoading(true);
     setError(null);
     try {
-      setListing(await api.broadcasts.list());
+      cached = await api.broadcasts.list();
+      setListing(cached);
     } catch (err) {
       // Left as-is, not emptied: an empty list means "this channel has no broadcasts", which
       // reads as a real answer. A failed read is not evidence of anything.
@@ -101,16 +117,27 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
 
   /** Puts the audience's link on the clipboard, or says plainly that it did not. */
   function copy(url: string) {
-    void navigator.clipboard?.writeText(url).then(
-      () => setCopiedUrl(url),
-      () => setError("Could not reach the clipboard — select the link and copy the link by hand."),
-    );
+    // Read the API out before using it: this app is normally reached over plain HTTP on the LAN,
+    // and there `navigator.clipboard` is not merely a failing promise but absent entirely. An
+    // optional call on it short-circuits the whole chain, so the button would do nothing at all
+    // and the sentence below — the one thing that tells the operator to copy by hand — would
+    // never be shown.
+    const clipboard = navigator.clipboard;
+    const failed = () =>
+      setError("Could not reach the clipboard — select the link and copy the link by hand.");
+    if (!clipboard) {
+      failed();
+      return;
+    }
+    void clipboard.writeText(url).then(() => setCopiedUrl(url), failed);
   }
 
   useEffect(() => {
     if (apiEnabled !== true) return;
+    // Already read this session: the listing outlives the component on purpose (see `cached`).
+    if (listing) return;
     void load();
-  }, [apiEnabled]);
+  }, [apiEnabled, listing]);
 
   return (
     <section className="panel">
