@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
 import type {
   Category,
   LiveEligibility,
@@ -254,6 +255,11 @@ export function PrepareBroadcast({
                 It starts on its own when OBS starts, and ends when OBS stops.
               </p>
             )}
+            {/* Where the broadcast lives from here (issue 069). This panel makes one and stops;
+                retiming, retitling and deleting are the collection's page, not this form's. */}
+            <p className="prep__made-note">
+              Find it on <Link to="/broadcasts">Broadcasts</Link> to change or remove it.
+            </p>
           </div>
         ) : null}
 

@@ -50,3 +50,15 @@ Nothing. Issues 070 and 071 depend on this.
 ## User stories addressed
 
 - User story 13
+
+## Done (2026-09-05)
+
+Shipped: the Broadcasts tab and route, `BroadcastList` grown a `manage` power, and Copy link on
+its rows. Live renders the same component with the power off, so the verdict, the evidence, the
+`Disagreement` warning and the fetch are one piece of code. The pin is still one value, settable
+from either page. Schedule's post-create strip now points at this page rather than growing
+controls of its own.
+
+Left to the issues that were always going to carry them: **Edit** is issue 070 and **Delete** is
+issue 071, both of which slot into the `rundown__actions` group beside Copy link. Dead buttons
+were not shipped in their place.

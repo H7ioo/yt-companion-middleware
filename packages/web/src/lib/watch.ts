@@ -13,6 +13,16 @@ export type Watch =
   | { kind: "studio"; studioUrl: string; why: string }
   | { kind: "waiting"; why: string };
 
+/**
+ * The audience's own address for a broadcast, built in one place.
+ *
+ * Two panels hand this link out — the one just made, and any row on the Broadcasts page — and a
+ * link typed twice is a link that can be wrong in one of them.
+ */
+export function watchUrl(broadcastId: string): string {
+  return `https://www.youtube.com/watch?v=${broadcastId}`;
+}
+
 /** YouTube's privacy values that permit an embed. Anything else is Studio's problem, not ours. */
 const EMBEDDABLE = new Set(["public", "unlisted"]);
 
@@ -60,6 +70,6 @@ export function describeWatch(status: FeedbackStatus): Watch {
     // The press is the operator's own play gesture, so the frame starts playing rather than
     // making them find YouTube's button inside it.
     embedUrl: `https://www.youtube.com/embed/${id}?autoplay=1`,
-    watchUrl: `https://www.youtube.com/watch?v=${id}`,
+    watchUrl: watchUrl(id),
   };
 }
