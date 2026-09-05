@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { BroadcastListEntry, BroadcastListing, TargetPin } from "../api.js";
-import { BroadcastList } from "./BroadcastList.js";
+import { BroadcastList, resetBroadcastCache } from "./BroadcastList.js";
 
 const list = vi.fn<() => Promise<BroadcastListing>>();
 const pin = vi.fn<(id: string | null, label: string | null) => Promise<TargetPin | null>>();
@@ -48,6 +48,8 @@ const listing = (over: Partial<BroadcastListing> = {}): BroadcastListing => ({
 });
 
 beforeEach(() => {
+  // The listing outlives a mount on purpose, so each test starts from a cold session.
+  resetBroadcastCache();
   list.mockReset();
   list.mockResolvedValue(listing());
   pin.mockReset();
@@ -293,5 +295,157 @@ describe("BroadcastList", () => {
 
     expect(await screen.findByText("Target refused")).toBeTruthy();
     expect(screen.getByText("Leftover")).toBeTruthy();
+  });
+});
+
+describe("BroadcastList, managing (issue 069)", () => {
+  it("offers no row actions on the Live page's read-only list", async () => {
+    list.mockResolvedValue({ ...listing(), entries: [entry({ title: "Tonight" })] });
+    render(<BroadcastList apiEnabled pin={null} onPinned={() => {}} />);
+
+    await screen.findByText("Tonight");
+    expect(screen.queryByRole("button", { name: "Copy link" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "What will air" })).toBeTruthy();
+  });
+
+  it("names itself for the collection it manages, not for tonight's verdict", async () => {
+    list.mockResolvedValue({ ...listing(), entries: [entry({ title: "Tonight" })] });
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    await screen.findByText("Tonight");
+    expect(screen.getByRole("heading", { name: "Broadcasts" })).toBeTruthy();
+  });
+
+  it("still leads with the same verdict and the same evidence the Live list shows", async () => {
+    list.mockResolvedValue(
+      listing({
+        verdict: "“Tonight” will air. Bound to “OBS key”.",
+        entries: [entry({ title: "Tonight", willAir: true, reason: "Bound to “OBS key”." })],
+      }),
+    );
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    expect(await screen.findByText(/“Tonight” will air\./)).toBeTruthy();
+    const row = screen.getByRole("listitem", { name: /Tonight/ });
+    expect(row.textContent).toContain("OBS key");
+    expect(row.textContent).toContain("Auto-start on");
+    expect(row.textContent).toContain("Public");
+    expect(row.textContent).toContain("Will air");
+    expect(row.textContent).toContain("b1");
+  });
+
+  it("copies the watch link of the row it was pressed on", async () => {
+    const writeText = vi.fn<(value: string) => Promise<void>>().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    list.mockResolvedValue({
+      ...listing(),
+      entries: [entry({ id: "a", title: "Tonight" }), entry({ id: "b", title: "Leftover" })],
+    });
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    const row = await screen.findByRole("listitem", { name: /Leftover/ });
+    fireEvent.click(within(row).getByRole("button", { name: "Copy link" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://www.youtube.com/watch?v=b"));
+    // Only the row that was pressed reports back — two rows saying "Copied" is a lie about
+    // what is on the clipboard.
+    expect(within(row).getByRole("button", { name: "Copied" })).toBeTruthy();
+    const other = screen.getByRole("listitem", { name: /Tonight/ });
+    expect(within(other).getByRole("button", { name: "Copy link" })).toBeTruthy();
+  });
+
+  it("says so when the clipboard refuses, rather than claiming the link was copied", async () => {
+    const writeText = vi.fn<(value: string) => Promise<void>>().mockRejectedValue(new Error("no"));
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    list.mockResolvedValue({ ...listing(), entries: [entry({ id: "a", title: "Tonight" })] });
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    fireEvent.click(
+      within(await screen.findByRole("listitem", { name: /Tonight/ })).getByRole("button", {
+        name: "Copy link",
+      }),
+    );
+
+    expect(await screen.findByText(/copy the link by hand/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
+  });
+
+  it("sets the one pin from here too, rather than inventing a second target", async () => {
+    list.mockResolvedValue({ ...listing(), entries: [entry({ id: "stray", title: "Leftover" })] });
+    const onPinned = vi.fn();
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={onPinned} />);
+
+    fireEvent.click(await screen.findByRole("radio", { name: /Leftover/ }));
+
+    await waitFor(() => expect(pin).toHaveBeenCalledWith("stray", "Leftover"));
+    await waitFor(() => expect(onPinned).toHaveBeenCalled());
+  });
+
+  it("reads the channel on demand here as well, and states what the read cost", async () => {
+    list.mockResolvedValue(listing({ quotaUnits: 3 }));
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    expect(await screen.findByText("3 quota units")).toBeTruthy();
+    expect(list).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh list" }));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  });
+
+  it("spends no quota on this page either while the API is paused", async () => {
+    render(<BroadcastList manage apiEnabled={false} pin={null} onPinned={() => {}} />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/The YouTube API is paused/)).toBeTruthy(),
+    );
+    expect(list).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Copy link" })).toBeNull();
+  });
+});
+
+describe("BroadcastList, the session's one read (issue 069)", () => {
+  it("does not re-read the channel when the same list is mounted again on the other page", async () => {
+    list.mockResolvedValue({ ...listing(), entries: [entry({ title: "Tonight" })] });
+    const first = render(<BroadcastList apiEnabled pin={null} onPinned={() => {}} />);
+    await screen.findByText("Tonight");
+    expect(list).toHaveBeenCalledTimes(1);
+
+    // Live → Broadcasts is a fresh mount of this same panel. Three quota units per navigation is
+    // exactly what "read on demand, never polled" rules out.
+    first.unmount();
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    expect(await screen.findByText("Tonight")).toBeTruthy();
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it("still reads again when asked to refresh", async () => {
+    list.mockResolvedValue(listing());
+    const first = render(<BroadcastList apiEnabled pin={null} onPinned={() => {}} />);
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh list" }));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("BroadcastList, without a Clipboard API (issue 069)", () => {
+  it("says the link must be copied by hand, rather than doing nothing at all", async () => {
+    // Plain HTTP over the LAN is how this app is normally reached, and there the API is absent —
+    // not failing, absent.
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    list.mockResolvedValue({ ...listing(), entries: [entry({ id: "a", title: "Tonight" })] });
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    fireEvent.click(
+      within(await screen.findByRole("listitem", { name: /Tonight/ })).getByRole("button", {
+        name: "Copy link",
+      }),
+    );
+
+    expect(await screen.findByText(/copy the link by hand/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
   });
 });

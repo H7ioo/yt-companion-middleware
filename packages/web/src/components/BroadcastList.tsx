@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type BroadcastListEntry, type BroadcastListing, type TargetPin } from "../api.js";
+import { watchUrl } from "../lib/watch.js";
 
 interface Props {
   /**
@@ -17,8 +18,33 @@ interface Props {
    * is one concept surfaced twice, and a local copy is how two surfaces start disagreeing.
    */
   pin: TargetPin | null;
-  /** Refetches dashboard state, so the picker and the rail follow a pin set from here. */
+  /** Refetches dashboard state, so the rail and the pin follow a pin set from here. */
   onPinned: () => void;
+  /**
+   * Whether this surface may act on a broadcast, rather than only read and pin it (issue 069).
+   *
+   * The Live page and the Broadcasts page render the same list from the same fetch — the verdict,
+   * the evidence and the disagreement warning are one piece of code, not two — and this is the
+   * whole of the difference between them. Live is read at 22:58 with the show about to start, and
+   * a Delete sitting a few pixels from the row being watched is not something to hand an operator
+   * mid-count. Management lives on the page opened deliberately, in the afternoon.
+   */
+  manage?: boolean;
+}
+
+/**
+ * The last listing read, held outside the component (issue 069).
+ *
+ * Live and Broadcasts render this same panel from two routes, so mounting is exactly what happens
+ * when the operator moves between them — and a fetch on every mount would charge three quota units
+ * per navigation, against a panel whose whole contract is "read on demand, never polled". The read
+ * belongs to the session, not to the mount; "Refresh list" is how it is asked for again.
+ */
+let cached: BroadcastListing | null = null;
+
+/** Drops the session's cached listing. For tests, and for a sign-out that changes whose channel this is. */
+export function resetBroadcastCache() {
+  cached = null;
 }
 
 /**
@@ -40,21 +66,25 @@ interface Props {
  * apply to", and this panel says so out loud when the operator's choice and the airing marker
  * point at different broadcasts.
  */
-export function BroadcastList({ apiEnabled, pin, onPinned }: Props) {
+export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Props) {
   // Read once, at the top: `false` and `null` differ in what the panel says, but not in whether
   // it may spend quota.
   const paused = apiEnabled === false;
   const known = apiEnabled !== null;
-  const [listing, setListing] = useState<BroadcastListing | null>(null);
+  const [listing, setListing] = useState<BroadcastListing | null>(cached);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The link last copied, so exactly one row says "Copied" — two rows claiming it is a lie about
+  // what is actually on the clipboard.
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      setListing(await api.broadcasts.list());
+      cached = await api.broadcasts.list();
+      setListing(cached);
     } catch (err) {
       // Left as-is, not emptied: an empty list means "this channel has no broadcasts", which
       // reads as a real answer. A failed read is not evidence of anything.
@@ -85,15 +115,36 @@ export function BroadcastList({ apiEnabled, pin, onPinned }: Props) {
     }
   }
 
+  /** Puts the audience's link on the clipboard, or says plainly that it did not. */
+  function copy(url: string) {
+    // Read the API out before using it: this app is normally reached over plain HTTP on the LAN,
+    // and there `navigator.clipboard` is not merely a failing promise but absent entirely. An
+    // optional call on it short-circuits the whole chain, so the button would do nothing at all
+    // and the sentence below — the one thing that tells the operator to copy by hand — would
+    // never be shown.
+    const clipboard = navigator.clipboard;
+    const failed = () =>
+      setError("Could not reach the clipboard — select the link and copy the link by hand.");
+    if (!clipboard) {
+      failed();
+      return;
+    }
+    void clipboard.writeText(url).then(() => setCopiedUrl(url), failed);
+  }
+
   useEffect(() => {
     if (apiEnabled !== true) return;
+    // Already read this session: the listing outlives the component on purpose (see `cached`).
+    if (listing) return;
     void load();
-  }, [apiEnabled]);
+  }, [apiEnabled, listing]);
 
   return (
     <section className="panel">
       <div className="panel__head">
-        <h2>What will air</h2>
+        {/* Two questions, two names. Live asks which broadcast wins tonight; this page holds
+            the channel's collection and is where one is acted on. */}
+        <h2>{manage ? "Broadcasts" : "What will air"}</h2>
         <div className="panel__head-actions">
           {listing ? (
             <span className="rundown__cost mono" title="What this read cost against today's YouTube budget">
@@ -115,7 +166,7 @@ export function BroadcastList({ apiEnabled, pin, onPinned }: Props) {
         {paused ? (
           <p className="patch__lede">
             The YouTube API is paused, so the broadcast list is not being read. Resume it to
-            see which broadcast will air.
+            see {manage ? "the channel's broadcasts" : "which broadcast will air"}.
           </p>
         ) : !known ? (
           <p className="patch__empty">Waiting for the connection…</p>
@@ -160,6 +211,9 @@ export function BroadcastList({ apiEnabled, pin, onPinned }: Props) {
                       pinned={pin?.id === e.id}
                       disabled={saving}
                       onSelect={() => void choose(e)}
+                      manage={manage}
+                      copied={copiedUrl === watchUrl(e.id)}
+                      onCopy={() => copy(watchUrl(e.id))}
                     />
                   ))}
                 </ul>
@@ -168,8 +222,8 @@ export function BroadcastList({ apiEnabled, pin, onPinned }: Props) {
 
             {listing && listing.entries.length === 0 ? (
               <p className="patch__empty">
-                No upcoming or live broadcasts on the channel. Schedule one in YouTube Studio,
-                or go live.
+                No upcoming or live broadcasts on the channel.{" "}
+                {manage ? "Prepare one on the Schedule page, or go live." : "Schedule one in YouTube Studio, or go live."}
               </p>
             ) : null}
           </>
@@ -224,9 +278,22 @@ interface RowProps {
   pinned: boolean;
   disabled: boolean;
   onSelect: () => void;
+  /** Whether this row carries the actions, or only the evidence (issue 069). */
+  manage: boolean;
+  copied: boolean;
+  onCopy: () => void;
 }
 
-function Row({ entry, contested, pinned, disabled, onSelect }: RowProps) {
+function Row({
+  entry,
+  contested,
+  pinned,
+  disabled,
+  onSelect,
+  manage,
+  copied,
+  onCopy,
+}: RowProps) {
   const marked = entry.willAir;
   return (
     <li
@@ -273,7 +340,24 @@ function Row({ entry, contested, pinned, disabled, onSelect }: RowProps) {
           {entry.reason ? <span className="rundown__reason">{entry.reason}</span> : null}
         </span>
       </button>
-      <span className="patch__id mono">{entry.id}</span>
+      {/* The id and the actions share the right edge: the id is what a row is identified by in
+          Studio and in the activity log, and the actions are what is done to the thing it
+          names. On the read-only list the column is the id alone, exactly as it was. */}
+      <span className="rundown__aside">
+        <span className="patch__id mono">{entry.id}</span>
+        {manage ? (
+          <span className="rundown__actions">
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={onCopy}
+              title="Copy the audience's link to this broadcast"
+            >
+              {copied ? "Copied" : "Copy link"}
+            </button>
+          </span>
+        ) : null}
+      </span>
     </li>
   );
 }

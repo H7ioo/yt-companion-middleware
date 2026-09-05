@@ -2380,9 +2380,23 @@ textarea {
   font-size: 12.5px;
   overflow-wrap: anywhere;
 }
-.rundown__row .patch__id {
+/* The right edge of a row: what it is called in Studio, and — where the surface has the powers
+   for it — what can be done to it (issue 069). Stacked rather than strung along the row, so the
+   read-only list and the management list share one column and one alignment. */
+.rundown__aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
   margin-left: auto;
   align-self: flex-start;
+}
+.rundown__row .patch__id {
+  align-self: flex-end;
+}
+.rundown__actions {
+  display: flex;
+  gap: 6px;
 }
 
 /* ---- The rundown row as a patch point (issue 058) --------------------------

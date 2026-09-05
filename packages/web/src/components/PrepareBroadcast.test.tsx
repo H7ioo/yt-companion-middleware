@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import type { LiveEligibility, PreparedBroadcast, Preset, StreamInfo } from "../api.js";
 import { PrepareBroadcast } from "./PrepareBroadcast.js";
 import { ApiError } from "../api.js";
@@ -72,16 +73,18 @@ const driving: LiveEligibility = {
 
 function mount(over: Partial<Parameters<typeof PrepareBroadcast>[0]> = {}) {
   return render(
-    <PrepareBroadcast
-      presets={[preset()]}
-      streams={streams}
-      categories={[{ id: "24", title: "Entertainment" }]}
-      apiEnabled
-      eligibility={driving}
-      defaultCategory={null}
-      onPrepared={() => {}}
-      {...over}
-    />,
+    <MemoryRouter>
+      <PrepareBroadcast
+        presets={[preset()]}
+        streams={streams}
+        categories={[{ id: "24", title: "Entertainment" }]}
+        apiEnabled
+        eligibility={driving}
+        defaultCategory={null}
+        onPrepared={() => {}}
+        {...over}
+      />
+    </MemoryRouter>,
   );
 }
 
@@ -139,6 +142,20 @@ describe("PrepareBroadcast", () => {
 
     expect(await screen.findByText("https://www.youtube.com/watch?v=made-1")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
+  });
+
+  it("hands off to the Broadcasts page once the broadcast exists (issue 069)", async () => {
+    // Schedule makes one and stops there. Everything done to a broadcast afterwards — retiming,
+    // retitling, deleting — lives on the page that owns the collection.
+    mount();
+    fireEvent.change(await screen.findByLabelText("From preset"), {
+      target: { value: "friday" },
+    });
+    fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
+
+    const link = await screen.findByRole("link", { name: /Broadcasts/ });
+    expect(link.getAttribute("href")).toBe("/broadcasts");
   });
 
   it("states what a preparation costs, where the decision is made", async () => {

@@ -3,6 +3,7 @@ import { App } from "./App.js";
 import { LivePage } from "./pages/LivePage.js";
 import { PresetsPage } from "./pages/PresetsPage.js";
 import { SchedulePage } from "./pages/SchedulePage.js";
+import { BroadcastsPage } from "./pages/BroadcastsPage.js";
 import { ActivityPage } from "./pages/ActivityPage.js";
 import { SettingsPage } from "./pages/SettingsPage.js";
 
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
       { index: true, element: <LivePage /> },
       { path: "presets", element: <PresetsPage /> },
       { path: "schedule", element: <SchedulePage /> },
+      { path: "broadcasts", element: <BroadcastsPage /> },
       { path: "activity", element: <ActivityPage /> },
       { path: "settings", element: <SettingsPage /> },
       { path: "*", element: <Navigate to="/" replace /> },
