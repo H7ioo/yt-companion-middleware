@@ -117,9 +117,11 @@ export function PrepareBroadcast({
   }, []);
 
   // A preset carries its own privacy; following it keeps the form honest about what will be
-  // created, and the operator can still override before pressing.
+  // created, and the operator can still override before pressing. Clearing the preset returns
+  // the field to the app default, so a preset's unlisted does not linger on a free-form
+  // broadcast the operator meant to be public.
   useEffect(() => {
-    if (preset) setPrivacy(preset.privacyStatus);
+    setPrivacy(preset ? preset.privacyStatus : "public");
   }, [preset]);
 
   const startIso = localInputToIso(startsAt);

@@ -172,6 +172,16 @@ describe("PrepareBroadcast", () => {
     expect((screen.getByLabelText("Privacy") as HTMLSelectElement).value).toBe("unlisted");
   });
 
+  it("returns to public when the preset is cleared (issue 074)", async () => {
+    // Backing out of a preset backs out of its privacy too; otherwise the one-off inherits an
+    // unlisted the operator never picked, and the server's public fallback never gets a say.
+    mount();
+    const select = await screen.findByLabelText("From preset");
+    fireEvent.change(select, { target: { value: "friday" } });
+    fireEvent.change(select, { target: { value: "" } });
+    expect((screen.getByLabelText("Privacy") as HTMLSelectElement).value).toBe("public");
+  });
+
   it("says the broadcast will follow the encoder, before the press rather than after", async () => {
     mount();
     expect(
