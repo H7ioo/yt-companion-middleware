@@ -115,13 +115,34 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
+  // Parsed defensively, because not every reply on this URL comes from our server: a reverse
+  // proxy's 502 page, a captive portal, a stale dev server serving index.html for an unknown
+  // route — all of them arrive as HTML. Parsing them unguarded threw the parser's own words
+  // ("JSON.parse: unexpected character at line 1 column 1") into a panel, which tells the
+  // operator nothing about what failed or what to do next.
+  let body: { error?: { message?: string; code?: string } } | null = null;
+  let parsed = true;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      parsed = false;
+    }
+  }
   if (!res.ok) {
     if (res.status === 401 && !url.startsWith("/api/auth/")) {
       for (const handler of sessionLostHandlers) handler();
     }
     const message = body?.error?.message ?? `Request failed (${res.status})`;
     throw new ApiError(message, body?.error?.code ?? null);
+  }
+  // A 200 that is not JSON is a reply from something other than this API, and returning it as
+  // `T` would fail later, somewhere with no idea a request was involved. Say it here instead.
+  if (!parsed) {
+    throw new ApiError(
+      `The server replied with something other than data (${res.status}). Check that the app is reachable, then try again.`,
+      null,
+    );
   }
   return body as T;
 }
