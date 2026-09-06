@@ -12,7 +12,7 @@ import { useDashboard } from "./context.js";
  * disagree about which broadcast wins.
  */
 export function BroadcastsPage() {
-  const { state, refreshSession } = useDashboard();
+  const { state, streams, categories, refreshSession } = useDashboard();
 
   return (
     <BroadcastList
@@ -20,6 +20,12 @@ export function BroadcastsPage() {
       apiEnabled={state ? state.apiEnabled : null}
       pin={state?.targetPin ?? null}
       onPinned={refreshSession}
+      // The edit form's two dropdowns and its riding-mode stand-down. Passed from the shell's
+      // own fetches rather than fetched again here: a second copy is how two surfaces start
+      // disagreeing about which keys the channel has.
+      eligibility={state?.liveEligibility ?? null}
+      streams={streams}
+      categories={categories}
     />
   );
 }

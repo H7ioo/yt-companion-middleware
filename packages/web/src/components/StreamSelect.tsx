@@ -8,6 +8,10 @@ interface Props {
   onChange: (value: string | null) => void;
   /** Label for the empty option — shows the resolved default so operators know what they inherit. */
   blankLabel?: string;
+  /** Locked, not merely unavailable — the edit form disables it once an encoder has bound (issue 070). */
+  disabled?: boolean;
+  /** The element stating *why* it is disabled, so the reason is read out on the control itself. */
+  describedBy?: string;
 }
 
 /**
@@ -15,7 +19,15 @@ interface Props {
  * null ("inherit the app default"). A saved id that isn't in the fetched list (stale/deleted
  * key) is kept visible as its own option so the operator can see — and clear — the bad binding.
  */
-export function StreamSelect({ id, value, streams, onChange, blankLabel = "— inherit default —" }: Props) {
+export function StreamSelect({
+  id,
+  value,
+  streams,
+  onChange,
+  blankLabel = "— inherit default —",
+  disabled = false,
+  describedBy,
+}: Props) {
   const stale = isStaleBinding(value, streams);
 
   return (
@@ -23,6 +35,8 @@ export function StreamSelect({ id, value, streams, onChange, blankLabel = "— i
       id={id}
       value={value ?? ""}
       aria-invalid={stale}
+      disabled={disabled}
+      aria-describedby={describedBy}
       onChange={(e) => onChange(e.target.value || null)}
     >
       <option value="">{blankLabel}</option>

@@ -587,3 +587,67 @@ export interface BroadcastListing {
    */
   quotaUnits: number;
 }
+
+
+/**
+ * One broadcast as the edit form opens on it — `GET /api/dashboard/broadcasts/:id/edit`
+ * (issue 070).
+ *
+ * Most of this the broadcast list has never carried: the description, the scheduled end, every
+ * `contentDetails` flag, and the category, which is not a field on the broadcast resource at all.
+ * Flat rather than the raw YouTube object on purpose — the dashboard never holds a half-copy of
+ * a resource it might send back, because the merge that decides what is written happens on the
+ * server against a resource read in the same request as the write.
+ */
+export interface BroadcastEditView {
+  id: string | null;
+  title: string;
+  description: string;
+  scheduledStartTime: string | null;
+  scheduledEndTime: string | null;
+  privacyStatus: string | null;
+  /** What the setup lock turns on. Read from the resource, never from the will-air marker. */
+  lifeCycleStatus: string | null;
+  boundStreamId: string | null;
+  /** `videos.update snippet.categoryId` on the video resource, or null when none is set. */
+  category: string | null;
+  enableAutoStart: boolean;
+  enableAutoStop: boolean;
+  enableDvr: boolean;
+  enableClosedCaptions: boolean;
+  enableEmbed: boolean;
+  recordFromStart: boolean;
+  enableMonitorStream: boolean;
+  /** Two reads — the broadcast, and the video the category lives on. */
+  quotaUnits: number;
+}
+
+/**
+ * One operator's edit — the body of `PATCH /api/dashboard/broadcasts/:id` (issue 070).
+ *
+ * Every field optional, and every one meaning "change this to that". Absent is "leave it as
+ * YouTube has it", which is not the same as null: `scheduledEndTime: null` is how an end time is
+ * removed.
+ */
+export interface BroadcastEditRequest {
+  title?: string;
+  description?: string;
+  scheduledStartTime?: string;
+  scheduledEndTime?: string | null;
+  privacyStatus?: PrivacyStatus;
+  /**
+   * Not a broadcast field — it goes to `videos.update`. Not nullable either: a category cannot
+   * be unset, so null could only be ignored, and a request the server ignores is a request it
+   * should have refused.
+   */
+  category?: string;
+  /** The key to rebind to — `liveBroadcasts.bind`, never part of the update body. */
+  streamId?: string;
+  enableAutoStart?: boolean;
+  enableAutoStop?: boolean;
+  enableDvr?: boolean;
+  enableClosedCaptions?: boolean;
+  enableEmbed?: boolean;
+  recordFromStart?: boolean;
+  enableMonitorStream?: boolean;
+}

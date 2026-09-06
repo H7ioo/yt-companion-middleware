@@ -25,6 +25,7 @@ export type ErrorCode =
   | "BROADCAST_WRITE_UNSAFE"
   | "LIVE_NOT_ELIGIBLE"
   | "BROADCAST_LIMIT_REACHED"
+  | "BROADCAST_STATE_LOCKED"
   | "CONFIRMATION_REQUIRED"
   | "SERVER_ERROR";
 
@@ -72,6 +73,14 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   BROADCAST_LIMIT_REACHED:
     "YouTube will not create another broadcast — the channel already holds as many live and " +
     "scheduled ones as it allows. Delete the broadcasts you are not going to use, then try again.",
+  // YouTube will not change this part of a broadcast in the state it is in — the contentDetails
+  // flags and the ingestion key, once an encoder has bound (issue 070). Named apart from
+  // YOUTUBE_AUTH_ERROR because `liveBroadcastBindingNotAllowed` is a 403 with a permission-shaped
+  // reason, and read as one it sends the operator to reconnect an account that was never the
+  // trouble. It is a state, and the operator's next step is about the broadcast, not the login.
+  BROADCAST_STATE_LOCKED:
+    "YouTube will not change how this broadcast is set up in the state it is in — an encoder has " +
+    "already bound to it. Stop the encoder, or change the fields that stay editable.",
   // The act is destructive and outward-facing, and the request did not say it was meant (issue
   // 064). The refusal carries the confirmation text itself, so a caller that is not the dashboard
   // can still put the same question to a person.
