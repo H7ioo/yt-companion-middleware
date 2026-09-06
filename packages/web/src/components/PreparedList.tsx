@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { deleteConfirmation, type PreparedBroadcast } from "@app/shared";
+import { useState } from "react";
+import { subjectOf, type PreparedBroadcast } from "@app/shared";
+import { DeleteBroadcastDialog } from "./DeleteBroadcastDialog.js";
 import { isoToLocalInput } from "../lib/prepareForm.js";
 
 interface Props {
@@ -11,9 +12,6 @@ interface Props {
   /** Deletes it from YouTube. Called only after the operator has answered the question. */
   onDelete: (id: string) => Promise<void>;
 }
-
-/** Everything inside the dialog Tab can land on, in document order. */
-const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 /**
  * **What this app made, and what became of it** (PRD-16 §5, issue 064).
@@ -32,46 +30,6 @@ const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabi
 export function PreparedList({ items, copiedUrl, onCopy, onDelete }: Props) {
   const [asking, setAsking] = useState<PreparedBroadcast | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-
-  // While the question is up it owns the keyboard. Capture-phase, so Escape answers *this*
-  // question rather than closing whatever this panel happens to be sitting inside.
-  useEffect(() => {
-    if (!asking) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setAsking(null);
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const dialog = dialogRef.current;
-      if (!dialog) return;
-      const stops = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE));
-      if (stops.length === 0) return;
-      const first = stops[0];
-      const last = stops[stops.length - 1];
-      const active = document.activeElement;
-      if (e.shiftKey && (active === first || !dialog.contains(active))) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (active === last || !dialog.contains(active))) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [asking]);
-
-  // Focus opens into the dialog and returns where it came from, so the question is answerable
-  // from the keyboard alone. `Keep it` is first, and therefore what focus lands on.
-  useEffect(() => {
-    if (!asking) return;
-    const restoreTo = document.activeElement as HTMLElement | null;
-    dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
-    return () => restoreTo?.focus?.();
-  }, [asking !== null]);
 
   if (items.length === 0) return null;
 
@@ -84,8 +42,6 @@ export function PreparedList({ items, copiedUrl, onCopy, onDelete }: Props) {
       setBusyId(null);
     }
   };
-
-  const confirmation = asking ? deleteConfirmation(asking) : null;
 
   return (
     <div className="prep__earlier">
@@ -116,7 +72,10 @@ export function PreparedList({ items, copiedUrl, onCopy, onDelete }: Props) {
                 </button>
               )}
               {/* Never offered for one that aired: it is a recording people may still be
-                  watching, and deleting it takes that away rather than tidying up. */}
+                  watching, and deleting it takes that away rather than tidying up. The stamp is
+                  written by the sweep, so it lags a broadcast that went live minutes ago — the
+                  route reads the channel's lifecycle state and refuses that one itself, and this
+                  gate only keeps the button off a press already known to be pointless. */}
               {retired || aired ? null : (
                 <button
                   type="button"
@@ -132,40 +91,11 @@ export function PreparedList({ items, copiedUrl, onCopy, onDelete }: Props) {
         })}
       </ul>
 
-      {asking && confirmation ? (
-        <div className="overlay">
-          <div
-            className="modal prep-confirm"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="prep-confirm-title"
-            ref={dialogRef}
-          >
-            <div className="settings__head">
-              <span className="eyebrow">Confirm</span>
-              <h2 id="prep-confirm-title">{confirmation.question}</h2>
-            </div>
-            <div className="prep-confirm__body">
-              {/* The link, shown the way the panel showed it when it was made — and struck out,
-                  because that is precisely what the press does to it. */}
-              <code className="mono prep__link-url prep-confirm__dead">{asking.watchUrl}</code>
-              <p>{confirmation.warning}</p>
-            </div>
-            <div className="modal__foot">
-              <button className="btn" type="button" onClick={() => setAsking(null)}>
-                Keep it
-              </button>
-              <button
-                className="btn btn--danger"
-                type="button"
-                onClick={() => void confirm(asking)}
-              >
-                Delete from YouTube
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <DeleteBroadcastDialog
+        subject={asking ? subjectOf(asking) : null}
+        onCancel={() => setAsking(null)}
+        onConfirm={() => void confirm(asking!)}
+      />
     </div>
   );
 }

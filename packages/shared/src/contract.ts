@@ -529,6 +529,16 @@ export interface BroadcastListEntry {
   willAir: boolean;
   /** Why this row will or will not air, in words an operator can act on. */
   reason: string;
+  /**
+   * Whether this app created the broadcast — true when an ownership record names it (issue 071).
+   *
+   * Not a permission. Deleting from the Broadcasts page is offered on every row, because the line
+   * is not who created the broadcast but whether a human is deciding. This is what the
+   * confirmation reads to know whether it may say anything about where the link has been, and it
+   * comes from the store rather than from the API resource because no field on the resource
+   * carries it.
+   */
+  appCreated: boolean;
 }
 
 /** The broadcast list as `GET /api/dashboard/broadcasts` reports it (issue 057). */

@@ -340,14 +340,25 @@ export const api = {
         quotaUnits: number;
       }>("/api/dashboard/broadcasts/retire", { method: "POST" }),
     /**
-     * Deletes one broadcast this app created. `confirm` is not optional in practice — the server
-     * refuses without it, and the dashboard asks the question first.
+     * Deletes one broadcast from the channel — any broadcast, not only the ones this app made
+     * (issue 071). `confirm` is not optional in practice: the server refuses without it, and the
+     * dashboard asks the question first.
+     *
+     * One write for a broadcast the app created, plus a read for one it did not — the server has
+     * to ask YouTube what it is and whether it has already aired.
      */
-    deletePrepared: (id: string) =>
-      req<{ retired: PreparedBroadcast; quotaUnits: number }>(
-        `/api/dashboard/broadcasts/prepared/${encodeURIComponent(id)}`,
-        { method: "DELETE", body: JSON.stringify({ confirm: true }) },
-      ),
+    remove: (id: string) =>
+      req<{
+        /** The ownership record, now stamped retired — null for a broadcast the app never made. */
+        retired: PreparedBroadcast | null;
+        appCreated: boolean;
+        /** True when this broadcast was the edit target, and the pin has just been cleared. */
+        pinCleared: boolean;
+        quotaUnits: number;
+      }>(`/api/dashboard/broadcasts/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        body: JSON.stringify({ confirm: true }),
+      }),
   },
   /** What YouTube is seeing on the default ingestion key, read live — 1 quota unit (issue 059). */
   ingestion: {

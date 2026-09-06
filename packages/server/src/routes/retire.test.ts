@@ -97,7 +97,7 @@ async function mount(state: FakeState) {
 }
 
 const del = (url: string, id: string, body?: unknown) =>
-  fetch(`${url}/prepared/${id}`, {
+  fetch(`${url}/${id}`, {
     method: "DELETE",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body ?? {}),
@@ -140,6 +140,9 @@ describe("POST /api/dashboard/broadcasts/retire", () => {
     expect(body.quotaUnits).toBe(51);
   });
 
+  // The guard issue 071 deliberately did *not* relax. An operator pressing Delete on a row they
+  // chose may now remove anything on the channel; the unattended sweep may not, ever, because
+  // nothing is there to be asked.
   it("never retires a broadcast the app did not create, whatever the channel holds", async () => {
     // Two past-due strays on the channel and no ownership record for either.
     const state: FakeState = {
@@ -195,7 +198,7 @@ describe("POST /api/dashboard/broadcasts/retire", () => {
   });
 });
 
-describe("DELETE /api/dashboard/broadcasts/prepared/:id", () => {
+describe("DELETE /api/dashboard/broadcasts/:id", () => {
   beforeEach(async () => {
     await store.update((s) => {
       s.preparedBroadcasts = [record()];
@@ -228,15 +231,91 @@ describe("DELETE /api/dashboard/broadcasts/prepared/:id", () => {
     expect(logger.push).toHaveBeenCalled();
   });
 
-  it("refuses an id this app has no ownership record for, confirmed or not", async () => {
+  // Issue 071: the line is not who created the broadcast — it is whether a human is deciding.
+  it("deletes a broadcast this app never made, once the operator has confirmed", async () => {
     const state: FakeState = { channel: [idle("studio-1")], deleted: [], inserts: [] };
     const url = await mount(state);
 
     const res = await del(url, "studio-1", { confirm: true });
+    expect(res.status).toBe(200);
+    expect(state.deleted).toEqual(["studio-1"]);
+    const body = (await res.json()) as { retired: unknown; appCreated: boolean; quotaUnits: number };
+    // No ownership record is invented for it: "Made here" is a record of what was made here.
+    expect(body.retired).toBeNull();
+    expect(body.appCreated).toBe(false);
+    expect(store.get().preparedBroadcasts.map((p) => p.id)).toEqual(["ours-1"]);
+    // One read to learn what it is and whether it has aired, plus the write.
+    expect(body.quotaUnits).toBe(51);
+  });
+
+  it("asks the question first for one it did not make, and says it cannot vouch for the link", async () => {
+    const state: FakeState = {
+      channel: [{ ...idle("studio-1"), snippet: { title: "Parish AGM" }, status: { lifeCycleStatus: "ready", privacyStatus: "public" } }],
+      deleted: [],
+      inserts: [],
+    };
+    const url = await mount(state);
+
+    const res = await del(url, "studio-1");
+    expect(res.status).toBe(409);
+    expect(state.deleted).toEqual([]);
+    const body = (await res.json()) as { confirmation: { question: string; warning: string } };
+    expect(body.confirmation.question).toContain("Parish AGM");
+    expect(body.confirmation.warning).toMatch(/did not create/i);
+  });
+
+  it("refuses an id the channel does not have at all", async () => {
+    const state: FakeState = { channel: [], deleted: [], inserts: [] };
+    const url = await mount(state);
+
+    const res = await del(url, "nowhere-1", { confirm: true });
     expect(res.status).toBe(404);
     expect(state.deleted).toEqual([]);
-    const body = (await res.json()) as { error: { message: string } };
-    expect(body.error.message).toMatch(/did not create|not one this app/i);
+    expect(((await res.json()) as any).error.message).toMatch(/not on this channel/i);
+  });
+
+  // The aired guard is about the artifact, not about ownership, so it applies to everything.
+  it("refuses one it did not make that is on air, whatever the caller claims", async () => {
+    const state: FakeState = {
+      channel: [
+        { id: "studio-1", snippet: { title: "Evensong" }, status: { lifeCycleStatus: "live" } },
+      ],
+      deleted: [],
+      inserts: [],
+    };
+    const url = await mount(state);
+
+    const res = await del(url, "studio-1", { confirm: true });
+    expect(res.status).toBe(409);
+    expect(state.deleted).toEqual([]);
+    expect(((await res.json()) as any).error.message).toMatch(/recording/i);
+  });
+
+  it("clears the pin when the deleted broadcast was the target, and says so", async () => {
+    await store.update((s) => {
+      s.targetPin = { id: "studio-1", label: "Parish AGM", pinnedAt: "2026-01-01T00:00:00.000Z" };
+    });
+    const state: FakeState = { channel: [idle("studio-1")], deleted: [], inserts: [] };
+    const url = await mount(state);
+
+    const res = await del(url, "studio-1", { confirm: true });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).pinCleared).toBe(true);
+    expect(store.get().targetPin).toBeNull();
+    const logged = logger.push.mock.calls.map((c) => String(c[0].message)).join("\n");
+    expect(logged).toMatch(/edit target/i);
+  });
+
+  it("leaves a pin on a different broadcast alone", async () => {
+    await store.update((s) => {
+      s.targetPin = { id: "other-1", label: "Other", pinnedAt: "2026-01-01T00:00:00.000Z" };
+    });
+    const state: FakeState = { channel: [idle("ours-1")], deleted: [], inserts: [] };
+    const url = await mount(state);
+
+    const res = await del(url, "ours-1", { confirm: true });
+    expect(((await res.json()) as any).pinCleared).toBe(false);
+    expect(store.get().targetPin?.id).toBe("other-1");
   });
 
   it("refuses one that has been on air — deleting it would take the recording too", async () => {
@@ -252,7 +331,60 @@ describe("DELETE /api/dashboard/broadcasts/prepared/:id", () => {
     expect(((await res.json()) as any).error.message).toMatch(/recording/i);
   });
 
-  it("refuses one it already retired rather than spending a write on nothing", async () => {
+  // The record's `airedAt` is stamped by the sweep, so a broadcast that went live an hour ago
+  // still carries `null` there until one runs. The channel is the only thing that knows.
+  it("refuses one it made that is on air now, though no sweep has stamped it", async () => {
+    const state: FakeState = {
+      channel: [{ id: "ours-1", snippet: {}, status: { lifeCycleStatus: "live" } }],
+      deleted: [],
+      inserts: [],
+    };
+    const url = await mount(state);
+
+    const res = await del(url, "ours-1", { confirm: true });
+    expect(res.status).toBe(409);
+    expect(state.deleted).toEqual([]);
+    expect(((await res.json()) as any).error.message).toMatch(/recording/i);
+    expect(store.get().preparedBroadcasts[0].retiredAt).toBeNull();
+  });
+
+  // A record wrongly stamped gone must not strand a broadcast the channel still lists: that is
+  // the dead end issue 071 exists to remove, arrived at from the other side.
+  it("deletes one stamped retired that YouTube still has", async () => {
+    await store.update((s) => {
+      s.preparedBroadcasts = [record({ retiredAt: "2026-01-01T00:00:00.000Z" })];
+    });
+    const state: FakeState = { channel: [idle("ours-1")], deleted: [], inserts: [] };
+    const url = await mount(state);
+
+    const res = await del(url, "ours-1", { confirm: true });
+    expect(res.status).toBe(200);
+    expect(state.deleted).toEqual(["ours-1"]);
+  });
+
+  // Deleting the target is the operator's own doing, so the next refresh must not report the
+  // change of target as "something else is creating broadcasts" (TARGET_DRIFT).
+  it("forgets the last resolved target so the refresh does not call the deletion drift", async () => {
+    await store.update((s) => {
+      s.cache.lastTargetId = "ours-1";
+    });
+    const state: FakeState = { channel: [idle("ours-1")], deleted: [], inserts: [] };
+    const url = await mount(state);
+
+    const res = await del(url, "ours-1", { confirm: true });
+    expect(res.status).toBe(200);
+    expect(store.get().cache.lastTargetId).toBeNull();
+  });
+
+  it("charges the read it spends on a broadcast it made, as it does for one it did not", async () => {
+    const state: FakeState = { channel: [idle("ours-1")], deleted: [], inserts: [] };
+    const url = await mount(state);
+
+    const res = await del(url, "ours-1", { confirm: true });
+    expect(((await res.json()) as any).quotaUnits).toBe(51);
+  });
+
+  it("refuses one it already retired, when YouTube agrees it is gone", async () => {
     await store.update((s) => {
       s.preparedBroadcasts = [record({ retiredAt: "2026-01-01T00:00:00.000Z" })];
     });

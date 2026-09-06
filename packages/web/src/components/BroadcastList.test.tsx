@@ -7,10 +7,18 @@ import { COPIED_MS } from "../lib/useCopied.js";
 
 const list = vi.fn<() => Promise<BroadcastListing>>();
 const pin = vi.fn<(id: string | null, label: string | null) => Promise<TargetPin | null>>();
+const remove = vi.fn<
+  (id: string) => Promise<{
+    retired: unknown;
+    appCreated: boolean;
+    pinCleared: boolean;
+    quotaUnits: number;
+  }>
+>();
 
 vi.mock("../api.js", () => ({
   api: {
-    broadcasts: { list: () => list() },
+    broadcasts: { list: () => list(), remove: (id: string) => remove(id) },
     target: { pin: (id: string | null, label: string | null) => pin(id, label) },
   },
 }));
@@ -33,6 +41,7 @@ const entry = (over: Partial<BroadcastListEntry> = {}): BroadcastListEntry => ({
   autoStart: true,
   isLive: false,
   willAir: false,
+  appCreated: false,
   reason: "",
   ...over,
 });
@@ -55,6 +64,8 @@ beforeEach(() => {
   list.mockResolvedValue(listing());
   pin.mockReset();
   pin.mockResolvedValue(null);
+  remove.mockReset();
+  remove.mockResolvedValue({ retired: null, appCreated: false, pinCleared: false, quotaUnits: 51 });
 });
 afterEach(cleanup);
 
@@ -319,6 +330,7 @@ describe("BroadcastList, managing (issue 069)", () => {
 
     await screen.findByText("Tonight");
     expect(screen.queryByRole("button", { name: "Copy link" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
     expect(screen.getByRole("heading", { name: "What will air" })).toBeTruthy();
   });
 
@@ -558,5 +570,123 @@ describe("BroadcastList, what the Edit target panel used to say (issue 072)", ()
 
     await screen.findByRole("status");
     expect(screen.queryByText(/You are on air/i)).toBeNull();
+  });
+});
+
+describe("BroadcastList, deleting any broadcast (issue 071)", () => {
+  const open = async (title: string) => {
+    fireEvent.click(within(screen.getByRole("listitem", { name: title })).getByRole("button", { name: "Delete" }));
+    return await screen.findByRole("dialog");
+  };
+
+  it("offers Delete on a row this app never created, because a human is the one deciding", async () => {
+    list.mockResolvedValue({
+      ...listing(),
+      entries: [entry({ id: "studio-1", title: "Parish AGM", appCreated: false })],
+    });
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    await screen.findByText("Parish AGM");
+    const dialog = await open("Parish AGM");
+    // The question names the broadcast, and the link it is about to break is shown.
+    expect(within(dialog).getByText(/Delete “Parish AGM” from YouTube\?/)).toBeTruthy();
+    expect(within(dialog).getByText("https://www.youtube.com/watch?v=studio-1")).toBeTruthy();
+    // And it does not claim to know where that link has been.
+    expect(within(dialog).getByText(/did not create/i)).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete from YouTube" }));
+    await waitFor(() => expect(remove).toHaveBeenCalledWith("studio-1"));
+  });
+
+  it("says the app made this one, and vouches for the link it handed out", async () => {
+    list.mockResolvedValue({
+      ...listing(),
+      entries: [entry({ id: "ours-1", title: "Friday service", appCreated: true })],
+    });
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    await screen.findByText("Friday service");
+    const dialog = await open("Friday service");
+    expect(within(dialog).getByText(/anyone who already has it/i)).toBeTruthy();
+    expect(within(dialog).queryByText(/did not create/i)).toBeNull();
+  });
+
+  it("deletes nothing until the question is answered", async () => {
+    list.mockResolvedValue({ ...listing(), entries: [entry({ title: "Tonight" })] });
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    await screen.findByText("Tonight");
+    const dialog = await open("Tonight");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep it" }));
+
+    expect(remove).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("never offers it for a broadcast on air — that is a recording, not a leftover", async () => {
+    list.mockResolvedValue({
+      ...listing(),
+      entries: [entry({ title: "On now", isLive: true, lifeCycleStatus: "live", willAir: true })],
+    });
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    await screen.findByText("On now");
+    const row = screen.getByRole("listitem", { name: "On now" });
+    expect(within(row).queryByRole("button", { name: "Delete" })).toBeNull();
+    // The copy button is still there, so this is the delete being withheld and not the whole
+    // action cluster.
+    expect(within(row).getByRole("button", { name: "Copy link" })).toBeTruthy();
+  });
+
+  it("withholds it from a broadcast the encoder is already feeding, before it is fully live", async () => {
+    list.mockResolvedValue({
+      ...listing(),
+      entries: [entry({ title: "Previewing", lifeCycleStatus: "testing" })],
+    });
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    await screen.findByText("Previewing");
+    const row = screen.getByRole("listitem", { name: "Previewing" });
+    expect(within(row).queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+
+  it("re-reads the list afterwards, because removing one can change what will air", async () => {
+    list.mockResolvedValue({ ...listing(), entries: [entry({ title: "Tonight" })] });
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    await screen.findByText("Tonight");
+    list.mockClear();
+    const dialog = await open("Tonight");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete from YouTube" }));
+
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+  });
+
+  it("says the target is gone rather than quietly choosing a different broadcast", async () => {
+    const onPinned = vi.fn();
+    remove.mockResolvedValue({ retired: null, appCreated: false, pinCleared: true, quotaUnits: 51 });
+    list.mockResolvedValue({ ...listing(), entries: [entry({ title: "Tonight" })] });
+    render(<BroadcastList manage apiEnabled pin={pinned()} onPinned={onPinned} />);
+
+    await screen.findByText("Tonight");
+    const dialog = await open("Tonight");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete from YouTube" }));
+
+    expect(await screen.findByText(/was the target, so actions now choose automatically/i)).toBeTruthy();
+    // The rail reads the same pin, so it has to be told too.
+    await waitFor(() => expect(onPinned).toHaveBeenCalled());
+  });
+
+  it("keeps the row and says why when the deletion is refused", async () => {
+    remove.mockRejectedValue(new Error("Broadcast is on air"));
+    list.mockResolvedValue({ ...listing(), entries: [entry({ title: "Tonight" })] });
+    render(<BroadcastList manage apiEnabled pin={null} onPinned={() => {}} />);
+
+    await screen.findByText("Tonight");
+    const dialog = await open("Tonight");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete from YouTube" }));
+
+    expect(await screen.findByText("Broadcast is on air")).toBeTruthy();
+    expect(screen.getByText("Tonight")).toBeTruthy();
   });
 });

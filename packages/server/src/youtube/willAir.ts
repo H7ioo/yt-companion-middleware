@@ -19,7 +19,16 @@ export interface WillAirInput {
   streams: StreamInfo[];
   /** The key this app binds to by default — the operator's statement of what OBS pushes to. */
   defaultStreamBoundId: string | null;
+  /**
+   * The ids this app has an ownership record for (issue 071). Absent means none, which is what a
+   * caller that does not care should pass: `appCreated` is a fact about this install's store, not
+   * about the ranking, and no row's verdict turns on it.
+   */
+  appCreatedIds?: ReadonlySet<string>;
 }
+
+/** Shared empty set, so the common "no ownership records" case allocates nothing per read. */
+const EMPTY_IDS: ReadonlySet<string> = new Set<string>();
 
 /**
  * Answers "which of these will actually air?" over an already-fetched broadcast list.
@@ -75,10 +84,11 @@ export function listWhatWillAir(input: WillAirInput): WillAirResult {
   // leave more than one row marked, and the marker means nothing unless the panel says why.
   const contested = (!onAir && contenders.length > 1) || input.active.length > 1;
 
+  const appCreatedIds = input.appCreatedIds ?? EMPTY_IDS;
   const entries: BroadcastListEntry[] = [
     ...input.active.map(
       (b): BroadcastListEntry => ({
-        ...base(b, input.streams),
+        ...base(b, input.streams, appCreatedIds),
         isLive: true,
         willAir: true,
         reason:
@@ -88,7 +98,7 @@ export function listWhatWillAir(input: WillAirInput): WillAirResult {
       }),
     ),
     ...input.upcoming.map((b): BroadcastListEntry => {
-      const row = base(b, input.streams);
+      const row = base(b, input.streams, appCreatedIds);
       const qualifies =
         !onAir &&
         encoderStreamId !== null &&
@@ -213,6 +223,7 @@ function startKey(e: BroadcastListEntry): string {
 function base(
   b: youtube_v3.Schema$LiveBroadcast,
   streams: StreamInfo[],
+  appCreatedIds: ReadonlySet<string>,
 ): Omit<BroadcastListEntry, "isLive" | "willAir" | "reason"> {
   const boundStreamId = b.contentDetails?.boundStreamId ?? null;
   return {
@@ -225,5 +236,6 @@ function base(
     boundStreamTitle:
       streams.find((s) => s.id === boundStreamId)?.title ?? boundStreamId,
     autoStart: b.contentDetails?.enableAutoStart === true,
+    appCreated: appCreatedIds.has(b.id!),
   };
 }

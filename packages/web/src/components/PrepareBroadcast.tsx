@@ -182,7 +182,7 @@ export function PrepareBroadcast({
   /** Removes one, after the list has asked the question. */
   async function remove(id: string) {
     try {
-      await api.broadcasts.deletePrepared(id);
+      await api.broadcasts.remove(id);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not delete the broadcast.");

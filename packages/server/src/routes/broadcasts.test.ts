@@ -85,6 +85,7 @@ describe("GET /api/dashboard/broadcasts", () => {
       yt,
       store: {
         get: () => ({
+          preparedBroadcasts: [],
           defaults: { defaultStreamBoundId: "stream-A" },
           service: { apiEnabled: true },
         }),
@@ -120,6 +121,7 @@ describe("GET /api/dashboard/broadcasts", () => {
       yt,
       store: {
         get: () => ({
+          preparedBroadcasts: [],
           defaults: { defaultStreamBoundId: null },
           service: { apiEnabled: true },
         }),
@@ -140,6 +142,7 @@ describe("GET /api/dashboard/broadcasts", () => {
       yt: fakeYt(fake, [], []),
       store: {
         get: () => ({
+          preparedBroadcasts: [],
           defaults: { defaultStreamBoundId: null },
           service: { apiEnabled: false },
         }),

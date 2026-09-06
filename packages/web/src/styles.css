@@ -2338,6 +2338,14 @@ textarea {
   display: flex;
   gap: 6px;
 }
+/* Delete keeps the ghost button's weight and takes the live red only on hover, exactly as the
+   "Made here" list's delete does (issue 071). The two lists now offer the same irreversible press,
+   and a row that shouted it in red would be the loudest thing on a page whose job is to be read
+   calmly in the afternoon. */
+.rundown__del:hover {
+  border-color: var(--live);
+  color: var(--live);
+}
 
 /* ---- The rundown row as a patch point (issue 058) --------------------------
    Selecting a row sets the edit-target pin, and since issue 072 this is the

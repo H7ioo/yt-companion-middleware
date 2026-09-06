@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { AIRED_LIFECYCLE_STATES, type DeleteSubject } from "@app/shared";
 import { api, type BroadcastListEntry, type BroadcastListing, type TargetPin } from "../api.js";
 import { watchUrl } from "../lib/watch.js";
 import { useCopied } from "../lib/useCopied.js";
+import { DeleteBroadcastDialog } from "./DeleteBroadcastDialog.js";
 
 interface Props {
   /**
@@ -82,6 +84,13 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
   // what is actually on the clipboard. It expires (see `useCopied`): a row that says "Copied"
   // for the rest of the session is no longer describing anything that just happened.
   const [copiedUrl, setCopiedUrl] = useCopied();
+  // The row the delete question is up for, and the one currently being deleted (issue 071).
+  // Held as the entry rather than as a flag: the dialog names the broadcast, and a dialog that
+  // says "this one" is not a confirmation of anything.
+  const [asking, setAsking] = useState<BroadcastListEntry | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  /** What the last deletion did beyond removing the row — currently, whether it cleared the pin. */
+  const [aftermath, setAftermath] = useState<string | null>(null);
   // The link a copy failed on. Held as the URL rather than as a sentence, because the sentence
   // asks the operator to select the link and the row never shows one — only the id and a button.
   const [uncopiedUrl, setUncopiedUrl] = useState<string | null>(null);
@@ -119,6 +128,37 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
       setError(err instanceof Error ? err.message : "Could not save the target.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  /**
+   * Takes a broadcast off the channel, on a press the operator has already answered a question
+   * about (issue 071). Any row, whatever created it: the automatic sweep is what may only touch
+   * app-created broadcasts, and this is not the sweep.
+   */
+  async function remove(entry: BroadcastListEntry) {
+    setAsking(null);
+    setDeletingId(entry.id);
+    setError(null);
+    setAftermath(null);
+    try {
+      const result = await api.broadcasts.remove(entry.id);
+      // Said out loud rather than left to be noticed: the pin was the answer to "where do my
+      // actions land", and it has just been cleared. Falling back to choosing automatically in
+      // silence is the app quietly picking a different broadcast to write to.
+      if (result.pinCleared) {
+        setAftermath(
+          `“${entry.title}” was the target, so actions now choose automatically. Pick another row if that is not what you want.`,
+        );
+        onPinned();
+      }
+      // Re-read, because the row is the evidence and it is no longer true — and because removing
+      // a broadcast can change which of the rest will air.
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete the broadcast.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -195,6 +235,12 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
           <>
             {error ? <p className="patch__error">{error}</p> : null}
 
+            {aftermath ? (
+              <p className="patch__lede" role="status">
+                {aftermath}
+              </p>
+            ) : null}
+
             {uncopiedUrl ? (
               <p className="patch__error rundown__uncopied" role="status">
                 Could not reach the clipboard — here is the link, copy it by hand:{" "}
@@ -258,10 +304,18 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
                     manage={manage}
                     copied={copiedUrl === watchUrl(e.id)}
                     onCopy={() => copy(watchUrl(e.id))}
+                    deleting={deletingId === e.id}
+                    onDelete={() => setAsking(e)}
                   />
                 ))}
               </ul>
             </div>
+
+            <DeleteBroadcastDialog
+              subject={asking ? subjectFor(asking) : null}
+              onCancel={() => setAsking(null)}
+              onConfirm={() => void remove(asking!)}
+            />
 
             {listing && listing.entries.length === 0 ? (
               <p className="patch__empty">
@@ -325,6 +379,10 @@ interface RowProps {
   manage: boolean;
   copied: boolean;
   onCopy: () => void;
+  /** True while this row's deletion is in flight. */
+  deleting: boolean;
+  /** Opens the question. The press itself is never the deletion (issue 071). */
+  onDelete: () => void;
 }
 
 function Row({
@@ -336,8 +394,15 @@ function Row({
   manage,
   copied,
   onCopy,
+  deleting,
+  onDelete,
 }: RowProps) {
   const marked = entry.willAir;
+  // Never offered for a broadcast that has been on air: it is a recording people may still be
+  // watching, and deleting it takes that away rather than tidying up. The guard is about the
+  // artifact, not about who created it, so it applies to every row alike (issue 071). The server
+  // refuses it too — this only keeps the button off a press that would be refused.
+  const aired = entry.isLive || AIRED_LIFECYCLE_STATES.has(entry.lifeCycleStatus ?? "");
   return (
     <li
       className={`rundown__row${marked ? ` rundown__row--${contested && !entry.isLive ? "contested" : "airs"}` : ""}${pinned ? " rundown__row--pinned" : ""}`}
@@ -398,6 +463,20 @@ function Row({
             >
               {copied ? "Copied" : "Copy link"}
             </button>
+            {/* Offered whatever created the broadcast (issue 071). What the app did not make it
+                cannot vouch for, and the question says so — but a human choosing a row is not
+                the unattended sweep, which still only ever touches what this app created. */}
+            {aired ? null : (
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm rundown__del"
+                onClick={onDelete}
+                disabled={disabled || deleting}
+                title="Delete this broadcast from YouTube"
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            )}
           </span>
         ) : null}
       </span>
@@ -448,6 +527,21 @@ function verdictTone(listing: BroadcastListing): "airs" | "warn" {
   if (listing.encoderSource === "unknown" || listing.encoderSource === "dangling")
     return "warn";
   return listing.entries.some((e) => e.willAir) ? "airs" : "warn";
+}
+
+/**
+ * A listing row, read as something to be deleted (issue 071).
+ *
+ * The watch link is built from the id rather than carried on the row, because the listing has
+ * never carried one — `watchUrl` is the single place this app spells that address.
+ */
+function subjectFor(entry: BroadcastListEntry): DeleteSubject {
+  return {
+    title: entry.title,
+    watchUrl: watchUrl(entry.id),
+    privacyStatus: entry.privacyStatus,
+    appCreated: entry.appCreated,
+  };
 }
 
 /** YouTube's privacy values, said the way an operator would say them. */
