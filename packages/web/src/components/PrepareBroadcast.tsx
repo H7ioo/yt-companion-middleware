@@ -13,6 +13,7 @@ import { StreamSelect } from "./StreamSelect.js";
 import { PreparedList } from "./PreparedList.js";
 import { ApiError } from "../api.js";
 import { CategorySelect } from "./CategorySelect.js";
+import { DateTimeField } from "./DateTimeField.js";
 import { describePrepareCost, isoToLocalInput, localInputToIso } from "../lib/prepareForm.js";
 import { bindingLabel } from "../lib/streamBinding.js";
 import { extractVars, resolvePresetText } from "../lib/template.js";
@@ -354,17 +355,13 @@ export function PrepareBroadcast({
             ) : null}
 
             <div className="field--row prep__row">
-              <div className="field">
-                <label htmlFor="prep-start">Starts</label>
-                <input
-                  id="prep-start"
-                  type="datetime-local"
-                  value={startsAt}
-                  onChange={(e) => setStartsAt(e.target.value)}
-                  disabled={busy}
-                />
-                <span className="hint">Your own clock. Schedule it for tonight or any day ahead.</span>
-              </div>
+              <DateTimeField
+                id="prep-start"
+                label="Starts"
+                value={startsAt}
+                onChange={setStartsAt}
+                disabled={busy}
+              />
 
               <div className="field">
                 <label htmlFor="prep-privacy">Privacy</label>
