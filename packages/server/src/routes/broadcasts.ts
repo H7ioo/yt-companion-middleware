@@ -5,18 +5,31 @@ import type { AppContext } from "./context.js";
 import { AppError, toErrorBody } from "../core/errors.js";
 import { QUOTA_COST } from "../core/quota.js";
 import { mapYouTubeError } from "../youtube/client.js";
-import { listBroadcasts } from "../youtube/broadcasts.js";
+import { getBroadcast, listBroadcasts } from "../youtube/broadcasts.js";
+import { writeBroadcast } from "../youtube/broadcastWrite.js";
+import type { BroadcastResource } from "../core/resolve.js";
+import {
+  applyBroadcastEdit,
+  lockOf,
+  setupFieldsIn,
+  type BroadcastEdit,
+} from "../youtube/broadcastEdit.js";
 import { listWhatWillAir } from "../youtube/willAir.js";
 import { listStreams } from "./streams.js";
 import { prepareBroadcast, watchUrlFor, type PrepareInput } from "../youtube/prepare.js";
 import { airedAtOf, retireOne, sweepBroadcasts, type SweepResult } from "../youtube/retire.js";
-import { deleteConfirmation, subjectOf, type DeleteSubject } from "@app/shared";
+import {
+  deleteConfirmation,
+  subjectOf,
+  type BroadcastEditView,
+  type DeleteSubject,
+} from "@app/shared";
 import { isEligibilityError, noteDriving, noteRidingMode } from "../youtube/eligibility.js";
 import { resolvePresetText } from "../core/template.js";
 import { privacyStatusSchema, type PreparedBroadcast } from "../storage/schema.js";
 
 // BroadcastListing is part of the shared API contract (the dashboard's broadcast list).
-export type { BroadcastListing } from "@app/shared";
+export type { BroadcastEditView, BroadcastListing } from "@app/shared";
 
 /**
  * "Which broadcast will actually air?" — the read-only answer that ends a Studio trip (PRD-16 §1,
@@ -357,6 +370,149 @@ export function broadcastsRouter(ctx: AppContext): Router {
     });
   });
 
+
+  /**
+   * Change a broadcast after it exists, without opening Studio (PRD-16 §9, issue 070).
+   *
+   * **The editable set is YouTube's, and it narrows with the lifecycle.** Title, description,
+   * scheduled times, privacy and category are taken in every state — including mid-show, which is
+   * the edit an operator most often needs at 22:58. The `contentDetails` flags and the ingestion
+   * key are taken only while the broadcast is `created` or `ready`; after that YouTube refuses
+   * them, and this route refuses them first so the operator gets a sentence about the broadcast's
+   * state rather than a generic 403 they cannot act on.
+   *
+   * The state is read from the resource this request just fetched, never from the will-air
+   * marker: that marker is this app's own ranking, and YouTube's refusal turns on its own record.
+   *
+   * **Rides on the existing write path.** `writeBroadcast` is the one guarded route to
+   * `liveBroadcasts.update` (issue 056) — a PUT that deletes whatever the body omits — and the
+   * merge here is the same read-modify-write the apply path does. Category goes to
+   * `videos.update`, because it is not a broadcast field at all; a rebind goes to
+   * `liveBroadcasts.bind`, because it is not one either. Three different calls, one press.
+   *
+   * An edit costs a read plus a write, because the whole resource is re-sent — plus a read and a
+   * write for a category change, plus a write for a rebind. Stated in the reply so the form can
+   * show what the press actually spent, and stated in the form before the press.
+   */
+  router.patch("/:id", async (req, res) => {
+    if (!ctx.store.get().service.apiEnabled) {
+      res.status(409).json(toErrorBody(new AppError("SERVICE_DISABLED")));
+      return;
+    }
+
+    let edit: BroadcastEdit;
+    try {
+      edit = editBody.parse(req.body ?? {});
+    } catch (err) {
+      res.status(400).json(toErrorBody(asAppError(err)));
+      return;
+    }
+    if (Object.keys(edit).length === 0) {
+      res.status(400).json(
+        toErrorBody(
+          new AppError("INVALID_REQUEST", "That edit changes nothing, so there is nothing to write."),
+        ),
+      );
+      return;
+    }
+
+    const id = req.params.id;
+    let current;
+    try {
+      current = await getBroadcast(ctx.yt, id);
+    } catch (err) {
+      const mapped = mapYouTubeError(err);
+      res.status(mapped.code === "NO_TARGET_FOUND" ? 404 : 502).json(toErrorBody(mapped));
+      return;
+    }
+    let units = QUOTA_COST.read;
+
+    // Refused before anything is written, and named field by field: "the setup is locked" is
+    // only useful if the operator can tell which of the controls they touched is the locked one.
+    // Cast as everywhere else this repo hands a googleapis resource to the read-modify-write
+    // path: `BroadcastResource` is the deliberately-loose shape those functions traverse.
+    const resource = current as BroadcastResource;
+    const lock = lockOf(resource);
+    const attempted = setupFieldsIn(edit);
+    if (lock.locked && attempted.length > 0) {
+      res.status(409).json(
+        toErrorBody(
+          new AppError(
+            "BROADCAST_STATE_LOCKED",
+            `“${current.snippet?.title ?? id}” cannot have ${attempted.join(", ")} changed. ${lock.reason}`,
+          ),
+        ),
+      );
+      return;
+    }
+
+    // The broadcast body first, and only when the edit actually touches it: a press that only
+    // changes the category or the key must not spend a 50-unit write re-sending an unchanged
+    // resource.
+    const touchesBroadcast = Object.keys(edit).some(
+      (k) => k !== "category" && k !== "streamId",
+    );
+    try {
+      if (touchesBroadcast) {
+        await writeBroadcast(ctx.yt, resource, applyBroadcastEdit(resource, edit));
+        units += QUOTA_COST.write;
+      }
+      if (edit.category !== undefined && edit.category !== null) {
+        await setCategory(ctx.yt, id, edit.category);
+        units += QUOTA_COST.read + QUOTA_COST.write;
+      }
+      if (edit.streamId !== undefined) {
+        await rebind(ctx.yt, id, edit.streamId);
+        units += QUOTA_COST.write;
+      }
+    } catch (err) {
+      const mapped = mapYouTubeError(err);
+      // A refusal the operator can act on is not a 502: 502 files it with the outages nobody can
+      // do anything about, and this one has a next step in its own message.
+      res
+        .status(mapped.code === "BROADCAST_STATE_LOCKED" || mapped.code === "BROADCAST_WRITE_UNSAFE" ? 409 : 502)
+        .json({ ...toErrorBody(mapped), quotaUnits: units });
+      return;
+    }
+
+    ctx.logger.push({
+      level: "info",
+      category: "action",
+      code: null,
+      message: `Edited “${edit.title ?? current.snippet?.title ?? id}” — changed ${Object.keys(edit).join(", ")}.`,
+    });
+    // Retiming reorders the will-air ranking, so the rail's answer may have just changed.
+    void ctx.cache.refresh({ force: true });
+    res.json({ id, quotaUnits: units });
+  });
+
+
+  /**
+   * Everything the edit form needs about one broadcast (issue 070).
+   *
+   * Its own route rather than a wider listing, because most of what the form edits the list has
+   * never carried: the description, the scheduled end, every `contentDetails` flag, and the
+   * category — which is not on the broadcast resource at all. A form opened without them would
+   * be offering to blank fields the operator cannot see, on a PUT that deletes what it omits.
+   *
+   * Two reads: the broadcast, and the video the category lives on. Cheap enough to spend when a
+   * row is opened, and never spent on a row that is not.
+   */
+  router.get("/:id/edit", async (req, res) => {
+    if (!ctx.store.get().service.apiEnabled) {
+      res.status(409).json(toErrorBody(new AppError("SERVICE_DISABLED")));
+      return;
+    }
+    try {
+      const current = await getBroadcast(ctx.yt, req.params.id);
+      const category = await readCategory(ctx.yt, req.params.id);
+      res.json({ ...editViewOf(current), category, quotaUnits: QUOTA_COST.read * 2 });
+    } catch (err) {
+      const mapped = mapYouTubeError(err);
+      res.status(mapped.code === "NO_TARGET_FOUND" ? 404 : 502).json(toErrorBody(mapped));
+    }
+  });
+
   return router;
 }
 
@@ -558,4 +714,99 @@ function asAppError(err: unknown): AppError {
     return new AppError("INVALID_REQUEST", err.issues[0]?.message);
   }
   return new AppError("INVALID_REQUEST");
+}
+
+/**
+ * The category write. Its own read-modify-write on the video snippet, for the same reason the
+ * broadcast has one: `videos.update` deletes any snippet field the body omits, and the title is
+ * one of them.
+ */
+async function setCategory(yt: youtube_v3.Youtube, videoId: string, categoryId: string): Promise<void> {
+  try {
+    const res = await yt.videos.list({ part: ["snippet"], id: [videoId] });
+    const snippet = res.data.items?.[0]?.snippet;
+    if (!snippet) throw new AppError("NO_TARGET_FOUND", `Video ${videoId} not found`);
+    snippet.categoryId = categoryId;
+    await yt.videos.update({ part: ["snippet"], requestBody: { id: videoId, snippet } });
+  } catch (err) {
+    throw mapYouTubeError(err);
+  }
+}
+
+/** Rebinding the ingestion key — `liveBroadcasts.bind`, never a field in the update body. */
+async function rebind(yt: youtube_v3.Youtube, id: string, streamId: string): Promise<void> {
+  try {
+    await yt.liveBroadcasts.bind({ id, part: ["id", "contentDetails", "status"], streamId });
+  } catch (err) {
+    throw mapYouTubeError(err);
+  }
+}
+
+/**
+ * One edit, as the dashboard sends it. Every field optional and every one meaning "change this":
+ * absent is "leave it alone", which is why nothing here has a default.
+ */
+const editBody = z
+  .object({
+    title: z.string().min(1),
+    description: z.string(),
+    scheduledStartTime: z.string().min(1),
+    /** Nullable on purpose — null is how an end time is removed, not how it is left alone. */
+    scheduledEndTime: z.string().min(1).nullable(),
+    privacyStatus: privacyStatusSchema,
+    category: z.string().min(1).nullable(),
+    streamId: z.string().min(1),
+    enableAutoStart: z.boolean(),
+    enableAutoStop: z.boolean(),
+    enableDvr: z.boolean(),
+    enableClosedCaptions: z.boolean(),
+    enableEmbed: z.boolean(),
+    recordFromStart: z.boolean(),
+    enableMonitorStream: z.boolean(),
+  })
+  .partial()
+  .strict();
+
+/**
+ * The video's current category, or null when YouTube reports none. Read rather than assumed: the
+ * form's category control has to open on what is actually set, and "the app default" is not that.
+ */
+async function readCategory(yt: youtube_v3.Youtube, videoId: string): Promise<string | null> {
+  try {
+    const res = await yt.videos.list({ part: ["snippet"], id: [videoId] });
+    return res.data.items?.[0]?.snippet?.categoryId ?? null;
+  } catch (err) {
+    throw mapYouTubeError(err);
+  }
+}
+
+/**
+ * The broadcast resource, flattened into the fields the form actually has controls for. Flat
+ * rather than the raw resource, so the dashboard never holds a half-copy of a YouTube object it
+ * might send back — the merge that decides what gets written happens on the server, against the
+ * resource read in the same request as the write.
+ */
+function editViewOf(b: youtube_v3.Schema$LiveBroadcast): Omit<BroadcastEditView, "category" | "quotaUnits"> {
+  const details = b.contentDetails ?? {};
+  return {
+    id: b.id ?? null,
+    title: b.snippet?.title ?? "",
+    description: b.snippet?.description ?? "",
+    scheduledStartTime: b.snippet?.scheduledStartTime ?? null,
+    scheduledEndTime: b.snippet?.scheduledEndTime ?? null,
+    privacyStatus: b.status?.privacyStatus ?? null,
+    /** What the lock turns on. Read from the resource, never from the will-air marker. */
+    lifeCycleStatus: b.status?.lifeCycleStatus ?? null,
+    boundStreamId: details.boundStreamId ?? null,
+    // Defaulted to false rather than left null: the form's controls are checkboxes, and a
+    // tri-state one would be a control for a state YouTube does not have.
+    enableAutoStart: details.enableAutoStart ?? false,
+    enableAutoStop: details.enableAutoStop ?? false,
+    enableDvr: details.enableDvr ?? false,
+    enableClosedCaptions: details.enableClosedCaptions ?? false,
+    enableEmbed: details.enableEmbed ?? false,
+    recordFromStart: details.recordFromStart ?? false,
+    // YouTube's own default when the object is absent (see broadcastWrite.ts).
+    enableMonitorStream: details.monitorStream?.enableMonitorStream ?? true,
+  };
 }

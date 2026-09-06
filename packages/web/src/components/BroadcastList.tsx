@@ -1,9 +1,18 @@
 import { useEffect, useState } from "react";
 import { AIRED_LIFECYCLE_STATES, type DeleteSubject } from "@app/shared";
-import { api, type BroadcastListEntry, type BroadcastListing, type TargetPin } from "../api.js";
+import {
+  api,
+  type BroadcastListEntry,
+  type BroadcastListing,
+  type Category,
+  type LiveEligibility,
+  type StreamInfo,
+  type TargetPin,
+} from "../api.js";
 import { watchUrl } from "../lib/watch.js";
 import { useCopied } from "../lib/useCopied.js";
 import { DeleteBroadcastDialog } from "./DeleteBroadcastDialog.js";
+import { EditBroadcastModal } from "./EditBroadcastModal.js";
 
 interface Props {
   /**
@@ -33,6 +42,15 @@ interface Props {
    * mid-count. Management lives on the page opened deliberately, in the afternoon.
    */
   manage?: boolean;
+  /**
+   * Riding mode, when the surface may act (issue 061, issue 070). YouTube is refusing this
+   * channel's write calls, so an edit form would collect a form-full of changes and then be
+   * turned down — the same reason Prepare stands itself down rather than offering a press.
+   */
+  eligibility?: LiveEligibility | null;
+  /** The channel's keys and categories, for the edit form's two dropdowns. Already fetched by the shell. */
+  streams?: StreamInfo[];
+  categories?: Category[];
 }
 
 /**
@@ -71,10 +89,21 @@ export function resetBroadcastCache() {
  * to", and this panel says so out loud when the operator's choice and the airing marker point at
  * different broadcasts.
  */
-export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Props) {
+export function BroadcastList({
+  apiEnabled,
+  pin,
+  onPinned,
+  manage = false,
+  eligibility = null,
+  streams = [],
+  categories = [],
+}: Props) {
   // Read once, at the top: `false` and `null` differ in what the panel says, but not in whether
   // it may spend quota.
   const paused = apiEnabled === false;
+  // YouTube is refusing this channel's writes, so an edit would be collected and then turned
+  // down. Said in the same words Prepare uses, rather than a second explanation for one fact.
+  const riding = eligibility?.mode === "riding";
   const known = apiEnabled !== null;
   const [listing, setListing] = useState<BroadcastListing | null>(cached);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +117,8 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
   // Held as the entry rather than as a flag: the dialog names the broadcast, and a dialog that
   // says "this one" is not a confirmation of anything.
   const [asking, setAsking] = useState<BroadcastListEntry | null>(null);
+  /** The row whose edit form is open. The id, not the entry: the form reads its own copy. */
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   /** What the last deletion did beyond removing the row — currently, whether it cleared the pin. */
   const [aftermath, setAftermath] = useState<string | null>(null);
@@ -272,6 +303,13 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
               ) : null
             ) : null}
 
+            {manage && riding ? (
+              <p className="patch__lede">
+                YouTube will not let this channel change broadcasts, so editing is off. Make the
+                change in YouTube Studio and this app will follow it.
+              </p>
+            ) : null}
+
             {listing && listing.encoderSource === "only-key" ? (
               <p className="patch__lede">
                 Read against “{listing.encoderStreamTitle}”, the channel's only ingestion key.
@@ -306,10 +344,24 @@ export function BroadcastList({ apiEnabled, pin, onPinned, manage = false }: Pro
                     onCopy={() => copy(watchUrl(e.id))}
                     deleting={deletingId === e.id}
                     onDelete={() => setAsking(e)}
+                    editable={!riding}
+                    onEdit={() => setEditingId(e.id)}
                   />
                 ))}
               </ul>
             </div>
+
+            {editingId ? (
+              <EditBroadcastModal
+                broadcastId={editingId}
+                streams={streams}
+                categories={categories}
+                onClose={() => setEditingId(null)}
+                // Re-read, because a retimed broadcast can hand the automatic choice to a
+                // different row — and that consequence is what the operator came here to see.
+                onSaved={() => void load()}
+              />
+            ) : null}
 
             <DeleteBroadcastDialog
               subject={asking ? subjectFor(asking) : null}
@@ -383,6 +435,9 @@ interface RowProps {
   deleting: boolean;
   /** Opens the question. The press itself is never the deletion (issue 071). */
   onDelete: () => void;
+  /** False in riding mode, where YouTube refuses the write this form would make (issue 070). */
+  editable: boolean;
+  onEdit: () => void;
 }
 
 function Row({
@@ -396,6 +451,8 @@ function Row({
   onCopy,
   deleting,
   onDelete,
+  editable,
+  onEdit,
 }: RowProps) {
   const marked = entry.willAir;
   // Never offered for a broadcast that has been on air: it is a recording people may still be
@@ -462,6 +519,23 @@ function Row({
               title="Copy the audience's link to this broadcast"
             >
               {copied ? "Copied" : "Copy link"}
+            </button>
+            {/* Offered on every row, a live one included: title, description, the times,
+                privacy and category are editable in every lifecycle state, and correcting a
+                title that is already on air is the edit this app exists for. What the row's
+                state closes is the setup half, and the form says so itself (issue 070). */}
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={onEdit}
+              disabled={disabled || !editable}
+              title={
+                editable
+                  ? "Change this broadcast's title, times, privacy or setup"
+                  : "YouTube will not let this channel change broadcasts right now"
+              }
+            >
+              Edit
             </button>
             {/* Offered whatever created the broadcast (issue 071). What the app did not make it
                 cannot vouch for, and the question says so — but a human choosing a row is not

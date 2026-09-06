@@ -84,10 +84,16 @@ export function DateTimeField({ id, label, value, onChange, disabled = false }: 
 
   // Escape closes the calendar and returns the operator to the control they opened it from,
   // which is the only thing that could have taken the focus.
+  //
+  // Claimed in the capture phase, but only when there is in fact a calendar open: this field
+  // sits inside the edit modal, which closes on Escape too, and one press must not both close
+  // the calendar and discard the form behind it (issue 070). An Escape with nothing open is not
+  // consumed, so it still reaches the modal.
   useEscape(() => {
-    if (!open) return;
+    if (!open) return false;
     close();
-  });
+    return true;
+  }, { capture: true });
 
   function close() {
     setOpen(false);

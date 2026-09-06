@@ -3083,3 +3083,99 @@ textarea {
     width: 100%;
   }
 }
+
+/* ---- Edit a broadcast (issue 070) ----------------------------------------- */
+
+/* Wider than the ad-hoc modal: this one carries two halves and a seven-flag grid, and squeezing
+   the setup group into 560px turns it into a single stack of ambiguous checkboxes. */
+.edit {
+  max-width: 660px;
+}
+
+/* The two halves of YouTube's editable set, drawn as two halves. A fieldset rather than a div
+   because that is what it is — a named group of controls — and the legend then names it for a
+   screen reader without a second aria-label. */
+.edit__group {
+  border: none;
+  border-top: var(--seam-line);
+  margin: 0 0 18px;
+  padding: 16px 0 0;
+}
+.edit__group:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+.edit__group legend {
+  padding: 0;
+  margin-bottom: 12px;
+}
+
+/* The locked half. Amber down the edge, not red: the lock is the broadcast's state, and this
+   rack spends amber on "degraded, worth knowing" rather than on "you did something wrong". The
+   controls dim, but the group's own text stays at full contrast — the reason is the one thing
+   in here that must still be easy to read. */
+.edit__group--locked {
+  border-left: 2px solid var(--warn);
+  padding-left: 14px;
+}
+.edit__locked {
+  margin: 0 0 12px;
+  color: var(--warn);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Two columns, so seven flags read as a panel of switches rather than a long list. Collapses to
+   one on a narrow screen, where two columns of wrapped labels are worse than a stack. */
+.edit__flags {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px 18px;
+  margin-bottom: 16px;
+}
+.edit__flag {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink);
+  cursor: pointer;
+}
+.edit__flag input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin: 1px 0 0;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.edit__flag input:disabled,
+.edit__flag input:disabled + span {
+  cursor: not-allowed;
+  color: var(--ink-faint);
+}
+
+/* Fully specified rather than borrowing `.hint`, which is scoped to `.field` and falls back to
+   an uppercase eyebrow outside one. */
+.edit__hint {
+  margin: -4px 0 16px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-faint);
+}
+
+/* The cost sits opposite the buttons rather than above them: it is the thing to read on the way
+   to the press, and it changes as the form does. */
+.edit__foot {
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.edit__buttons {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}

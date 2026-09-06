@@ -78,6 +78,13 @@ export function mapYouTubeError(err: unknown): AppError {
     if (status === 403 && reasons.some((r) => limitReasons.includes(r))) {
       return new AppError("BROADCAST_LIMIT_REACHED");
     }
+    // Before the auth family, and for the same reason the two above are: a rebind YouTube
+    // refuses because the broadcast has moved past `ready` is a 403 with a permission-shaped
+    // reason, and read as an auth failure it raises a reconnect banner that cannot help
+    // (issue 070). The state is the fact, and the operator can act on it.
+    if (reasons.includes("liveBroadcastBindingNotAllowed")) {
+      return new AppError("BROADCAST_STATE_LOCKED");
+    }
     const quotaReasons = ["quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded"];
     if (reasons.some((r) => quotaReasons.includes(r))) {
       return new AppError("YOUTUBE_QUOTA_EXCEEDED");

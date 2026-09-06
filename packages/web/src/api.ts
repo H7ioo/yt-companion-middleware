@@ -30,6 +30,8 @@ export type {
   TargetPin,
   BroadcastListing,
   BroadcastListEntry,
+  BroadcastEditView,
+  BroadcastEditRequest,
   IngestionReadout,
   IngestionReport,
   IngestionState,
@@ -64,6 +66,8 @@ import type {
   NotifyState,
   TargetPin,
   BroadcastListing,
+  BroadcastEditView,
+  BroadcastEditRequest,
   IngestionReport,
   SessionInfo,
   Person,
@@ -339,6 +343,23 @@ export const api = {
         failed: Array<{ id: string; title: string; message: string }>;
         quotaUnits: number;
       }>("/api/dashboard/broadcasts/retire", { method: "POST" }),
+    /**
+     * Everything the edit form opens on — two reads (the broadcast, and the video the category
+     * lives on). Its own call because most of these fields the list has never carried, and a
+     * form opened without them would be offering to blank what it cannot show (issue 070).
+     */
+    editable: (id: string) =>
+      req<BroadcastEditView>(`/api/dashboard/broadcasts/${encodeURIComponent(id)}/edit`),
+    /**
+     * Changes one broadcast. Only what moved is sent: the server re-reads and re-sends the whole
+     * resource around it, so a body carrying unchanged fields buys nothing and a category-only
+     * edit must not spend a broadcast write.
+     */
+    edit: (id: string, edit: BroadcastEditRequest) =>
+      req<{ id: string; quotaUnits: number }>(
+        `/api/dashboard/broadcasts/${encodeURIComponent(id)}`,
+        { method: "PATCH", body: JSON.stringify(edit) },
+      ),
     /**
      * Deletes one broadcast from the channel — any broadcast, not only the ones this app made
      * (issue 071). `confirm` is not optional in practice: the server refuses without it, and the
