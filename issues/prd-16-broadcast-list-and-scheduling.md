@@ -210,6 +210,8 @@ guard.
     confirm and shown the link I am destroying.
 16. As an operator, a panel that is still loading looks like it is loading, and the page does not
     jump when the data arrives.
+17. As a Companion operator, I can tell from the surface whether the next press lands on the
+    broadcast that is airing or on the app's best guess, and a key can be set to refuse the guess.
 
 ## Implementation Decisions
 

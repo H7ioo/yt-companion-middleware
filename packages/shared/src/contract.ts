@@ -6,7 +6,7 @@ import type {
   TargetConflict,
   TargetPin,
 } from "./schema.js";
-import type { IngestionState } from "./glossary.js";
+import type { IngestionState, TargetReadout } from "./glossary.js";
 import type { PreparedReadout } from "./prepared.js";
 
 /**
@@ -162,6 +162,16 @@ export interface DashboardState {
    * leaving it implicit.
    */
   targetPin: TargetPin | null;
+  /**
+   * How the target was chosen — on air, pinned, guessed, or nothing at all (issue 076) — and the
+   * title of the broadcast the next write would hit.
+   *
+   * Distinct from `targetConflict`, which fires only when the app can see evidence that the guess
+   * might be wrong. This says how the pick was made *whether or not* anything looks wrong, which
+   * is the answer a Companion key needs before a press: `targetPin` alone does not give it, since
+   * a pin can be standing while resolution has fallen back to inference.
+   */
+  target: TargetReadout;
   /**
    * What YouTube is seeing on the default ingestion key, or null when nothing has been read —
    * no key is set, the switch is off, or the app has been idle and deliberately spent nothing

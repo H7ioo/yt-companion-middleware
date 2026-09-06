@@ -6,7 +6,7 @@ import type { FillRequests } from "./fillRequests.js";
 import { renderTextPng } from "./titleImage.js";
 // DashboardState is the shared API contract for the dashboard state / SSE / webhook payloads.
 export type { DashboardState } from "@app/shared";
-import { describeIngestion, type DashboardState, type IngestionReadout } from "@app/shared";
+import { describeIngestion, describeTargetState, type DashboardState, type IngestionReadout } from "@app/shared";
 import { summarizePrepared, type IngestionSnapshot } from "@app/shared";
 
 /** Assembles the current state from its sources — the single source of truth for the state
@@ -38,6 +38,9 @@ export function buildDashboardState(
     fillRequest: fills.pending(),
     targetConflict: c.targetConflict,
     targetPin: store.get().targetPin,
+    // Derived from the cache and the pin the app already holds — no YouTube call, so a Companion
+    // key can read where a press will land on every push without spending quota (issue 076).
+    target: describeTargetState(c.status, store.get().targetPin),
     ingestion: toIngestionReadout(c.ingestion),
     liveEligibility: store.get().liveEligibility,
     // Read from the ownership record, not from YouTube: it is free, so the answer to "is tonight
@@ -102,7 +105,9 @@ export function changeSignature(s: DashboardState): string {
       ? [s.targetConflict.code, s.targetConflict.message, s.targetConflict.ids]
       : null,
     // Pinning or clearing changes where the next action lands, so it has to reach the dashboard
-    // immediately rather than waiting for the next refresh to move something else.
+    // immediately rather than waiting for the next refresh to move something else. `target` needs
+    // no entry of its own: it is a pure function of this, the broadcast id, the title and the two
+    // status flags, all of which are already above.
     s.targetPin?.id ?? null,
     // The state, the key it is about, and `checkedAt` bucketed to the minute. The state alone
     // would never push an unchanged answer — and the whole readout turns on its age: the panel

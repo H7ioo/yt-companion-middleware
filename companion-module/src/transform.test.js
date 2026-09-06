@@ -12,6 +12,7 @@ import {
   joinUrl,
   linkVariables,
   mapVariables,
+  offAirRefusal,
   nextApiEnabled,
   presetButtons,
   prepareBody,
@@ -19,6 +20,7 @@ import {
   presetChoices,
   resolveScheduledStart,
   streamChoices,
+  targetVariables,
   toPng64,
   wsHandshakeOptions,
   wsUrl,
@@ -565,5 +567,53 @@ describe('prepareBody (issue 063)', () => {
   it('parses vars given as a JSON string, the way a key option carries them', () => {
     const { body } = prepareBody({ presetId: 'friday', vars: '{"name":"Anwar"}', start: 'now' }, NOW);
     expect(body.vars).toEqual({ name: 'Anwar' });
+  });
+});
+
+describe('targetVariables', () => {
+  it('takes the resolved state and title from the frame as-is', () => {
+    const vars = targetVariables({
+      target: { state: 'guessed', label: 'The app’s best guess', title: 'Tonight' },
+    });
+    expect(vars).toEqual({ target_state: 'guessed', target_title: 'Tonight', target_label: 'The app’s best guess' });
+  });
+
+  it('is blank when the frame carries no target readout', () => {
+    expect(targetVariables(undefined)).toEqual({ target_state: '', target_title: '', target_label: '' });
+  });
+
+  it('rides mapVariables, for each of the four states', () => {
+    for (const state of ['live', 'pinned', 'guessed', 'none']) {
+      expect(mapVariables({ target: { state, title: null } }).target_state).toBe(state);
+    }
+  });
+});
+
+describe('offAirRefusal', () => {
+  const onAir = { status: { isLive: true }, target: { state: 'live', title: 'On air now' } };
+  const idle = { status: { isLive: false }, target: { state: 'guessed', title: 'Tonight' } };
+
+  it('lets every press through when the option is off', () => {
+    expect(offAirRefusal({}, idle)).toBeUndefined();
+    expect(offAirRefusal({ onAirOnly: false }, idle)).toBeUndefined();
+  });
+
+  it('lets a press through while on air', () => {
+    expect(offAirRefusal({ onAirOnly: true }, onAir)).toBeUndefined();
+  });
+
+  it('refuses off air, naming the broadcast the write would have guessed', () => {
+    const message = offAirRefusal({ onAirOnly: true }, idle);
+    expect(message).toContain('Tonight');
+    expect(message).toMatch(/on air/i);
+  });
+
+  it('refuses off air when there is nothing to edit at all', () => {
+    const message = offAirRefusal({ onAirOnly: true }, { status: { isLive: false }, target: { state: 'none' } });
+    expect(message).toMatch(/nothing/i);
+  });
+
+  it('refuses when no state has arrived — an unknown target is not "on air"', () => {
+    expect(offAirRefusal({ onAirOnly: true }, undefined)).toBeTruthy();
   });
 });

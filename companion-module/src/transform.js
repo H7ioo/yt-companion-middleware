@@ -33,9 +33,65 @@ export function mapVariables(state, presets = []) {
     undo_label: s.undo?.label ?? '',
     target_conflict: s.targetConflict?.code ?? '',
     target_conflict_message: s.targetConflict?.message ?? '',
+    ...targetVariables(s),
     ...ingestionVariables(s),
     ...preparedVariables(s),
   };
+}
+
+/**
+ * The target readout as Companion variables (issue 076) — where will the next press land, and was
+ * that target known or guessed?
+ *
+ * On air the answer is not in doubt: the encoder feeds exactly one broadcast, so resolution stops
+ * there. Off air it is inference — a stale filter, then four ranking rules over whatever upcoming
+ * broadcasts happen to exist — and the write lands on a broadcast the operator never named. The
+ * dashboard shows that evidence; without these variables the surface showed none of it, and a
+ * press looked identical either way.
+ *
+ * The state and its words are taken from the frame as-is, for the same reason the ingestion and
+ * prepared readouts are: the middleware resolves them from the shared glossary before pushing, and
+ * this module is bundled standalone and cannot import that glossary. A classifier re-written here
+ * is a copy that drifts the first time the ranking rules are corrected — and those rules are the
+ * ones that decide where a write lands.
+ * @param {Record<string, any> | undefined} state
+ */
+export function targetVariables(state) {
+  const target = state?.target ?? null;
+  return {
+    target_state: target?.state ?? '',
+    target_title: target?.title ?? '',
+    target_label: target?.label ?? '',
+  };
+}
+
+/**
+ * The refusal for a press that asked to happen only on air, while nothing is on air (issue 076) —
+ * or `undefined` when the press may go ahead.
+ *
+ * Why an option and not a rule: off-air presses are the normal way a show is set up, so refusing
+ * them by default would break every existing install. The option is how an operator opts into
+ * strictness for the keys they press *mid-show*, where "it landed on some other broadcast" is
+ * discovered after the fact or never.
+ *
+ * An unknown state counts as off air. The link can be down, or no frame has arrived yet — either
+ * way the module cannot say a broadcast is airing, and a strict key must not press on a guess
+ * about whether it is guessing.
+ * @param {{ onAirOnly?: unknown } | undefined} options
+ * @param {Record<string, any> | undefined} state
+ * @returns {string | undefined}
+ */
+export function offAirRefusal(options, state) {
+  if (options?.onAirOnly !== true) return undefined;
+  if (state?.status?.isLive === true) return undefined;
+  const target = state?.target ?? null;
+  const where =
+    target?.state === 'none'
+      ? 'there is nothing on the channel to edit'
+      : target?.title
+        ? `the write would land on \u201c${target.title}\u201d, which the app chose for you`
+        : 'the write would land on whichever broadcast the app picks';
+  return `Not on air \u2014 this key is set to press only while a broadcast is airing, and ${where}. Settle the target on the dashboard, or clear "Only when on air" on this key.`;
 }
 
 /**
@@ -410,7 +466,7 @@ export function healthColor(status) {
 // (so a key's job reads even unlit), and saturated colour is reserved for live states. The
 // active-preset highlight is violet, not green — green already means "healthy" on the health
 // lamp, and two identical greens meaning different things is how keys get misread mid-service.
-/** @type {{ onAir: number, busy: number, activePreset: number, apiOff: number, linkDown: number, presetIdle: number, indicator: number, imageCanvas: number, utility: number, privacy: number, caution: number, danger: number }} */
+/** @type {{ onAir: number, busy: number, activePreset: number, apiOff: number, linkDown: number, presetIdle: number, indicator: number, imageCanvas: number, utility: number, privacy: number, caution: number, targetGuess: number, danger: number }} */
 export const COMPANION_COLORS = {
   // Live states — saturated, white text
   onAir: rgb(220, 28, 28), // On Air — broadcast is live (tally red)
@@ -430,6 +486,11 @@ export const COMPANION_COLORS = {
   utility: rgb(36, 52, 76), // steel blue — refresh-type actions
   privacy: rgb(16, 84, 90), // teal — visibility control
   caution: rgb(148, 88, 6), // amber-brown — undo
+  // Target is a guess (issue 076) — muted plum. Deliberately not the amber `target_conflict`
+  // wears: a conflict says the app can see evidence its aim is wrong, while a guess is the
+  // ordinary off-air state and is usually right. One colour for both would train the operator
+  // to ignore the one that matters. Muted, too, because it is not an alarm.
+  targetGuess: rgb(96, 84, 140),
   danger: rgb(118, 26, 32), // deep maroon — the API kill switch at rest
 };
 

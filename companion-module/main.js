@@ -17,6 +17,7 @@ import {
 	linkVariables,
 	mapVariables,
 	nextApiEnabled,
+	offAirRefusal,
 	prepareBody,
 	presetButtons,
 	presetChoices,
@@ -34,6 +35,7 @@ const FEEDBACK_IDS = [
 	'busy',
 	'api_disabled',
 	'target_conflict',
+	'target_is_guessed',
 	'health_state',
 	'health_color',
 	'ingestion_state',
@@ -41,6 +43,30 @@ const FEEDBACK_IDS = [
 	'link_down',
 	'prepared_state',
 ]
+
+/**
+ * The "Only when on air" option, shared by every action that writes to the resolved target
+ * (issue 076).
+ *
+ * The split it guards: on air, a press lands on the broadcast that is airing — the encoder feeds
+ * exactly one, so there is nothing to disambiguate. Off air, it lands on the app's best guess among
+ * whatever upcoming broadcasts exist, which is a broadcast the operator never named. Both presses
+ * look identical from the deck.
+ *
+ * Default off, deliberately: off-air presses are the normal way a show is set up, so switching this
+ * on by default would refuse presses that work today and every existing install would need an
+ * upgrade script. Left off, the option is absent from the button's options and the behaviour is
+ * byte-for-byte what it was.
+ * @type {import('@companion-module/base').CompanionInputFieldCheckbox}
+ */
+const ON_AIR_ONLY_OPTION = {
+	type: 'checkbox',
+	id: 'onAirOnly',
+	label: 'Only when on air',
+	default: false,
+	tooltip:
+		'Refuse this press unless a broadcast is airing. Off air the write lands on the broadcast the app ranked highest, which may not be the one you start \u2014 turn this on for keys you press mid-show. The refusal is logged and lands on $(ytmeta:last_error); nothing is sent.',
+}
 
 /**
  * Persisted instance config, as edited in Companion's module settings (see getConfigFields).
@@ -181,6 +207,14 @@ class YtMiddlewareInstance extends InstanceBase {
 			},
 			{
 				type: 'static-text',
+				id: 'target_help',
+				width: 12,
+				label: 'Where a press lands',
+				value:
+					'On air, a press lands on the broadcast that is airing \u2014 the encoder feeds exactly one, so there is nothing to disambiguate. Off air, it lands on the app\u2019s best guess among the upcoming broadcasts on the channel, which may not be the one you start; the Broadcasts page is where that guess is settled, by pinning the right one. $(ytmeta:target_state) says which of the two you are in, $(ytmeta:target_title) names the broadcast, and any action can be set to refuse an off-air press with "Only when on air".',
+			},
+			{
+				type: 'static-text',
 				id: 'token_help',
 				width: 12,
 				label: '',
@@ -194,6 +228,24 @@ class YtMiddlewareInstance extends InstanceBase {
 
 	headers() {
 		return apiHeaders(this.config.token)
+	}
+
+	/**
+	 * Refuses a press that asked to happen only on air, while nothing is on air (issue 076).
+	 *
+	 * The refusal is the same shape `prepare_broadcast` already uses for a press that could not have
+	 * worked: nothing leaves the module, a warning is logged, and the reason reaches
+	 * `$(ytmeta:last_error)` so it is readable from the deck rather than only from Companion's log.
+	 * @param {string} actionId
+	 * @param {Record<string, any>} options
+	 * @returns {boolean} true when the press was refused and must go no further
+	 */
+	refusedOffAir(actionId, options) {
+		const message = offAirRefusal(options, this.latest)
+		if (!message) return false
+		this.log('warn', `${actionId}: ${message}`)
+		this.setVariableValues({ last_error: formatLastError({ code: 'NOT_ON_AIR', message }) })
+		return true
 	}
 
 	/**
@@ -474,6 +526,9 @@ class YtMiddlewareInstance extends InstanceBase {
 			{ variableId: 'undo_label', name: 'Undo target label' },
 			{ variableId: 'target_conflict', name: 'Target conflict code (blank when unambiguous)' },
 			{ variableId: 'target_conflict_message', name: 'Target conflict explanation' },
+			{ variableId: 'target_state', name: 'Where the next press lands (live/pinned/guessed/none)' },
+			{ variableId: 'target_title', name: 'Title of the broadcast the next press would hit' },
+			{ variableId: 'target_label', name: 'Where the next press lands, in words ("Best guess")' },
 			{ variableId: 'ingestion_state', name: 'Signal in (receiving/problems/no-data/unknown)' },
 			{ variableId: 'ingestion_label', name: 'Signal in, in words ("Receiving video")' },
 			{ variableId: 'ingestion_key', name: 'Ingestion key the reading is about' },
@@ -546,6 +601,15 @@ class YtMiddlewareInstance extends InstanceBase {
 				defaultStyle: { bgcolor: COMPANION_COLORS.apiOff, color: combineRgb(0, 0, 0) },
 				options: [],
 				callback: () => Boolean(this.latest?.targetConflict),
+			},
+			target_is_guessed: {
+				type: 'boolean',
+				name: 'Target is a guess (off air)',
+				description:
+					'True when nothing is on air and nothing is pinned, so the next press lands on whichever upcoming broadcast the app ranked highest — a broadcast nobody named. On air this is false: the encoder feeds exactly one broadcast, so the target is not in doubt. Distinct from "Target conflict", which fires only when the app can see evidence its aim is wrong; this fires whenever the aim was inferred at all. $(ytmeta:target_title) names the broadcast.',
+				defaultStyle: { bgcolor: COMPANION_COLORS.targetGuess, color: combineRgb(255, 255, 255) },
+				options: [],
+				callback: () => this.latest?.target?.state === 'guessed',
 			},
 			health_state: {
 				type: 'boolean',
@@ -670,8 +734,10 @@ class YtMiddlewareInstance extends InstanceBase {
 						default: '',
 						useVariables: true,
 					},
+					ON_AIR_ONLY_OPTION,
 				],
 				callback: async (a) => {
+					if (this.refusedOffAir('apply_preset', a.options)) return
 					/** @type {Record<string, any>} */
 					const body = { presetId: a.options.presetId }
 					const raw = (await this.parseVariablesInString(String(a.options.vars ?? ''))).trim()
@@ -798,8 +864,10 @@ class YtMiddlewareInstance extends InstanceBase {
 					},
 					{ type: 'dropdown', id: 'category', label: 'Category', default: '', choices: categoryChoices(this.categories) },
 					{ type: 'dropdown', id: 'streamBoundId', label: 'Bound stream', default: '', choices: streamChoices(this.streams) },
+					ON_AIR_ONLY_OPTION,
 				],
 				callback: async (a) => {
+					if (this.refusedOffAir('update', a.options)) return
 					const title = (await this.parseVariablesInString(String(a.options.title ?? ''))).trim()
 					if (!title) {
 						this.log('warn', 'update: title is required — skipping')
@@ -817,8 +885,11 @@ class YtMiddlewareInstance extends InstanceBase {
 			},
 			privacy_toggle: {
 				name: 'Privacy: toggle private ↔ public',
-				options: [],
-				callback: () => this.postAction('/api/action/privacy', { mode: 'toggle' }),
+				options: [ON_AIR_ONLY_OPTION],
+				callback: (a) => {
+					if (this.refusedOffAir('privacy_toggle', a.options)) return
+					return this.postAction('/api/action/privacy', { mode: 'toggle' })
+				},
 			},
 			privacy_set: {
 				name: 'Privacy: set',
@@ -834,8 +905,12 @@ class YtMiddlewareInstance extends InstanceBase {
 							{ id: 'private', label: 'private' },
 						],
 					},
+					ON_AIR_ONLY_OPTION,
 				],
-				callback: (a) => this.postAction('/api/action/privacy', { status: a.options.status }),
+				callback: (a) => {
+					if (this.refusedOffAir('privacy_set', a.options)) return
+					return this.postAction('/api/action/privacy', { status: a.options.status })
+				},
 			},
 			undo: {
 				name: 'Undo last change',

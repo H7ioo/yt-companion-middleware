@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCreateBroadcasts, describeTarget, LIVE_ELIGIBILITY_GLOSSARY } from "./glossary.js";
+import { canCreateBroadcasts, describeTarget, describeTargetState, LIVE_ELIGIBILITY_GLOSSARY, TARGET_STATE_GLOSSARY } from "./glossary.js";
 
 describe("describeTarget", () => {
   it("names the next scheduled broadcast when nothing is on air", () => {
@@ -50,5 +50,46 @@ describe("canCreateBroadcasts", () => {
     expect(canCreateBroadcasts({ mode: "driving", reason: null, message: null, checkedAt: null })).toBe(
       true,
     );
+  });
+});
+
+describe("describeTargetState", () => {
+  const idle = { isLive: false, noTarget: false, title: "Tonight", broadcastId: "b1" };
+
+  it("is live when a broadcast is on air, pin or no pin", () => {
+    const readout = describeTargetState(
+      { isLive: true, noTarget: false, title: "On air now", broadcastId: "live1" },
+      { id: "b1" },
+    );
+    expect(readout.state).toBe("live");
+    expect(readout.title).toBe("On air now");
+  });
+
+  it("is pinned when the pin is the broadcast that resolved", () => {
+    expect(describeTargetState(idle, { id: "b1" }).state).toBe("pinned");
+  });
+
+  it("is guessed when nothing is pinned", () => {
+    expect(describeTargetState(idle, null).state).toBe("guessed");
+  });
+
+  it("is guessed when the pin names a broadcast that did not resolve", () => {
+    // PINNED_TARGET_GONE: the pin stands but the write lands on the fallback, which is a guess.
+    expect(describeTargetState(idle, { id: "somewhere-else" }).state).toBe("guessed");
+  });
+
+  it("is none, with no title, when the channel has nothing to edit", () => {
+    const readout = describeTargetState(
+      { isLive: false, noTarget: true, title: null, broadcastId: null },
+      null,
+    );
+    expect(readout.state).toBe("none");
+    expect(readout.title).toBeNull();
+  });
+
+  it("carries the glossary's words for the state it resolved", () => {
+    const readout = describeTargetState(idle, null);
+    expect(readout.label).toBe(TARGET_STATE_GLOSSARY.guessed.label);
+    expect(readout.meaning).toBe(TARGET_STATE_GLOSSARY.guessed.meaning);
   });
 });

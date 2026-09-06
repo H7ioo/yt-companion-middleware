@@ -297,6 +297,95 @@ export function describeTarget(
 }
 
 /**
+ * How the app arrived at the broadcast the next write will land on (issue 076).
+ *
+ * `describeTarget` above answers *what kind of thing* is being edited. This answers the question a
+ * Companion key actually needs: **was the target known, or inferred?** On air it is known — the
+ * encoder feeds exactly one broadcast, so resolution stops there. Idle, it is either the operator's
+ * pin or a ranking heuristic run over whatever upcoming broadcasts happen to exist, and the write
+ * lands on a broadcast nobody named. The dashboard shows that evidence; the surface showed none of
+ * it, and a press looked identical either way.
+ */
+export type TargetState = "live" | "pinned" | "guessed" | "none";
+
+export interface TargetStateTerm {
+  /** Display name for the state, short enough for a key. */
+  label: string;
+  /** One plain-language sentence: how this target was chosen, and how much to trust it. */
+  meaning: string;
+}
+
+export const TARGET_STATE_GLOSSARY: Record<TargetState, TargetStateTerm> = {
+  live: {
+    label: "On air",
+    meaning:
+      "A broadcast is airing, so the target is not in doubt — the encoder feeds exactly one broadcast and edits land on it.",
+  },
+  pinned: {
+    label: "Pinned",
+    meaning:
+      "Nothing is on air, and you pinned the broadcast edits land on — so the target is your answer, not a guess.",
+  },
+  guessed: {
+    label: "Best guess",
+    meaning:
+      "Nothing is on air and nothing is pinned, so edits land on the upcoming broadcast the app ranked highest — which may not be the one you start. Pin the right one on the Broadcasts page to be sure.",
+  },
+  none: {
+    label: "No broadcast",
+    meaning: "There is nothing on air and nothing upcoming, so there is nothing to edit.",
+  },
+};
+
+/** The status fields that decide how the target was chosen. */
+export interface TargetStateStatus extends BroadcastStatusFlags {
+  title: string | null;
+  broadcastId: string | null;
+}
+
+/**
+ * The target readout carried on every state push (issue 076).
+ *
+ * Resolved here and pushed already-classified, for the same reason the ingestion and prepared
+ * readouts are: one of the consumers is the Companion module, which is bundled standalone and
+ * cannot import this package at runtime. A classifier it kept its own copy of would drift the
+ * first time these rules were corrected — and these rules are the ones that decide where a write
+ * lands.
+ */
+export interface TargetReadout extends TargetStateTerm {
+  state: TargetState;
+  /** Title of the broadcast the next write would hit, or null when there is none. */
+  title: string | null;
+}
+
+/**
+ * Resolves how the current target was chosen, from state the app already holds — so it costs no
+ * YouTube quota.
+ *
+ * `pinned` requires the pin to be the broadcast that actually resolved. A pin naming a broadcast
+ * that is gone leaves the write landing on the automatic fallback (`PINNED_TARGET_GONE` in
+ * `resolveTarget`), and reporting that as `pinned` would tell the operator their answer is still
+ * in force while the app quietly went back to guessing.
+ */
+export function describeTargetState(
+  status: TargetStateStatus,
+  pin: { id: string } | null | undefined,
+): TargetReadout {
+  const state: TargetState = status.noTarget
+    ? "none"
+    : status.isLive
+      ? "live"
+      : pin?.id && pin.id === status.broadcastId
+        ? "pinned"
+        : "guessed";
+  return {
+    state,
+    ...TARGET_STATE_GLOSSARY[state],
+    title: state === "none" ? null : (status.title ?? null),
+  };
+}
+
+/**
  * The live-eligibility slice of the glossary: whether this app is driving the broadcast or riding
  * along with one somebody else made (PRD-16 §6, issue 061).
  *
