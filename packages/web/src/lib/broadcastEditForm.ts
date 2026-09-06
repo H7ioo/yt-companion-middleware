@@ -63,10 +63,13 @@ const FLAGS = [
 /**
  * What moved, and only what moved.
  *
- * Times are compared as instants rather than as strings: the form holds them in the operator's
- * clock and YouTube states them in UTC, so a straight comparison would report every edit as a
- * retiming — which would cost a write on every press and, worse, reorder the will-air ranking
- * for an edit that changed nothing.
+ * Times are compared in the form's own representation — the `datetime-local` string the field
+ * was opened with — rather than as instants. Two reasons, and the second is the one that bites:
+ * the form holds them in the operator's clock while YouTube states them in UTC, and the field
+ * has no seconds, so a broadcast scheduled at 18:00:30 (an auto-start mint, or Studio's "Stream
+ * now") opens as 18:00 and would compare unequal to itself. That reported a retiming nobody
+ * asked for, on a form the operator had not touched — a write on every press, and a will-air
+ * ranking reordered by 30 seconds of rounding.
  */
 export function editDiff(view: BroadcastEditView, form: EditFormValues): BroadcastEditRequest {
   const diff: BroadcastEditRequest = {};
@@ -74,11 +77,11 @@ export function editDiff(view: BroadcastEditView, form: EditFormValues): Broadca
   if (form.description !== view.description) diff.description = form.description;
 
   const startIso = localInputToIso(form.startsAt);
-  if (startIso !== null && !sameInstant(startIso, view.scheduledStartTime))
+  if (startIso !== null && !sameField(form.startsAt, view.scheduledStartTime))
     diff.scheduledStartTime = startIso;
 
   const endIso = form.endsAt.trim() === "" ? null : localInputToIso(form.endsAt);
-  if (!sameInstant(endIso, view.scheduledEndTime)) diff.scheduledEndTime = endIso;
+  if (!sameField(form.endsAt, view.scheduledEndTime)) diff.scheduledEndTime = endIso;
 
   if (form.privacyStatus !== view.privacyStatus) diff.privacyStatus = form.privacyStatus;
   // Null is a real value here — "leave YouTube's own default alone" — so it is compared, not
@@ -93,10 +96,9 @@ export function editDiff(view: BroadcastEditView, form: EditFormValues): Broadca
   return diff;
 }
 
-/** True when both sides name the same moment, or when both name none. */
-function sameInstant(a: string | null, b: string | null): boolean {
-  if (a === null || b === null) return a === b;
-  return Date.parse(a) === Date.parse(b);
+/** True when the field still holds exactly what the broadcast opened it with — empty included. */
+function sameField(input: string, iso: string | null): boolean {
+  return input.trim() === (iso ? isoToLocalInput(iso) : "");
 }
 
 /** The `contentDetails` flags and the key — the fields the setup lock covers. */

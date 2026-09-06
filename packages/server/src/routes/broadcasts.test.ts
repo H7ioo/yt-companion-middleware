@@ -341,6 +341,163 @@ describe("PATCH /api/dashboard/broadcasts/:id", () => {
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe("BROADCAST_STATE_LOCKED");
   });
 
+  /** A context whose store actually holds — and keeps — its ownership records. */
+  function ctxWithStore(yt: youtube_v3.Youtube, prepared: unknown[]): Partial<AppContext> {
+    const state = { service: { apiEnabled: true }, preparedBroadcasts: prepared };
+    return {
+      yt,
+      store: {
+        get: () => state,
+        update: async (fn: (s: typeof state) => void) => {
+          fn(state);
+        },
+      } as unknown as AppContext["store"],
+      logger: { push: () => {} } as unknown as AppContext["logger"],
+      cache: { refresh: async () => {} } as unknown as AppContext["cache"],
+    };
+  }
+
+  it("moves the ownership record with the broadcast, so the next sweep does not delete what was just rescheduled", async () => {
+    const edited: Edited = { updates: [], binds: [], videoUpdates: [] };
+    const yt = editableYt(edited, {
+      id: "b1",
+      snippet: { title: "Sunday service", scheduledStartTime: "2020-01-01T18:00:00Z" },
+      status: { privacyStatus: "public", lifeCycleStatus: "ready" },
+      contentDetails: { boundStreamId: "s1" },
+    });
+    const prepared = [
+      {
+        id: "b1",
+        title: "Sunday service",
+        privacyStatus: "public",
+        scheduledStartTime: "2020-01-01T18:00:00Z",
+        streamId: "s1",
+        watchUrl: "https://youtu.be/b1",
+        createdAt: "2020-01-01T00:00:00Z",
+        presetId: null,
+        airedAt: null,
+        retiredAt: null,
+        retiredReason: null,
+      },
+    ];
+    const ctx = ctxWithStore(yt, prepared);
+    const m = await mount(ctx);
+    close = m.close;
+
+    const res = await fetch(`${m.url}/b1`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Harvest service",
+        scheduledStartTime: "2030-01-01T18:00:00Z",
+        privacyStatus: "unlisted",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    // The record is what the sweep, the "Made here" list and the delete confirmation read.
+    const record = (ctx.store as unknown as { get: () => { preparedBroadcasts: Array<Record<string, unknown>> } })
+      .get()
+      .preparedBroadcasts[0];
+    expect(record.scheduledStartTime).toBe("2030-01-01T18:00:00Z");
+    expect(record.title).toBe("Harvest service");
+    expect(record.privacyStatus).toBe("unlisted");
+    // Nothing else on the record was touched — it is not a cache of YouTube.
+    expect(record.watchUrl).toBe("https://youtu.be/b1");
+    expect(record.createdAt).toBe("2020-01-01T00:00:00Z");
+  });
+
+  it("refuses a start time that is not a date, rather than paying YouTube to say so", async () => {
+    const edited: Edited = { updates: [], binds: [], videoUpdates: [] };
+    const yt = editableYt(edited, {
+      id: "b1",
+      snippet: { title: "Sunday service" },
+      status: { privacyStatus: "public", lifeCycleStatus: "ready" },
+      contentDetails: { boundStreamId: "s1" },
+    });
+    const m = await mount(ctxFor(yt));
+    close = m.close;
+
+    const res = await fetch(`${m.url}/b1`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scheduledStartTime: "next Sunday" }),
+    });
+
+    expect(res.status).toBe(400);
+    // A 502 would file it with the outages nobody can act on; this one the operator can fix.
+    expect(edited.updates).toHaveLength(0);
+  });
+
+  it("refuses a null category instead of answering 200 having written nothing", async () => {
+    const edited: Edited = { updates: [], binds: [], videoUpdates: [] };
+    const yt = editableYt(edited, {
+      id: "b1",
+      snippet: { title: "Sunday service" },
+      status: { privacyStatus: "public", lifeCycleStatus: "ready" },
+      contentDetails: { boundStreamId: "s1" },
+    });
+    const m = await mount(ctxFor(yt));
+    close = m.close;
+
+    const res = await fetch(`${m.url}/b1`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ category: null }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(edited.videoUpdates).toHaveLength(0);
+  });
+
+  it("says what already landed when a later call fails, because nothing rolls the earlier ones back", async () => {
+    const edited: Edited = { updates: [], binds: [], videoUpdates: [] };
+    const yt = editableYt(edited, {
+      id: "b1",
+      snippet: { title: "Sunday service", scheduledStartTime: "2020-01-01T18:00:00Z" },
+      status: { privacyStatus: "public", lifeCycleStatus: "ready" },
+      contentDetails: { boundStreamId: "s1" },
+    });
+    (yt.liveBroadcasts as unknown as { bind: () => Promise<never> }).bind = async () => {
+      throw { response: { status: 500 } };
+    };
+    const prepared = [
+      {
+        id: "b1",
+        title: "Sunday service",
+        privacyStatus: "public",
+        scheduledStartTime: "2020-01-01T18:00:00Z",
+        streamId: "s1",
+        watchUrl: "https://youtu.be/b1",
+        createdAt: "2020-01-01T00:00:00Z",
+        presetId: null,
+        airedAt: null,
+        retiredAt: null,
+        retiredReason: null,
+      },
+    ];
+    const ctx = ctxWithStore(yt, prepared);
+    const m = await mount(ctx);
+    close = m.close;
+
+    const res = await fetch(`${m.url}/b1`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Harvest service", streamId: "s2" }),
+    });
+
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: { message: string } };
+    // The title *was* written. A bare "could not save" is what gets an operator to press again.
+    expect(body.error.message).toContain("Already saved: title");
+    // And the record says so too, so the list is not showing a title YouTube no longer has.
+    const record = (ctx.store as unknown as { get: () => { preparedBroadcasts: Array<Record<string, unknown>> } })
+      .get()
+      .preparedBroadcasts[0];
+    expect(record.title).toBe("Harvest service");
+    expect(record.streamId).toBe("s1");
+  });
+
   it("hands the form every field it can edit, including the ones the list never carried", async () => {
     const edited: Edited = { updates: [], binds: [], videoUpdates: [] };
     const yt = editableYt(edited, {

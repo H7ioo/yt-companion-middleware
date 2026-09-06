@@ -1,10 +1,10 @@
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { setupLock } from "@app/shared";
 import { api, type BroadcastEditView, type Category, type PrivacyStatus, type StreamInfo } from "../api.js";
 import { CategorySelect } from "./CategorySelect.js";
 import { StreamSelect } from "./StreamSelect.js";
 import { DateTimeField } from "./DateTimeField.js";
-import { useEscape } from "../lib/useEscape.js";
+import { useDialogFocus } from "../lib/useDialogFocus.js";
 import {
   describeEditCost,
   editDiff,
@@ -63,27 +63,38 @@ export function EditBroadcastModal({ broadcastId, streams, categories, onClose, 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const lockId = useId();
-  useEscape(onClose);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  // Escape closes, Tab stays inside, focus opens into the panel and returns where it came from —
+  // the same keyboard contract the delete dialog has, from the same hook. `aria-modal="true"` on
+  // a dialog Tab can wander out of is a promise the panel does not keep.
+  useDialogFocus(dialogRef, onClose);
+
+  /** Re-reads the broadcast and re-opens the form on it. Two units, spent only when asked. */
+  const read = useCallback(
+    (live: () => boolean) =>
+      api.broadcasts
+        .editable(broadcastId)
+        .then((v) => {
+          if (!live()) return;
+          setView(v);
+          setForm(formFrom(v));
+        })
+        .catch((err: unknown) => {
+          if (!live()) return;
+          // Replaces the form rather than sitting above it: there is nothing to edit until the
+          // read lands, and a form full of blanks would offer to write them.
+          setError(err instanceof Error ? err.message : "Could not read this broadcast.");
+        }),
+    [broadcastId],
+  );
 
   useEffect(() => {
     let live = true;
-    api.broadcasts
-      .editable(broadcastId)
-      .then((v) => {
-        if (!live) return;
-        setView(v);
-        setForm(formFrom(v));
-      })
-      .catch((err: unknown) => {
-        if (!live) return;
-        // Replaces the form rather than sitting above it: there is nothing to edit until the
-        // read lands, and a form full of blanks would offer to write them.
-        setError(err instanceof Error ? err.message : "Could not read this broadcast.");
-      });
+    void read(() => live);
     return () => {
       live = false;
     };
-  }, [broadcastId]);
+  }, [read]);
 
   const lock = setupLock(view?.lifeCycleStatus);
   const diff = view && form ? editDiff(view, form) : {};
@@ -104,7 +115,14 @@ export function EditBroadcastModal({ broadcastId, streams, categories, onClose, 
       onSaved();
       onClose();
     } catch (err) {
+      // A failed save is not an unchanged broadcast. The press makes up to three independent
+      // calls to three resources and nothing rolls the earlier ones back, so by the time this
+      // runs the title may already be written on YouTube. The list re-reads and the form
+      // re-opens on what is actually there — otherwise the operator saves again over a state
+      // the panel is no longer showing.
       setError(err instanceof Error ? err.message : "Could not save the changes.");
+      onSaved();
+      await read(() => true);
     } finally {
       setBusy(false);
     }
@@ -117,6 +135,7 @@ export function EditBroadcastModal({ broadcastId, streams, categories, onClose, 
         role="dialog"
         aria-modal="true"
         aria-labelledby="edit-title"
+        ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="panel__head">

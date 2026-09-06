@@ -44,14 +44,14 @@ function view(over: Partial<BroadcastEditView> = {}): BroadcastEditView {
   };
 }
 
-function mount(onClose: () => void = () => {}) {
+function mount(onClose: () => void = () => {}, onSaved: () => void = () => {}) {
   return render(
     <EditBroadcastModal
       broadcastId="b1"
       streams={streams}
       categories={categories}
       onClose={onClose}
-      onSaved={() => {}}
+      onSaved={onSaved}
     />,
   );
 }
@@ -98,6 +98,40 @@ describe("EditBroadcastModal", () => {
     fireEvent.keyDown(document, { key: "Escape" });
 
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("keeps the keyboard inside the panel, as a dialog claiming aria-modal has to", async () => {
+    editable.mockResolvedValue(view());
+    mount();
+    await screen.findByLabelText("Title");
+
+    // Focus opens into the dialog rather than being left on whatever opened it.
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    // And Tab off the last stop comes back to the first, rather than wandering into the page
+    // behind an overlay a screen reader has been told is modal.
+    const save = screen.getByRole("button", { name: /save changes/i });
+    save.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  it("re-reads after a failed save, because the calls before the failure already landed", async () => {
+    editable.mockResolvedValue(view());
+    const onSaved = vi.fn();
+    edit.mockRejectedValueOnce(new Error("Could not rebind the key."));
+    mount(() => {}, onSaved);
+
+    const title = await screen.findByLabelText("Title");
+    fireEvent.change(title, { target: { value: "Harvest service" } });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(screen.getByText(/could not rebind/i)).toBeTruthy());
+    // The list re-reads and so does the form: a save that failed on its third call may already
+    // have written the first two, and a panel showing the pre-press state invites a second press.
+    expect(onSaved).toHaveBeenCalled();
+    await waitFor(() => expect(editable).toHaveBeenCalledTimes(2));
   });
 
   it("closes on Escape when no calendar is open", async () => {

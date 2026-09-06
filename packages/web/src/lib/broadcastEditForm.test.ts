@@ -40,6 +40,21 @@ describe("editDiff", () => {
   it("is empty when nothing moved, so the form can refuse a press that writes nothing", () => {
     expect(editDiff(view, form())).toEqual({});
   });
+
+  it("does not read a broadcast scheduled on the half-minute as a retiming of itself", () => {
+    // Auto-start mints and Studio's "Stream now" leave seconds on the scheduled time; the field
+    // has no seconds, so the form opens on 18:00 and once compared unequal to its own 18:00:30 —
+    // a retiming, a 50-unit write and a reordered will-air ranking, with nothing touched.
+    const odd = { ...view, scheduledStartTime: "2026-09-06T18:00:30.000Z" };
+    expect(editDiff(odd, formFrom(odd))).toEqual({});
+  });
+
+  it("still sends a retiming the operator actually made", () => {
+    const odd = { ...view, scheduledStartTime: "2026-09-06T18:00:30.000Z" };
+    const opened = formFrom(odd);
+    const moved = { ...opened, startsAt: opened.startsAt.replace(/\d\d$/, "45") };
+    expect(editDiff(odd, moved).scheduledStartTime).toBeTruthy();
+  });
 });
 
 describe("describeEditCost", () => {

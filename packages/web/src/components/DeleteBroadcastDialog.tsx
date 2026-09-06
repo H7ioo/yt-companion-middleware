@@ -1,8 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { deleteConfirmation, type DeleteSubject } from "@app/shared";
-
-/** Everything inside the dialog Tab can land on, in document order. */
-const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+import { useDialogFocus } from "../lib/useDialogFocus.js";
 
 interface Props {
   /** What is about to be deleted. Null closes the dialog; the caller holds the choice. */
@@ -29,44 +27,10 @@ interface Props {
 export function DeleteBroadcastDialog({ subject, onCancel, onConfirm }: Props) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
-  // While the question is up it owns the keyboard. Capture-phase, so Escape answers *this*
-  // question rather than closing whatever this panel happens to be sitting inside.
-  useEffect(() => {
-    if (!subject) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onCancel();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const dialog = dialogRef.current;
-      if (!dialog) return;
-      const stops = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE));
-      if (stops.length === 0) return;
-      const first = stops[0];
-      const last = stops[stops.length - 1];
-      const active = document.activeElement;
-      if (e.shiftKey && (active === first || !dialog.contains(active))) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (active === last || !dialog.contains(active))) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [subject, onCancel]);
-
-  // Focus opens into the dialog and returns where it came from, so the question is answerable
-  // from the keyboard alone. `Keep it` is first, and therefore what focus lands on.
-  useEffect(() => {
-    if (!subject) return;
-    const restoreTo = document.activeElement as HTMLElement | null;
-    dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
-    return () => restoreTo?.focus?.();
-  }, [subject !== null]);
+  // While the question is up it owns the keyboard: Escape answers *this* question, Tab stays
+  // inside it, and focus opens on `Keep it` and goes back where it came from. Shared with the
+  // edit modal, so the two cannot drift.
+  useDialogFocus(dialogRef, onCancel, subject !== null);
 
   if (!subject) return null;
   const confirmation = deleteConfirmation(subject);

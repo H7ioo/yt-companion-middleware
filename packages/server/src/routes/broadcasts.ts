@@ -452,28 +452,50 @@ export function broadcastsRouter(ctx: AppContext): Router {
     const touchesBroadcast = Object.keys(edit).some(
       (k) => k !== "category" && k !== "streamId",
     );
+    // Three calls to three different resources, and nothing rolls the earlier ones back: a
+    // failure on the third leaves the first two written. So what landed is tracked and said in
+    // the refusal, because "could not save" over a title that *was* saved is what gets an
+    // operator to press again and change something twice.
+    const landed: string[] = [];
     try {
       if (touchesBroadcast) {
         await writeBroadcast(ctx.yt, resource, applyBroadcastEdit(resource, edit));
         units += QUOTA_COST.write;
+        landed.push(...Object.keys(edit).filter((k) => k !== "category" && k !== "streamId"));
       }
-      if (edit.category !== undefined && edit.category !== null) {
+      if (edit.category !== undefined) {
         await setCategory(ctx.yt, id, edit.category);
         units += QUOTA_COST.read + QUOTA_COST.write;
+        landed.push("category");
       }
       if (edit.streamId !== undefined) {
         await rebind(ctx.yt, id, edit.streamId);
         units += QUOTA_COST.write;
+        landed.push("streamId");
       }
     } catch (err) {
+      // Whatever landed before the failure is what the channel now has, and the ownership record
+      // has to say so — a half-applied edit that leaves a stale record is the same sweep hazard
+      // as an unrecorded one.
+      await syncPreparedAfterEdit(ctx, id, pick(edit, landed));
       const mapped = mapYouTubeError(err);
+      const message =
+        landed.length > 0
+          ? `${mapped.message} Already saved: ${landed.join(", ")}.`
+          : mapped.message;
       // A refusal the operator can act on is not a 502: 502 files it with the outages nobody can
       // do anything about, and this one has a next step in its own message.
       res
         .status(mapped.code === "BROADCAST_STATE_LOCKED" || mapped.code === "BROADCAST_WRITE_UNSAFE" ? 409 : 502)
-        .json({ ...toErrorBody(mapped), quotaUnits: units });
+        .json({ ...toErrorBody(new AppError(mapped.code, message)), quotaUnits: units });
       return;
     }
+
+    // The ownership record carries its own copy of the title, the privacy and the scheduled
+    // start — the "Made here" list, the delete confirmation and, above all, the sweep read from
+    // it rather than from YouTube. Left stale, retiming a broadcast into the future leaves a
+    // past start on the record and the next sweep deletes the broadcast just retimed.
+    await syncPreparedAfterEdit(ctx, id, edit);
 
     ctx.logger.push({
       level: "info",
@@ -546,6 +568,45 @@ async function deleteUnowned(yt: youtube_v3.Youtube, id: string): Promise<void> 
     );
     if (status !== 404) throw err;
   }
+}
+
+/** The subset of an edit whose fields actually reached YouTube. */
+function pick(edit: BroadcastEdit, keys: string[]): BroadcastEdit {
+  const out: Record<string, unknown> = {};
+  for (const k of keys) {
+    if (k in edit) out[k] = (edit as Record<string, unknown>)[k];
+  }
+  return out as BroadcastEdit;
+}
+
+/**
+ * Brings this app's ownership record back in line with what was just written (issue 070).
+ *
+ * The record is not a cache of YouTube — it is what the sweep, the "Made here" list and the
+ * delete confirmation all read instead of spending a request. A retiming that moves a broadcast
+ * out of the past has to move the record too, or `planSweep` still sees a start time long gone
+ * and retires the broadcast the operator just rescheduled.
+ *
+ * A broadcast this app never made has no record, and nothing here creates one: the edit route
+ * reaches every broadcast on the channel (issue 071), and ownership is not something an edit
+ * confers.
+ */
+async function syncPreparedAfterEdit(ctx: AppContext, id: string, edit: BroadcastEdit): Promise<void> {
+  const touches =
+    edit.title !== undefined ||
+    edit.privacyStatus !== undefined ||
+    edit.scheduledStartTime !== undefined ||
+    edit.streamId !== undefined;
+  if (!touches) return;
+  const record = ctx.store.get().preparedBroadcasts.find((p) => p.id === id);
+  if (!record) return;
+  await upsertPrepared(ctx, {
+    ...record,
+    title: edit.title ?? record.title,
+    privacyStatus: edit.privacyStatus ?? record.privacyStatus,
+    scheduledStartTime: edit.scheduledStartTime ?? record.scheduledStartTime,
+    streamId: edit.streamId ?? record.streamId,
+  });
 }
 
 /** Upserts one ownership record by id, leaving the rest of the list alone. */
@@ -743,6 +804,18 @@ async function rebind(yt: youtube_v3.Youtube, id: string, streamId: string): Pro
 }
 
 /**
+ * A moment, refused here rather than at YouTube. An unparseable string forwarded to the API
+ * comes back as a 502 — filed with the outages nobody can act on — when it is in fact the same
+ * bad-request the prepare route already refuses before spending a unit of quota.
+ */
+const timestamp = z
+  .string()
+  .min(1)
+  .refine((v) => Number.isFinite(Date.parse(v)), {
+    message: "That is not a date and time YouTube can read.",
+  });
+
+/**
  * One edit, as the dashboard sends it. Every field optional and every one meaning "change this":
  * absent is "leave it alone", which is why nothing here has a default.
  */
@@ -750,11 +823,15 @@ const editBody = z
   .object({
     title: z.string().min(1),
     description: z.string(),
-    scheduledStartTime: z.string().min(1),
+    scheduledStartTime: timestamp,
     /** Nullable on purpose — null is how an end time is removed, not how it is left alone. */
-    scheduledEndTime: z.string().min(1).nullable(),
+    scheduledEndTime: timestamp.nullable(),
     privacyStatus: privacyStatusSchema,
-    category: z.string().min(1).nullable(),
+    /**
+     * Not nullable: there is no way to unset a category, so a null here could only ever be
+     * silently ignored — a press answered 200 having written nothing.
+     */
+    category: z.string().min(1),
     streamId: z.string().min(1),
     enableAutoStart: z.boolean(),
     enableAutoStop: z.boolean(),

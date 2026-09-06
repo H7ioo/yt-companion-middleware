@@ -635,8 +635,12 @@ export interface BroadcastEditRequest {
   scheduledStartTime?: string;
   scheduledEndTime?: string | null;
   privacyStatus?: PrivacyStatus;
-  /** Not a broadcast field — it goes to `videos.update`. */
-  category?: string | null;
+  /**
+   * Not a broadcast field — it goes to `videos.update`. Not nullable either: a category cannot
+   * be unset, so null could only be ignored, and a request the server ignores is a request it
+   * should have refused.
+   */
+  category?: string;
   /** The key to rebind to — `liveBroadcasts.bind`, never part of the update body. */
   streamId?: string;
   enableAutoStart?: boolean;
