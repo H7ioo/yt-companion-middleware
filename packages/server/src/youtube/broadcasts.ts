@@ -57,6 +57,13 @@ export interface TargetResolution extends TargetInfo {
    * start the show" apart from "someone is creating broadcasts behind my back".
    */
   autoStartMint: boolean;
+  /**
+   * The pick is the channel's legacy default broadcast — the one YouTube auto-created for
+   * channels enabled before 2020-09-01 — rather than a scheduled broadcast. Surfaces use it to
+   * stop telling the operator to pin a broadcast that appears in no list they can pin from
+   * (issue 076).
+   */
+  persistent: boolean;
 }
 
 /** True when `b` looks like the broadcast YouTube mints as an auto-start session begins. */
@@ -192,6 +199,7 @@ export async function resolveTarget(
       isLive: true,
       conflict: null,
       autoStartMint: false,
+      persistent: false,
     };
   }
 
@@ -216,6 +224,7 @@ export async function resolveTarget(
         isLive: false,
         conflict: shared?.code === "SHARED_STREAM_KEY" ? shared : null,
         autoStartMint: isAutoStartMint(pinned, now),
+        persistent: false,
       };
     }
     // The pin names a broadcast that is no longer upcoming — deleted, or already completed. Fall
@@ -241,6 +250,7 @@ export async function resolveTarget(
         isLive: false,
         conflict: gone,
         autoStartMint: isAutoStartMint(fallback.chosen, now),
+        persistent: false,
       };
     }
     // Nothing upcoming at all. Fall through to the persistent branch below, carrying the
@@ -257,6 +267,7 @@ export async function resolveTarget(
         isLive: false,
         conflict: gone,
         autoStartMint: false,
+        persistent: true,
       };
     }
     throw new AppError("NO_TARGET_FOUND");
@@ -275,6 +286,7 @@ export async function resolveTarget(
       isLive: false,
       conflict: picked.conflict,
       autoStartMint: isAutoStartMint(picked.chosen, now),
+      persistent: false,
     };
   }
 
@@ -293,6 +305,7 @@ export async function resolveTarget(
       isLive: false,
       conflict: null,
       autoStartMint: false,
+      persistent: true,
     };
   }
 

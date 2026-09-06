@@ -88,8 +88,10 @@ ingestion key), `unbound` (made, but nothing the encoder sends will reach it) or
 `target_state` / `target_title` / `target_label` say **where the next press will land, and how
 that target was chosen** — `live` (a broadcast is airing, so the target is not in doubt), `pinned`
 (you named it on the Broadcasts page), `guessed` (nothing on air and nothing pinned, so the app
-ranked the upcoming broadcasts and picked one) or `none` (nothing to edit). `target_title` names
-the broadcast. See **Where a press lands** below.
+ranked the upcoming broadcasts and picked one), `legacy` (the channel's old default broadcast, on
+channels enabled for live before September 2020 — it is in no list, so there is nothing to pin),
+`unknown` (the app has read nothing from YouTube yet, so where a press lands is not known) or
+`none` (nothing to edit). `target_title` names the broadcast. See **Where a press lands** below.
 
 `last_error` holds the code + message of the most recent **failed** action (e.g.
 `INVALID_PRESET: no such preset`, `MISSING_TEMPLATE_VARS: …`). By default action errors surface
@@ -178,7 +180,8 @@ and is where the guess is settled: pin the right broadcast and `target_state` re
 *Apply preset*, *Update live metadata*, *Privacy toggle* and *Privacy set* each take an **Only when
 on air** option, off by default. With it on, a press while nothing is airing sends nothing at all:
 the refusal is logged and lands on `$(ytmeta:last_error)` naming the broadcast it would have
-guessed. Turn it on for the keys you press mid-show; leave it off for the ones you press while
+guessed. A press while the **link is down** is refused too — the state on the keys is then the last
+thing the app said, which may be minutes old, so "on air" is no longer something the module knows. Turn it on for the keys you press mid-show; leave it off for the ones you press while
 setting up, which is when off-air writes are exactly what you want.
 
 **API master switch (kill switch): set / toggle** — turns the middleware's master switch on/off

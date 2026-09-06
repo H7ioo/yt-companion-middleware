@@ -306,7 +306,7 @@ export function describeTarget(
  * lands on a broadcast nobody named. The dashboard shows that evidence; the surface showed none of
  * it, and a press looked identical either way.
  */
-export type TargetState = "live" | "pinned" | "guessed" | "none";
+export type TargetState = "live" | "pinned" | "guessed" | "legacy" | "unknown" | "none";
 
 export interface TargetStateTerm {
   /** Display name for the state, short enough for a key. */
@@ -331,6 +331,16 @@ export const TARGET_STATE_GLOSSARY: Record<TargetState, TargetStateTerm> = {
     meaning:
       "Nothing is on air and nothing is pinned, so edits land on the upcoming broadcast the app ranked highest — which may not be the one you start. Pin the right one on the Broadcasts page to be sure.",
   },
+  legacy: {
+    label: "Channel default",
+    meaning:
+      "Nothing is on air and nothing is scheduled, so edits land on this channel's old default broadcast — the one YouTube made automatically for channels enabled before September 2020. It is not in the Broadcasts list, so there is nothing to pin; schedule a broadcast to edit one you chose.",
+  },
+  unknown: {
+    label: "Not known yet",
+    meaning:
+      "The app has not read the channel since it started, so where a press would land is not known yet. It settles on the next refresh — wait for it before pressing anything that writes.",
+  },
   none: {
     label: "No broadcast",
     meaning: "There is nothing on air and nothing upcoming, so there is nothing to edit.",
@@ -341,6 +351,8 @@ export const TARGET_STATE_GLOSSARY: Record<TargetState, TargetStateTerm> = {
 export interface TargetStateStatus extends BroadcastStatusFlags {
   title: string | null;
   broadcastId: string | null;
+  /** True when the resolved target is the channel's legacy default broadcast (issue 076). */
+  persistentTarget?: boolean;
 }
 
 /**
@@ -371,18 +383,30 @@ export function describeTargetState(
   status: TargetStateStatus,
   pin: { id: string } | null | undefined,
 ): TargetReadout {
-  const state: TargetState = status.noTarget
-    ? "none"
-    : status.isLive
-      ? "live"
-      : pin?.id && pin.id === status.broadcastId
-        ? "pinned"
-        : "guessed";
+  const state = resolveTargetState(status, pin);
   return {
     state,
     ...TARGET_STATE_GLOSSARY[state],
-    title: state === "none" ? null : (status.title ?? null),
+    title: state === "none" || state === "unknown" ? null : (status.title ?? null),
   };
+}
+
+function resolveTargetState(
+  status: TargetStateStatus,
+  pin: { id: string } | null | undefined,
+): TargetState {
+  if (status.noTarget) return "none";
+  if (status.isLive) return "live";
+  // Idle with no broadcast resolved is not a guess — it is the state before the first refresh
+  // lands (or after a cache written by an older version). Calling it `guessed` would put a
+  // standing pin under "you have not pinned anything" for as long as it took to read YouTube,
+  // and would name a target with no title to name.
+  if (!status.broadcastId) return "unknown";
+  if (pin?.id === status.broadcastId) return "pinned";
+  // The legacy default broadcast is not a ranking among upcoming broadcasts, so `guessed`'s
+  // remedy — pin the right one — points at a list this target is not in.
+  if (status.persistentTarget) return "legacy";
+  return "guessed";
 }
 
 /**

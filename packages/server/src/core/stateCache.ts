@@ -249,7 +249,7 @@ export class StateCache {
       // the latch now cleared) reconciles and drops it.
       const replaying = this.replayEligible(previous, target);
       await this.writeCache({
-        status: { ...status, noTarget: false },
+        status: { ...status, noTarget: false, persistentTarget: target.persistent },
         health: "ok",
         healthMessage: null,
         lastRefreshedAt: new Date().toISOString(),
@@ -281,6 +281,7 @@ export class StateCache {
             privacyStatus: null,
             isLive: false,
             noTarget: true,
+            persistentTarget: false,
           },
           health: "ok",
           healthMessage: null,

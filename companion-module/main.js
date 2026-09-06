@@ -65,7 +65,7 @@ const ON_AIR_ONLY_OPTION = {
 	label: 'Only when on air',
 	default: false,
 	tooltip:
-		'Refuse this press unless a broadcast is airing. Off air the write lands on the broadcast the app ranked highest, which may not be the one you start \u2014 turn this on for keys you press mid-show. The refusal is logged and lands on $(ytmeta:last_error); nothing is sent.',
+		'Refuse this press unless a broadcast is airing. Off air the write lands on the broadcast the app ranked highest, which may not be the one you start \u2014 turn this on for keys you press mid-show. A press while the link to the app is down is refused too: the readings on the deck are then as old as the outage, so "on air" is not something the module knows. The refusal is logged and lands on $(ytmeta:last_error); nothing is sent.',
 }
 
 /**
@@ -241,7 +241,7 @@ class YtMiddlewareInstance extends InstanceBase {
 	 * @returns {boolean} true when the press was refused and must go no further
 	 */
 	refusedOffAir(actionId, options) {
-		const message = offAirRefusal(options, this.latest)
+		const message = offAirRefusal(options, this.latest, this.link)
 		if (!message) return false
 		this.log('warn', `${actionId}: ${message}`)
 		this.setVariableValues({ last_error: formatLastError({ code: 'NOT_ON_AIR', message }) })
@@ -526,7 +526,10 @@ class YtMiddlewareInstance extends InstanceBase {
 			{ variableId: 'undo_label', name: 'Undo target label' },
 			{ variableId: 'target_conflict', name: 'Target conflict code (blank when unambiguous)' },
 			{ variableId: 'target_conflict_message', name: 'Target conflict explanation' },
-			{ variableId: 'target_state', name: 'Where the next press lands (live/pinned/guessed/none)' },
+			{
+				variableId: 'target_state',
+				name: 'Where the next press lands (live/pinned/guessed/legacy/unknown/none)',
+			},
 			{ variableId: 'target_title', name: 'Title of the broadcast the next press would hit' },
 			{ variableId: 'target_label', name: 'Where the next press lands, in words ("Best guess")' },
 			{ variableId: 'ingestion_state', name: 'Signal in (receiving/problems/no-data/unknown)' },

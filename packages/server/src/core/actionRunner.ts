@@ -310,7 +310,13 @@ export class ActionRunner {
         await this.cache.setPendingMetadata(mergePending(existing, payload, target.id));
       }
 
-      const status = { ...toStatus(plan.broadcast), noTarget: false };
+      const status = {
+        ...toStatus(plan.broadcast),
+        noTarget: false,
+        // From the resolution, not from the broadcast resource: `persistent` is which list the
+        // target came out of, and nothing on the resource itself says so reliably.
+        persistentTarget: target.persistent,
+      };
       await this.cache.writeCache({
         status,
         lastRefreshedAt: new Date().toISOString(),

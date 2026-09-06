@@ -87,6 +87,29 @@ describe("describeTargetState", () => {
     expect(readout.title).toBeNull();
   });
 
+  it("is legacy when the target is the channel's old default broadcast", () => {
+    // Not a ranking among upcoming broadcasts, so "pin the right one" points at a list it is
+    // not in — the state has to be its own.
+    const readout = describeTargetState({ ...idle, persistentTarget: true }, null);
+    expect(readout.state).toBe("legacy");
+    expect(readout.meaning).toBe(TARGET_STATE_GLOSSARY.legacy.meaning);
+  });
+
+  it("prefers the pin over legacy when the pin resolved", () => {
+    expect(describeTargetState({ ...idle, persistentTarget: true }, { id: "b1" }).state).toBe(
+      "pinned",
+    );
+  });
+
+  it("is unknown, with no title, before the first refresh has resolved anything", () => {
+    const readout = describeTargetState(
+      { isLive: false, noTarget: false, title: null, broadcastId: null },
+      { id: "b1" },
+    );
+    expect(readout.state).toBe("unknown");
+    expect(readout.title).toBeNull();
+  });
+
   it("carries the glossary's words for the state it resolved", () => {
     const readout = describeTargetState(idle, null);
     expect(readout.label).toBe(TARGET_STATE_GLOSSARY.guessed.label);

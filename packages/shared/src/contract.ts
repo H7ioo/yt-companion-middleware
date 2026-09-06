@@ -58,6 +58,8 @@ export interface FeedbackStatus {
   privacyStatus: string | null;
   isLive: boolean;
   noTarget: boolean;
+  /** True when the target is the channel's legacy default broadcast — nothing to pin (issue 076). */
+  persistentTarget?: boolean;
 }
 
 /**

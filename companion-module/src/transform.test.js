@@ -594,26 +594,40 @@ describe('offAirRefusal', () => {
   const idle = { status: { isLive: false }, target: { state: 'guessed', title: 'Tonight' } };
 
   it('lets every press through when the option is off', () => {
-    expect(offAirRefusal({}, idle)).toBeUndefined();
-    expect(offAirRefusal({ onAirOnly: false }, idle)).toBeUndefined();
+    expect(offAirRefusal({}, idle, 'connected')).toBeUndefined();
+    expect(offAirRefusal({ onAirOnly: false }, idle, 'connected')).toBeUndefined();
+    expect(offAirRefusal({ onAirOnly: false }, onAir, 'disconnected')).toBeUndefined();
   });
 
   it('lets a press through while on air', () => {
-    expect(offAirRefusal({ onAirOnly: true }, onAir)).toBeUndefined();
+    expect(offAirRefusal({ onAirOnly: true }, onAir, 'connected')).toBeUndefined();
   });
 
   it('refuses off air, naming the broadcast the write would have guessed', () => {
-    const message = offAirRefusal({ onAirOnly: true }, idle);
+    const message = offAirRefusal({ onAirOnly: true }, idle, 'connected');
     expect(message).toContain('Tonight');
     expect(message).toMatch(/on air/i);
   });
 
   it('refuses off air when there is nothing to edit at all', () => {
-    const message = offAirRefusal({ onAirOnly: true }, { status: { isLive: false }, target: { state: 'none' } });
+    const message = offAirRefusal(
+      { onAirOnly: true },
+      { status: { isLive: false }, target: { state: 'none' } },
+      'connected',
+    );
     expect(message).toMatch(/nothing/i);
   });
 
   it('refuses when no state has arrived — an unknown target is not "on air"', () => {
-    expect(offAirRefusal({ onAirOnly: true }, undefined)).toBeTruthy();
+    expect(offAirRefusal({ onAirOnly: true }, undefined, 'connected')).toBeTruthy();
+  });
+
+  it('refuses on a stale on-air frame once the link is down', () => {
+    // The last frame is kept when the socket drops, so isLive still reads true for a show that
+    // may have ended; a strict key must not press on it.
+    for (const link of ['disconnected', 'connecting', undefined]) {
+      const message = offAirRefusal({ onAirOnly: true }, onAir, link);
+      expect(message).toMatch(/link/i);
+    }
   });
 });

@@ -142,6 +142,12 @@ export const cacheSchema = z.object({
       isLive: z.boolean(),
       // True when the channel has no active or persistent broadcast (idle, not an error).
       noTarget: z.boolean().default(false),
+      /**
+       * True when the resolved target is the channel's legacy default broadcast rather than a
+       * scheduled one. It is not in any list the operator can pin from, so "pin the right one"
+       * is the wrong advice for it (issue 076). Defaults false: only pre-2020 channels have one.
+       */
+      persistentTarget: z.boolean().default(false),
     })
     .default({
       broadcastId: null,
@@ -149,6 +155,7 @@ export const cacheSchema = z.object({
       privacyStatus: null,
       isLive: false,
       noTarget: false,
+      persistentTarget: false,
     }),
   activePresetId: z.string().nullable().default(null),
   /**
@@ -499,6 +506,7 @@ export const storeSchema = z.object({
       privacyStatus: null,
       isLive: false,
       noTarget: false,
+      persistentTarget: false,
     },
     activePresetId: null,
     health: "ok",

@@ -50,6 +50,7 @@ describe("resolveTarget (PRD §2/§6 target precedence)", () => {
       isLive: true,
       conflict: null,
       autoStartMint: false,
+      persistent: false,
     });
   });
 
@@ -62,6 +63,7 @@ describe("resolveTarget (PRD §2/§6 target precedence)", () => {
       isLive: false,
       conflict: null,
       autoStartMint: false,
+      persistent: false,
     });
   });
 
@@ -82,6 +84,8 @@ describe("resolveTarget (PRD §2/§6 target precedence)", () => {
       isLive: false,
       conflict: null,
       autoStartMint: false,
+      // The one branch that reports it: nothing to pin, so no surface should say "pin one".
+      persistent: true,
     });
   });
 
@@ -358,6 +362,7 @@ describe("resolveTarget with a pinned target", () => {
     const resolved = await resolveTarget(yt, NOW, "deleted");
     expect(resolved.id).toBe("persist-1");
     expect(resolved.conflict?.code).toBe("PINNED_TARGET_GONE");
+    expect(resolved.persistent).toBe(true);
   });
 
   it("throws NO_TARGET_FOUND when the pin is gone and nothing else exists", async () => {

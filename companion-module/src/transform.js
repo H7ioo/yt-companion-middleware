@@ -77,12 +77,19 @@ export function targetVariables(state) {
  * An unknown state counts as off air. The link can be down, or no frame has arrived yet — either
  * way the module cannot say a broadcast is airing, and a strict key must not press on a guess
  * about whether it is guessing.
+ *
+ * That is why the link is a parameter and not something inferred from `state`: the last frame is
+ * kept as-is when the socket drops, so `isLive` goes on reading true for a show that may have
+ * ended minutes ago. A strict key has to refuse on the stale frame, not press on it.
  * @param {{ onAirOnly?: unknown } | undefined} options
  * @param {Record<string, any> | undefined} state
+ * @param {unknown} link the state-socket link; anything but `connected` counts as off air
  * @returns {string | undefined}
  */
-export function offAirRefusal(options, state) {
+export function offAirRefusal(options, state, link) {
   if (options?.onAirOnly !== true) return undefined;
+  if (isLinkDown(link))
+    return 'Not on air \u2014 this key is set to press only while a broadcast is airing, and the link to the app is down, so what it last said about the channel may be minutes old. Wait for the link to come back, or clear "Only when on air" on this key.';
   if (state?.status?.isLive === true) return undefined;
   const target = state?.target ?? null;
   const where =
