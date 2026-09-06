@@ -90,6 +90,11 @@ function mount(over: Partial<Parameters<typeof PrepareBroadcast>[0]> = {}) {
 }
 
 beforeEach(() => {
+  // The date control opens on the current month (issue 075), so the clock is pinned — otherwise
+  // these tests would start failing on their own in October. `shouldAdvanceTime` keeps `waitFor`
+  // working against the faked clock.
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date(2026, 8, 1, 9, 0));
   prepare.mockReset();
   prepare.mockResolvedValue({ prepared: made(), quotaUnits: 100, warning: null });
   preparedList.mockReset();
@@ -99,7 +104,21 @@ beforeEach(() => {
   remove.mockReset();
   remove.mockResolvedValue({ retired: made(), appCreated: true, pinCleared: false, quotaUnits: 50 });
 });
-afterEach(cleanup);
+afterEach(() => {
+  vi.useRealTimers();
+  cleanup();
+});
+
+/**
+ * Sets the start the way an operator does — a day off the calendar, then the clock — rather than
+ * poking a value into a single field. The control is two halves now (issue 075), and a test that
+ * skips the calendar would not notice it had stopped opening.
+ */
+function setStart(dayLabel: string, time: string) {
+  fireEvent.click(screen.getByRole("button", { name: /^Starts / }));
+  fireEvent.click(screen.getByRole("button", { name: dayLabel }));
+  fireEvent.change(screen.getByLabelText("Starts — time of day"), { target: { value: time } });
+}
 
 describe("PrepareBroadcast", () => {
   it("will not create anything until it has a title and a start time", async () => {
@@ -112,9 +131,7 @@ describe("PrepareBroadcast", () => {
     fireEvent.change(screen.getByLabelText("From preset"), { target: { value: "friday" } });
     expect(button.disabled).toBe(true);
 
-    fireEvent.change(screen.getByLabelText("Starts"), {
-      target: { value: "2026-09-04T19:00" },
-    });
+    setStart("Friday, September 4th, 2026", "19:00");
     expect(button.disabled).toBe(false);
   });
 
@@ -123,7 +140,7 @@ describe("PrepareBroadcast", () => {
     fireEvent.change(await screen.findByLabelText("From preset"), {
       target: { value: "friday" },
     });
-    fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+    setStart("Friday, September 4th, 2026", "19:00");
     fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
 
     await waitFor(() => expect(prepare).toHaveBeenCalledTimes(1));
@@ -138,7 +155,7 @@ describe("PrepareBroadcast", () => {
     fireEvent.change(await screen.findByLabelText("From preset"), {
       target: { value: "friday" },
     });
-    fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+    setStart("Friday, September 4th, 2026", "19:00");
     fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
 
     expect(await screen.findByText("https://www.youtube.com/watch?v=made-1")).toBeTruthy();
@@ -152,7 +169,7 @@ describe("PrepareBroadcast", () => {
     fireEvent.change(await screen.findByLabelText("From preset"), {
       target: { value: "friday" },
     });
-    fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+    setStart("Friday, September 4th, 2026", "19:00");
     fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
 
     const link = await screen.findByRole("link", { name: /Broadcasts/ });
@@ -200,7 +217,7 @@ describe("PrepareBroadcast", () => {
     fireEvent.change(await screen.findByLabelText("From preset"), {
       target: { value: "friday" },
     });
-    fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+    setStart("Friday, September 4th, 2026", "19:00");
     fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
 
     expect(
@@ -217,7 +234,7 @@ describe("PrepareBroadcast", () => {
     retire.mockResolvedValue({ retired: [made()], aired: [], gone: [], failed: [], quotaUnits: 51 });
     mount();
     fireEvent.change(await screen.findByLabelText("From preset"), { target: { value: "friday" } });
-    fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+    setStart("Friday, September 4th, 2026", "19:00");
     fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
 
     fireEvent.click(await screen.findByRole("button", { name: "Clear old broadcasts" }));
@@ -228,7 +245,7 @@ describe("PrepareBroadcast", () => {
     prepare.mockRejectedValue(new ApiError("The channel is full.", "BROADCAST_LIMIT_REACHED"));
     mount();
     fireEvent.change(await screen.findByLabelText("From preset"), { target: { value: "friday" } });
-    fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+    setStart("Friday, September 4th, 2026", "19:00");
     fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
     fireEvent.click(await screen.findByRole("button", { name: "Clear old broadcasts" }));
 
@@ -255,7 +272,7 @@ describe("PrepareBroadcast", () => {
     fireEvent.change(await screen.findByLabelText("From preset"), {
       target: { value: "friday" },
     });
-    fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+    setStart("Friday, September 4th, 2026", "19:00");
     expect(
       (screen.getByRole("button", { name: "Create broadcast" }) as HTMLButtonElement).disabled,
     ).toBe(true);
@@ -282,7 +299,7 @@ describe("PrepareBroadcast", () => {
       fireEvent.change(await screen.findByLabelText("From preset"), {
         target: { value: "friday" },
       });
-      fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+      setStart("Friday, September 4th, 2026", "19:00");
 
       // Unanswered, the raw template is not offered as the title, and nothing may be created.
       expect(
@@ -301,7 +318,7 @@ describe("PrepareBroadcast", () => {
       fireEvent.change(await screen.findByLabelText("From preset"), {
         target: { value: "friday" },
       });
-      fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+      setStart("Friday, September 4th, 2026", "19:00");
       fireEvent.change(screen.getByLabelText("topic"), { target: { value: "Harvest" } });
       fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
 
@@ -315,7 +332,7 @@ describe("PrepareBroadcast", () => {
       fireEvent.change(await screen.findByLabelText("From preset"), {
         target: { value: "friday" },
       });
-      fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2026-09-04T19:00" } });
+      setStart("Friday, September 4th, 2026", "19:00");
       fireEvent.click(screen.getByRole("button", { name: "Create broadcast" }));
     }
 

@@ -2804,3 +2804,282 @@ textarea {
   text-decoration: line-through;
   text-decoration-color: var(--live);
 }
+
+/* ---- Date and time field (issue 075) --------------------------------------
+   The native `datetime-local` was a different control in every browser and said nothing about
+   the weekday, which is the thing being decided when a service is scheduled. This is a calendar
+   and a clock, drawn in the rack's own materials — inset well, hairline seams, mono numerals —
+   with the tally vocabulary carried onto the grid: green for now, blue for the armed choice,
+   amber for a start that has gone by. `react-day-picker`'s stylesheet is deliberately not
+   imported; every rule the calendar draws with is here.
+   ------------------------------------------------------------------------ */
+
+.dtf__row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+/* Wears the same well as an input, because it edits a value like one — but it is a disclosure,
+   so it carries a caret and reads in the display face. */
+.dtf__day {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-align: left;
+  color: var(--ink);
+  background: var(--bg-inset);
+  border: var(--seam-line);
+  border-radius: var(--radius);
+  padding: 9px 11px;
+  cursor: pointer;
+  transition: border-color 0.12s;
+}
+.dtf__day:hover:not(:disabled) {
+  border-color: var(--seam-bright);
+}
+.dtf__day:focus-visible,
+.dtf__day[aria-expanded="true"] {
+  outline: none;
+  border-color: var(--accent);
+}
+.dtf__day:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.dtf__day:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* Nothing chosen yet is a prompt, not a value, so it sits at the weight of a placeholder. */
+.dtf__day--empty .dtf__day-text {
+  font-weight: 500;
+  color: var(--ink-faint);
+}
+.dtf__day-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dtf__caret {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--ink-faint);
+  border-bottom: 1.5px solid var(--ink-faint);
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 0.14s ease;
+}
+.dtf__day[aria-expanded="true"] .dtf__caret {
+  transform: translateY(1px) rotate(-135deg);
+  border-color: var(--accent);
+}
+
+/* Fixed width, so the clock does not stretch with the date beside it and the two fields keep the
+   same shape whichever day is chosen. Wide enough for a 12-hour locale — "07:00 PM" plus the
+   browser's own clock affordance — because a clipped time field reads as a broken one. */
+.dtf__time {
+  flex: 0 0 152px;
+  width: 152px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+/* ---- The calendar --------------------------------------------------------- */
+
+/* Inline rather than floating: this is a control surface, and a panel over a panel needs a scrim
+   and a shadow that would both fight the flat rack. Pushing the form is honest and cheaper. */
+.dtf__cal {
+  margin-top: 8px;
+  padding: 12px 12px 10px;
+  background: var(--bg-inset);
+  border: var(--seam-line);
+  border-radius: var(--radius);
+  animation: dtf-open 0.14s ease-out;
+}
+@keyframes dtf-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dtf__cal {
+    animation: none;
+  }
+  .dtf__caret {
+    transition: none;
+  }
+}
+
+/* The nav renders as a sibling before the month, so the caption line is built by pulling the
+   arrows up onto it rather than by reordering the library's DOM. */
+.dtf__months {
+  position: relative;
+}
+.dtf__nav {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 4px;
+}
+.dtf__nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: var(--seam-line);
+  border-radius: 4px;
+  color: var(--ink-dim);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+.dtf__nav-btn:hover:not(:disabled) {
+  border-color: var(--seam-bright);
+  color: var(--ink);
+}
+.dtf__nav-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.dtf__nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.dtf__chevron {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+
+.dtf__caption {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  margin-bottom: 8px;
+}
+.dtf__caption-label {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.dtf__grid {
+  width: 100%;
+  border-collapse: collapse;
+}
+/* The same treatment the rack gives every other column header. */
+.dtf__weekday {
+  padding: 0 0 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.dtf__d {
+  padding: 1px;
+  text-align: center;
+}
+.dtf__d-btn {
+  width: 100%;
+  min-width: 34px;
+  height: 32px;
+  position: relative;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.dtf__d-btn:hover {
+  border-color: var(--seam-bright);
+}
+.dtf__d-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+/* A day from the month either side is context, not a choice being offered. */
+.dtf__d--outside .dtf__d-btn {
+  color: var(--ink-faint);
+  opacity: 0.55;
+}
+
+/* Now — a tally tick under the numeral rather than a ring around it, so today stays legible
+   when it is also the selected day. */
+.dtf__d--today .dtf__d-btn::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 5px;
+  width: 10px;
+  height: 2px;
+  margin-left: -5px;
+  border-radius: 1px;
+  background: var(--ready);
+}
+
+/* A day that has gone by. Dimmed and, on approach, amber — the colour this app uses for
+   degraded, never for forbidden. It stays pressable: retiming into the past is legal. */
+.dtf__d--past .dtf__d-btn {
+  color: var(--ink-faint);
+}
+.dtf__d--past .dtf__d-btn:hover {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.dtf__d--selected .dtf__d-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.dtf__d--selected .dtf__d-btn:hover {
+  border-color: var(--accent);
+}
+/* Chosen, and already gone by: the wrong lamp is lit, and the note under the field says why. */
+.dtf__d--past.dtf__d--selected .dtf__d-btn,
+.dtf__d--past.dtf__d--selected .dtf__d-btn:hover {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: #1a1206;
+}
+.dtf__d--today.dtf__d--selected .dtf__d-btn::after {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+/* The remark under the field, in the shape the form's other warnings take. */
+.dtf__past {
+  margin-top: 0;
+}
+
+/* On a phone the two halves stack rather than squeezing the clock to nothing. */
+@media (max-width: 420px) {
+  .dtf__row {
+    flex-wrap: wrap;
+  }
+  .dtf__time {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
