@@ -85,6 +85,14 @@ live or a title is waiting to land, and go blank when the dashboard has read not
 ingestion key), `unbound` (made, but nothing the encoder sends will reach it) or `none`.
 `prepared_url` is the share link, ready to read off a key the moment the broadcast exists.
 
+`target_state` / `target_title` / `target_label` say **where the next press will land, and how
+that target was chosen** — `live` (a broadcast is airing, so the target is not in doubt), `pinned`
+(you named it on the Broadcasts page), `guessed` (nothing on air and nothing pinned, so the app
+ranked the upcoming broadcasts and picked one), `legacy` (the channel's old default broadcast, on
+channels enabled for live before September 2020 — it is in no list, so there is nothing to pin),
+`unknown` (the app has read nothing from YouTube yet, so where a press lands is not known) or
+`none` (nothing to edit). `target_title` names the broadcast. See **Where a press lands** below.
+
 `last_error` holds the code + message of the most recent **failed** action (e.g.
 `INVALID_PRESET: no such preset`, `MISSING_TEMPLATE_VARS: …`). By default action errors surface
 only in Companion's **log panel**; bind `last_error` to a button's text to see the latest failure
@@ -116,6 +124,12 @@ changes when another action fails, so the last failure stays visible.
   the broadcast exists and its link works, but no ingestion key is bound, so nothing arrives.
   Bind it in YouTube Studio or delete it and prepare again; do **not** prepare a second one on
   top, that puts two links in the world.
+- **Target is a guess (off air)** — true when nothing is on air and nothing is pinned, so the next
+  press lands on whichever upcoming broadcast the app ranked highest. This is **not** *Target
+  conflict*: a conflict fires only when the app can see evidence its aim is wrong (two broadcasts
+  on one stream key, a stray upcoming event), while this fires whenever the aim was inferred at
+  all — usually correctly. Different colour for that reason: one colour for both would train you
+  to ignore the one that matters. Pair it with `$(ytmeta:target_title)`.
 - **Health color (auto)** — recolors a key to the current middleware health, no config:
 
   | health | meaning | key color |
@@ -150,6 +164,25 @@ units (~150 with a category). It is a deliberate press that puts a public link i
 never a side effect of applying a preset. If YouTube refuses the channel — *riding along*, when it
 will not let this channel create broadcasts — the refusal lands on `last_error` in YouTube's own
 words rather than the press quietly doing nothing.
+
+### Where a press lands
+
+**On air**, a press lands on the broadcast that is airing. That is not a heuristic: the encoder
+feeds exactly one broadcast, so there is nothing to disambiguate.
+
+**Off air**, it lands on the app's **best guess**. The middleware drops upcoming broadcasts left
+over from more than 12 hours ago, then ranks what remains — a broadcast YouTube just minted for
+this session first, then still-to-start over past-due, then encoder-bound over an empty stub, then
+soonest scheduled — and writes to the winner. That may not be the one you start, and from the deck
+the two presses look identical. The **Broadcasts page** on the dashboard shows the same evidence
+and is where the guess is settled: pin the right broadcast and `target_state` reads `pinned`.
+
+*Apply preset*, *Update live metadata*, *Privacy toggle* and *Privacy set* each take an **Only when
+on air** option, off by default. With it on, a press while nothing is airing sends nothing at all:
+the refusal is logged and lands on `$(ytmeta:last_error)` naming the broadcast it would have
+guessed. A press while the **link is down** is refused too — the state on the keys is then the last
+thing the app said, which may be minutes old, so "on air" is no longer something the module knows. Turn it on for the keys you press mid-show; leave it off for the ones you press while
+setting up, which is when off-air writes are exactly what you want.
 
 **API master switch (kill switch): set / toggle** — turns the middleware's master switch on/off
 (`PUT /api/dashboard/service`). While off it makes no YouTube calls and rejects actions, so an

@@ -57,22 +57,22 @@ that is genuinely the only surface in the room.
 
 ## Acceptance criteria
 
-- [ ] `target_state` and `target_title` are exposed as module variables and are updated from the
+- [x] `target_state` and `target_title` are exposed as module variables and are updated from the
       same WebSocket push that already drives `live_title` and `no_target`.
-- [ ] `target_state` is `live` when a broadcast is on air, `pinned` when the pin resolved, `guessed`
+- [x] `target_state` is `live` when a broadcast is on air, `pinned` when the pin resolved, `guessed`
       when the app chose among upcoming broadcasts, and `none` when there is nothing to edit.
-- [ ] A `target_is_guessed` boolean feedback is available and defaults to a colour distinct from
+- [x] A `target_is_guessed` boolean feedback is available and defaults to a colour distinct from
       the `target_conflict` feedback.
-- [ ] `apply_preset`, `update`, `privacy_toggle` and `privacy_set` each take an "Only when on air"
+- [x] `apply_preset`, `update`, `privacy_toggle` and `privacy_set` each take an "Only when on air"
       option, default off.
-- [ ] With that option set, a press while off air sends no request, logs a warning, and sets
+- [x] With that option set, a press while off air sends no request, logs a warning, and sets
       `last_error` with a message naming why.
-- [ ] With the option unset, behaviour is byte-for-byte what it is today — no upgrade script is
+- [x] With the option unset, behaviour is byte-for-byte what it is today — no upgrade script is
       needed for existing installs.
-- [ ] Serving `target_state` costs no additional YouTube quota: it is derived from the cache the
+- [x] Serving `target_state` costs no additional YouTube quota: it is derived from the cache the
       feedback endpoints already read.
-- [ ] The module's connection help text states the on-air / off-air split.
-- [ ] Tests cover the four target states and a refused off-air press.
+- [x] The module's connection help text states the on-air / off-air split.
+- [x] Tests cover the four target states and a refused off-air press.
 
 ## Blocked by
 

@@ -282,6 +282,7 @@ describe("StateCache pending-metadata replay", () => {
         privacyStatus: "public",
         isLive: false,
         noTarget: false,
+        persistentTarget: false,
       };
     });
 

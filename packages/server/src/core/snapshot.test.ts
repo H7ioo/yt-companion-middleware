@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { changeSignature, resolveDisplayLabel, type DashboardState } from "./snapshot.js";
 import type { JsonStore } from "../storage/jsonStore.js";
 import type { Preset, PreparedBroadcast, Store } from "../storage/schema.js";
-import { summarizePrepared } from "@app/shared";
+import { describeTargetState, summarizePrepared } from "@app/shared";
 
 /** Minimal JsonStore stand-in exposing just the presets `resolveDisplayLabel` reads. */
 function storeWith(presets: Preset[]): JsonStore {
@@ -34,6 +34,10 @@ function state(over: Partial<DashboardState> = {}): DashboardState {
     healthMessage: null,
     lastRefreshedAt: "2026-07-03T00:00:00.000Z",
     targetPin: null,
+    target: describeTargetState(
+      { isLive: false, noTarget: false, title: "T", broadcastId: "bc1" },
+      null,
+    ),
     ingestion: null,
     liveEligibility: { mode: "unknown", reason: null, message: null, checkedAt: null },
     prepared: summarizePrepared([], Date.parse("2026-07-03T00:00:00.000Z")),
