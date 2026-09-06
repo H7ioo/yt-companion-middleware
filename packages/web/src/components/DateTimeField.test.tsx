@@ -104,6 +104,44 @@ describe("DateTimeField", () => {
     expect(screen.getByText("Add a start time.")).toBeTruthy();
   });
 
+  it("closes on the chosen day being pressed again, rather than swallowing the press", () => {
+    // The library reads a second press on the selected day as a deselect. Read as agreement:
+    // the day stands and the calendar closes, or the operator is left with an open grid, no
+    // focus, and no way to tell what their press did.
+    const onChange = vi.fn();
+    render(<DateTimeField id="start" label="Starts" value="2026-09-04T19:00" onChange={onChange} />);
+    const toggle = screen.getByRole("button", { name: /Fri 4 Sept 2026/ });
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: /^Friday, September 4th, 2026, selected$/ }));
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(toggle);
+    expect(screen.getByRole("button", { name: /Fri 4 Sept 2026/ })).toBeTruthy();
+  });
+
+  it("stays on the month being browsed while the time is edited", () => {
+    // The clock and the calendar are edited side by side. Snapping back to the chosen day's
+    // month on every value change would move the grid out from under the operator mid-browse.
+    render(<DateTimeField id="start" label="Starts" value="2026-09-04T19:00" onChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Fri 4 Sept 2026/ }));
+    fireEvent.click(screen.getByRole("button", { name: /next month/i }));
+    expect(screen.getByText(/October 2026/)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/time of day/i), { target: { value: "20:30" } });
+    expect(screen.getByText(/October 2026/)).toBeTruthy();
+  });
+
+  it("forgets both halves when the parent clears the value", () => {
+    // The draft only fills a half the value cannot carry. A parent that resets the form means
+    // it, and a stale day left on screen would be a start the operator never chose.
+    const { rerender } = render(
+      <DateTimeField id="start" label="Starts" value="2026-09-04T19:00" onChange={vi.fn()} />,
+    );
+    rerender(<DateTimeField id="start" label="Starts" value="" onChange={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /Pick a day/ })).toBeTruthy();
+    expect(screen.getByLabelText<HTMLInputElement>(/time of day/i).value).toBe("");
+  });
+
   it("moves through the grid on the arrow keys, so the calendar needs no mouse", () => {
     const onChange = vi.fn();
     render(<DateTimeField id="start" label="Starts" value="2026-09-04T19:00" onChange={onChange} />);

@@ -60,25 +60,52 @@ export function DateTimeField({ id, label, value, onChange, disabled = false }: 
   const now = new Date();
   const zone = useMemo(() => timeZoneHint(browserTimeZone()), []);
 
+  /**
+   * The last value this control itself handed up.
+   *
+   * A change the parent makes and a change we just emitted arrive identically in `value`, and
+   * only the first should disturb the draft: choosing a day before a time emits `""`, and
+   * treating that as a reset would throw the day away the moment it was picked.
+   */
+  const emitted = useRef(value);
+
+  function emit(next: string) {
+    emitted.current = next;
+    onChange(next);
+  }
+
+  // A value the parent set — a reset to `""` included — replaces the draft outright, so the
+  // control never renders a half it was told to forget.
   useEffect(() => {
-    if (given.day) setMonth(given.day);
+    if (value === emitted.current) return;
+    emitted.current = value;
+    setDraft(splitLocalInput(value));
   }, [value]);
 
   // Escape closes the calendar and returns the operator to the control they opened it from,
   // which is the only thing that could have taken the focus.
   useEscape(() => {
     if (!open) return;
-    setOpen(false);
-    toggle.current?.focus();
+    close();
   });
 
-  function pickDay(next: Date | undefined) {
-    if (!next) return;
-    setDraft({ day: next, time });
-    setMonth(next);
-    onChange(joinLocalInput(next, time));
+  function close() {
     setOpen(false);
     toggle.current?.focus();
+  }
+
+  function pickDay(next: Date | undefined) {
+    // Clicking the chosen day again is a deselect in the library's single mode. Read as
+    // "that one, then" rather than as an erasure: the day stands, and the calendar closes on it
+    // exactly as it would for any other day, focus back on the control that opened it.
+    if (!next) {
+      close();
+      return;
+    }
+    setDraft({ day: next, time });
+    setMonth(next);
+    emit(joinLocalInput(next, time));
+    close();
   }
 
   const past = isPastStart(value, now);
@@ -100,7 +127,12 @@ export function DateTimeField({ id, label, value, onChange, disabled = false }: 
           aria-labelledby={`${id}-label ${id}`}
           aria-expanded={open}
           aria-controls={open ? gridId : undefined}
-          onClick={() => setOpen((was) => !was)}
+          onClick={() => {
+            // The month is settled on opening, not on every value change: a calendar left open
+            // while the time is edited must stay on the month the operator is browsing.
+            if (!open) setMonth(day ?? new Date());
+            setOpen((was) => !was);
+          }}
         >
           <span className="dtf__day-text">{formatChosenDay(day)}</span>
           <span className="dtf__caret" aria-hidden="true" />
@@ -114,7 +146,7 @@ export function DateTimeField({ id, label, value, onChange, disabled = false }: 
           disabled={disabled}
           onChange={(e) => {
             setDraft({ day, time: e.target.value });
-            onChange(joinLocalInput(day, e.target.value));
+            emit(joinLocalInput(day, e.target.value));
           }}
         />
       </div>
