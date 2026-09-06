@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { DeleteSubject } from "@app/shared";
+import { AIRED_LIFECYCLE_STATES, type DeleteSubject } from "@app/shared";
 import { api, type BroadcastListEntry, type BroadcastListing, type TargetPin } from "../api.js";
 import { watchUrl } from "../lib/watch.js";
 import { useCopied } from "../lib/useCopied.js";
@@ -402,7 +402,7 @@ function Row({
   // watching, and deleting it takes that away rather than tidying up. The guard is about the
   // artifact, not about who created it, so it applies to every row alike (issue 071). The server
   // refuses it too — this only keeps the button off a press that would be refused.
-  const aired = entry.isLive || AIRED.has(entry.lifeCycleStatus ?? "");
+  const aired = entry.isLive || AIRED_LIFECYCLE_STATES.has(entry.lifeCycleStatus ?? "");
   return (
     <li
       className={`rundown__row${marked ? ` rundown__row--${contested && !entry.isLive ? "contested" : "airs"}` : ""}${pinned ? " rundown__row--pinned" : ""}`}
@@ -528,13 +528,6 @@ function verdictTone(listing: BroadcastListing): "airs" | "warn" {
     return "warn";
   return listing.entries.some((e) => e.willAir) ? "airs" : "warn";
 }
-
-/**
- * Lifecycle states that mean the broadcast has been on air, or is on air now, mirroring the
- * server's own `AIRED_STATES`. `testing` counts: YouTube only moves a broadcast there once an
- * encoder is feeding it.
- */
-const AIRED = new Set(["live", "liveStarting", "testing", "testStarting", "complete"]);
 
 /**
  * A listing row, read as something to be deleted (issue 071).

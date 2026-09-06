@@ -14,6 +14,7 @@
  */
 import type { youtube_v3 } from "googleapis";
 import { describeRetireReason, RETIRE_GRACE_MS, type PreparedBroadcast } from "../storage/schema.js";
+import { AIRED_LIFECYCLE_STATES } from "@app/shared";
 import { AppError } from "../core/errors.js";
 import { QUOTA_COST } from "../core/quota.js";
 import { mapYouTubeError } from "./client.js";
@@ -45,12 +46,6 @@ export const MISSING_GRACE_MS = 30 * 60 * 1000;
 /** Most ids YouTube will answer for in one `list`. */
 const ID_PAGE = 50;
 
-/**
- * Lifecycle states that mean the broadcast has been on air, or is on air now. `testing` counts:
- * YouTube only moves a broadcast there once an encoder is feeding it, and deleting a broadcast
- * mid-test takes the show off the channel while the operator is looking at it.
- */
-const AIRED_STATES = new Set(["live", "liveStarting", "testing", "testStarting", "complete"]);
 
 /**
  * When the broadcast went to air, or null if it never has.
@@ -64,7 +59,7 @@ export function airedAtOf(b: youtube_v3.Schema$LiveBroadcast): string | null {
   const actual = b.snippet?.actualStartTime;
   if (actual) return actual;
   const state = b.status?.lifeCycleStatus ?? "";
-  if (!AIRED_STATES.has(state)) return null;
+  if (!AIRED_LIFECYCLE_STATES.has(state)) return null;
   return b.snippet?.actualEndTime ?? b.snippet?.scheduledStartTime ?? new Date(0).toISOString();
 }
 

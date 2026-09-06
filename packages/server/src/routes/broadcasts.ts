@@ -214,11 +214,20 @@ export function broadcastsRouter(ctx: AppContext): Router {
    *     about ownership: it is a recording people may still be watching, and deleting it takes the
    *     recording with it.
    *
-   * The two paths differ only in what the app knows. For one it created, the ownership record
-   * answers everything and the delete costs one write. For one it did not, nothing in the store
-   * describes the broadcast, so a single read buys the title, the privacy and — the part that
-   * matters — the lifecycle state the aired guard turns on. Trusting the caller's word for any of
-   * those would be trusting a stale tab about whether a show is on air.
+   * **The channel is asked about every broadcast, owned or not.** The ownership record cannot
+   * answer the one question the aired guard turns on: `airedAt` is stamped by the sweep, and a
+   * record whose broadcast is live, testing or complete right now still carries `null` there
+   * until a sweep happens to run. Refusing on the record alone would have deleted a broadcast
+   * mid-show — the recording included — which is precisely what the guard exists to prevent. So
+   * a single read buys the lifecycle state, for one read's quota, and the record's job narrows
+   * to the two things only it knows: that this app made the broadcast, and where to write the
+   * retirement stamp afterwards.
+   *
+   * The read is also what keeps "gone" from becoming a dead end. `retiredAt` is the sweep's
+   * one-way stamp, and a record wrongly stamped by a read-after-write gap would otherwise leave
+   * a broadcast the channel still lists — and still offers a Delete button for — permanently
+   * undeletable from the app, the exact dead end this issue set out to remove. The stamp only
+   * refuses when YouTube agrees the broadcast is not there.
    */
   router.delete("/:id", async (req, res) => {
     if (!ctx.store.get().service.apiEnabled) {
@@ -229,66 +238,62 @@ export function broadcastsRouter(ctx: AppContext): Router {
     const record = ctx.store.get().preparedBroadcasts.find((p) => p.id === id) ?? null;
     const confirmed = (req.body as { confirm?: unknown } | undefined)?.confirm === true;
 
-    let subject: DeleteSubject;
-    // A read spent only where the store cannot answer, and charged to the caller either way.
-    let readUnits = 0;
-
-    if (record) {
-      // Aired broadcasts are recordings, and deleting one takes the recording with it. The dialog
-      // already hides the button; this is the same refusal for a stale tab or a direct call, and
-      // it is the sweep's rule (`planSweep` never touches an aired record) held at the route too.
-      if (record.airedAt !== null) {
-        res.status(409).json(toErrorBody(airedRefusal(record.title)));
-        return;
-      }
-      if (record.retiredAt !== null) {
-        res.status(409).json(
-          toErrorBody(
-            new AppError("INVALID_REQUEST", `“${record.title}” has already been removed from YouTube.`),
-          ),
-        );
-        return;
-      }
-      subject = subjectOf(record);
-    } else {
-      let found: youtube_v3.Schema$LiveBroadcast | undefined;
-      try {
-        const answer = await ctx.yt.liveBroadcasts.list({
-          part: ["id", "snippet", "status"],
-          id: [id],
-          maxResults: 1,
-        });
-        readUnits = QUOTA_COST.read;
-        found = (answer.data.items ?? [])[0];
-      } catch (err) {
-        res.status(502).json(toErrorBody(mapYouTubeError(err)));
-        return;
-      }
-      if (!found?.id) {
-        res.status(404).json(
-          toErrorBody(
-            new AppError(
-              "NO_TARGET_FOUND",
-              `Broadcast ${id} is not on this channel, so there is nothing here to delete.`,
-            ),
-          ),
-        );
-        return;
-      }
-      // The same rule as the record's `airedAt`, asked of the resource because there is no record
-      // to have stamped it. `airedAtOf` is the sweep's own reading of "has been on air", so a
-      // broadcast that is live, previewing or complete is refused by exactly one definition.
-      if (airedAtOf(found) !== null) {
-        res.status(409).json(toErrorBody(airedRefusal(found.snippet?.title ?? id)));
-        return;
-      }
-      subject = {
-        title: found.snippet?.title ?? id,
-        watchUrl: watchUrlFor(found.id),
-        privacyStatus: found.status?.privacyStatus ?? null,
-        appCreated: false,
-      };
+    // One read, charged to the caller, whatever the store already knows. See the note above: the
+    // store cannot say whether the broadcast is on air, and that is the only guard here that
+    // protects something irreplaceable.
+    let found: youtube_v3.Schema$LiveBroadcast | undefined;
+    try {
+      const answer = await ctx.yt.liveBroadcasts.list({
+        part: ["id", "snippet", "status"],
+        id: [id],
+        maxResults: 1,
+      });
+      found = (answer.data.items ?? [])[0];
+    } catch (err) {
+      res.status(502).json(toErrorBody(mapYouTubeError(err)));
+      return;
     }
+    const readUnits = QUOTA_COST.read;
+
+    if (!found?.id) {
+      // A record already stamped retired explains the absence in the operator's own terms; any
+      // other absence is simply an id this channel does not have.
+      res.status(record?.retiredAt ? 409 : 404).json(
+        toErrorBody(
+          record?.retiredAt
+            ? new AppError(
+                "INVALID_REQUEST",
+                `“${record.title}” has already been removed from YouTube.`,
+              )
+            : new AppError(
+                "NO_TARGET_FOUND",
+                `Broadcast ${id} is not on this channel, so there is nothing here to delete.`,
+              ),
+        ),
+      );
+      return;
+    }
+
+    // `airedAtOf` is the sweep's own reading of "has been on air", asked of the resource so that
+    // one definition refuses a live, testing or completed broadcast for every caller alike. The
+    // record's own stamp is honoured alongside it and never instead of it: nothing un-airs, so a
+    // record that says it aired settles the question even if the resource has since stopped
+    // saying so — but a record that says nothing settles nothing.
+    if (record?.airedAt || airedAtOf(found) !== null) {
+      res.status(409).json(toErrorBody(airedRefusal(record?.title ?? found.snippet?.title ?? id)));
+      return;
+    }
+
+    // The record is the better source for what it covers — it is what the "Made here" list and
+    // the share link were written from — and the resource fills in for a broadcast it never made.
+    const subject: DeleteSubject = record
+      ? subjectOf(record)
+      : {
+          title: found.snippet?.title ?? id,
+          watchUrl: watchUrlFor(found.id),
+          privacyStatus: found.status?.privacyStatus ?? null,
+          appCreated: false,
+        };
 
     const confirmation = deleteConfirmation(subject);
     if (!confirmed) {
@@ -318,7 +323,19 @@ export function broadcastsRouter(ctx: AppContext): Router {
     // "choose automatically" without a word is the app quietly picking a different broadcast to
     // write to (issue 071).
     const pinCleared = ctx.store.get().targetPin?.id === id;
-    if (pinCleared) await ctx.store.update((s) => { s.targetPin = null; });
+    // `lastTargetId` is cleared alongside it, and for the same reason `PUT /api/dashboard/target`
+    // clears it: the forced refresh below is about to resolve a different broadcast, and comparing
+    // that against the id we just deleted would report the operator's own press as TARGET_DRIFT —
+    // "something else is creating broadcasts" — seconds after they pressed Delete. Cleared
+    // whether or not a pin named it, because drift compares against the resolved target, pin or
+    // no pin.
+    const wasLastTarget = ctx.store.get().cache.lastTargetId === id;
+    if (pinCleared || wasLastTarget) {
+      await ctx.store.update((s) => {
+        if (pinCleared) s.targetPin = null;
+        if (wasLastTarget) s.cache.lastTargetId = null;
+      });
+    }
 
     ctx.logger.push({
       level: "info",

@@ -72,7 +72,10 @@ export function PreparedList({ items, copiedUrl, onCopy, onDelete }: Props) {
                 </button>
               )}
               {/* Never offered for one that aired: it is a recording people may still be
-                  watching, and deleting it takes that away rather than tidying up. */}
+                  watching, and deleting it takes that away rather than tidying up. The stamp is
+                  written by the sweep, so it lags a broadcast that went live minutes ago — the
+                  route reads the channel's lifecycle state and refuses that one itself, and this
+                  gate only keeps the button off a press already known to be pointless. */}
               {retired || aired ? null : (
                 <button
                   type="button"

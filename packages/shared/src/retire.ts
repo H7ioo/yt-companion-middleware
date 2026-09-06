@@ -75,3 +75,23 @@ export function describeRetireReason(scheduledStartTime: string | null): string 
   const when = scheduledStartTime ? ` It was scheduled for ${scheduledStartTime}.` : "";
   return `Created here, never went to air, and its start time has passed.${when}`;
 }
+
+/**
+ * Lifecycle states that mean the broadcast has been on air, or is on air now.
+ *
+ * Shared because three surfaces turn on exactly this set and disagreeing about it is a bug in
+ * both directions: the sweep's `airedAtOf`, the delete route's refusal, and the dashboard row
+ * that decides whether to offer a Delete button at all. A copy that drifts either hides the
+ * button on something deletable or offers one the server will refuse.
+ *
+ * `testing` counts: YouTube only moves a broadcast there once an encoder is feeding it, and
+ * deleting a broadcast mid-test takes the show off the channel while the operator is looking
+ * at it.
+ */
+export const AIRED_LIFECYCLE_STATES: ReadonlySet<string> = new Set([
+  "live",
+  "liveStarting",
+  "testing",
+  "testStarting",
+  "complete",
+]);

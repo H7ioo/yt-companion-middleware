@@ -331,7 +331,60 @@ describe("DELETE /api/dashboard/broadcasts/:id", () => {
     expect(((await res.json()) as any).error.message).toMatch(/recording/i);
   });
 
-  it("refuses one it already retired rather than spending a write on nothing", async () => {
+  // The record's `airedAt` is stamped by the sweep, so a broadcast that went live an hour ago
+  // still carries `null` there until one runs. The channel is the only thing that knows.
+  it("refuses one it made that is on air now, though no sweep has stamped it", async () => {
+    const state: FakeState = {
+      channel: [{ id: "ours-1", snippet: {}, status: { lifeCycleStatus: "live" } }],
+      deleted: [],
+      inserts: [],
+    };
+    const url = await mount(state);
+
+    const res = await del(url, "ours-1", { confirm: true });
+    expect(res.status).toBe(409);
+    expect(state.deleted).toEqual([]);
+    expect(((await res.json()) as any).error.message).toMatch(/recording/i);
+    expect(store.get().preparedBroadcasts[0].retiredAt).toBeNull();
+  });
+
+  // A record wrongly stamped gone must not strand a broadcast the channel still lists: that is
+  // the dead end issue 071 exists to remove, arrived at from the other side.
+  it("deletes one stamped retired that YouTube still has", async () => {
+    await store.update((s) => {
+      s.preparedBroadcasts = [record({ retiredAt: "2026-01-01T00:00:00.000Z" })];
+    });
+    const state: FakeState = { channel: [idle("ours-1")], deleted: [], inserts: [] };
+    const url = await mount(state);
+
+    const res = await del(url, "ours-1", { confirm: true });
+    expect(res.status).toBe(200);
+    expect(state.deleted).toEqual(["ours-1"]);
+  });
+
+  // Deleting the target is the operator's own doing, so the next refresh must not report the
+  // change of target as "something else is creating broadcasts" (TARGET_DRIFT).
+  it("forgets the last resolved target so the refresh does not call the deletion drift", async () => {
+    await store.update((s) => {
+      s.cache.lastTargetId = "ours-1";
+    });
+    const state: FakeState = { channel: [idle("ours-1")], deleted: [], inserts: [] };
+    const url = await mount(state);
+
+    const res = await del(url, "ours-1", { confirm: true });
+    expect(res.status).toBe(200);
+    expect(store.get().cache.lastTargetId).toBeNull();
+  });
+
+  it("charges the read it spends on a broadcast it made, as it does for one it did not", async () => {
+    const state: FakeState = { channel: [idle("ours-1")], deleted: [], inserts: [] };
+    const url = await mount(state);
+
+    const res = await del(url, "ours-1", { confirm: true });
+    expect(((await res.json()) as any).quotaUnits).toBe(51);
+  });
+
+  it("refuses one it already retired, when YouTube agrees it is gone", async () => {
     await store.update((s) => {
       s.preparedBroadcasts = [record({ retiredAt: "2026-01-01T00:00:00.000Z" })];
     });
