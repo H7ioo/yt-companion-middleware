@@ -72,6 +72,16 @@ export function devicesRouter({ store, auth }: DeviceDeps): Router {
    */
   router.put("/grace", handler(async (req, res) => {
     const { enforcing } = graceBody.parse(req.body);
+    // Same reasoning as minting a token below: on a deployment with no accounts the admin guard
+    // is a pass-through, so this route would be open to anyone who can reach the port — and an
+    // anonymous LAN caller could persist `enforcing: true`, which lies dormant and then locks out
+    // every Companion the moment someone claims an account. The switch answers to an admin only.
+    if (!auth.required || !auth.actorOf(req)) {
+      throw new AppError(
+        "FORBIDDEN",
+        "This deployment has no accounts yet, so there is nothing for a key requirement to check.",
+      );
+    }
     await auth.grace.setEnforcing(enforcing);
     // The path alone cannot say which way it went, and "changed the key requirement" in the log
     // is the one detail an admin would come looking for. Same reason the OAuth callback notes.

@@ -238,8 +238,15 @@ export function SettingsPanel({
     } catch (e) {
       flash((e as Error).message, "err");
       // The switch is the one control whose displayed state must match the server's. On a failed
-      // flip, re-read rather than leave the button showing what was asked for.
-      await loadMachines();
+      // flip, re-read rather than leave the button showing what was asked for — but keep the
+      // readout that is already on screen if that re-read also fails. `loadMachines()` clears the
+      // card on failure, which is right on first load (nothing to show) and wrong here: it would
+      // take the rollback button off the screen at the exact moment an operator needs it, leaving
+      // a page reload as the only way back.
+      await api.machines
+        .grace()
+        .then(setGrace)
+        .catch(() => {});
     } finally {
       setFlippingGrace(false);
     }

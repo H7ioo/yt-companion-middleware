@@ -378,6 +378,62 @@ describe("device tokens at the handshake", () => {
     expect(await closed).toBe(4401);
   });
 
+  it("drops a keyless socket the moment the key requirement is turned on", async () => {
+    // The other half of the switch (issue 049). Refusing the *handshake* leaves every box that
+    // connected keyless before the flip running for weeks, because a Companion machine opens one
+    // socket and holds it — the dashboard would say the requirement was on while the keyless
+    // machine it named kept streaming.
+    const ws = new WebSocket(`${h.url.replace("http://", "ws://")}/api/feedback/ws`);
+    await new Promise<void>((resolve, reject) => {
+      ws.once("open", () => resolve());
+      ws.once("error", reject);
+    });
+    const closed = new Promise<number>((resolve) => ws.once("close", (code) => resolve(code)));
+
+    await h.auth.grace.setEnforcing(true);
+    expect(await closed).toBe(4401);
+    // And the handshake is refused too, so it cannot simply come straight back.
+    expect(await upgrade(h, "/api/feedback/ws")).toBe(401);
+  });
+
+  it("leaves a credentialled socket alone when the key requirement is turned on", async () => {
+    // Only the keyless connections are the switch's business. A machine that already carries a
+    // token is exactly what the requirement is asking for, and cutting it would make turning the
+    // switch on an outage for the boxes that had done the migration.
+    const { token } = await mint();
+    const ws = new WebSocket(`${h.url.replace("http://", "ws://")}/api/feedback/ws`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    await new Promise<void>((resolve, reject) => {
+      ws.once("open", () => resolve());
+      ws.once("error", reject);
+    });
+    let closedCode: number | null = null;
+    ws.once("close", (code) => {
+      closedCode = code;
+    });
+
+    await h.auth.grace.setEnforcing(true);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(closedCode).toBeNull();
+    ws.close();
+  });
+
+  it("ends a keyless SSE stream when the key requirement is turned on", async () => {
+    // Same reasoning as the socket, and the same hole: the guard runs once, at connect. A keyless
+    // integration on /api/feedback/stream would otherwise read state indefinitely after the flip.
+    const ac = new AbortController();
+    const res = await fetch(`${h.url}/api/feedback/stream`, { signal: ac.signal });
+    expect(res.status).toBe(200);
+    const reader = res.body!.getReader();
+    await reader.read(); // the initial state frame, so the stream is really open
+
+    await h.auth.grace.setEnforcing(true);
+    // `done` rather than another frame: the server ended the response from under it.
+    expect((await reader.read()).done).toBe(true);
+    ac.abort();
+  });
+
   it("records a tokenless Companion handshake rather than letting it pass unseen", async () => {
     expect(h.auth.grace.readout().tokenlessCount).toBe(0);
     expect(await upgrade(h, "/api/feedback/ws")).toBe("open");
@@ -638,5 +694,20 @@ describe("a deployment with no accounts", () => {
     }
     // Including the socket guard, which asks the same dormant question the express one does.
     expect(await upgrade(h, "/api/dashboard/ws")).toBe("open");
+  });
+
+  it("will not let an anonymous caller arm the key requirement here", async () => {
+    // The admin guard is a pass-through on this deployment, so without a check of its own the
+    // switch would be reachable by anyone on the LAN. The flip would look harmless — nothing is
+    // enforced while there are no accounts — and then lock out every Companion the moment someone
+    // claimed an account. The route refuses, and nothing is written.
+    const res = await fetch(`${h.url}/api/dashboard/devices/grace`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enforcing: true }),
+    });
+    await res.body?.cancel();
+    expect(res.status).toBe(403);
+    expect(h.auth.grace.enforcing).toBe(false);
   });
 });

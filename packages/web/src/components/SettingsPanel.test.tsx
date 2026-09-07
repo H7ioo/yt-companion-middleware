@@ -557,6 +557,24 @@ describe("the machines section", () => {
     confirm.mockRestore();
   });
 
+  it("keeps the rollback on screen when a failed flip cannot be re-read either", async () => {
+    // The failure that strands an operator: the flip fails, the panel re-reads to find out what
+    // the server really thinks, and *that* fails too. Blanking the card there takes the rollback
+    // button away at the one moment it is needed, leaving a page reload as the way back.
+    graceOf.mockResolvedValue(grace({ enforcing: true }));
+    setEnforcing.mockRejectedValue(new Error("server unreachable"));
+    const flashed: string[] = [];
+    panel(true, (message) => flashed.push(message));
+
+    const rollback = await screen.findByRole("button", { name: /stop requiring a key/i });
+    graceOf.mockRejectedValue(new Error("server unreachable"));
+    fireEvent.click(rollback);
+
+    await waitFor(() => expect(flashed[0]).toMatch(/server unreachable/i));
+    // Still there, still showing the server's last known state, still clickable.
+    expect(screen.getByRole("button", { name: /stop requiring a key/i })).toBeTruthy();
+  });
+
   it("confirms before cutting a machine off mid-show", async () => {
     listMachines.mockResolvedValue({ tokens: [machine()] });
     revokeMachine.mockResolvedValue({ device: machine({ revokedAt: "2026-08-31T00:00:00.000Z" }) });
