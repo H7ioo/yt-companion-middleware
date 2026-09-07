@@ -2,6 +2,7 @@ import { useState } from "react";
 import { INGESTION_GLOSSARY } from "@app/shared";
 import { api, type IngestionReadout as Readout, type IngestionReport } from "../api.js";
 import { LAMP_FOR_KEY_COLOR } from "../lib/lamps.js";
+import { Skeleton } from "./Skeleton.js";
 
 interface Props {
   /**
@@ -46,6 +47,14 @@ export function IngestionReadout({ apiEnabled, ingestion }: Props) {
   // converge; until it does, a check made ten seconds ago must not be replaced by a push carrying
   // the minute-old reading it has not yet superseded.
   const current = newerOf(fresh, ingestion);
+
+  /**
+   * Nothing has ever been read here and something is on its way: the dashboard state that
+   * carries the poll loop's reading, or the operator's first Check now (issue 073). Deliberately
+   * not "no reading yet" on its own — an idle panel is *not* loading, and the sentence below
+   * says so and offers the press that would change it.
+   */
+  const firstPaint = !current && !error && !note && (apiEnabled === null || checking);
 
   async function check() {
     setChecking(true);
@@ -93,6 +102,8 @@ export function IngestionReadout({ apiEnabled, ingestion }: Props) {
           <p className="empty">{note.why}</p>
         ) : current ? (
           <Reading readout={current} />
+        ) : firstPaint ? (
+          <Skeleton variant="feed" label="Reading the ingestion key…" />
         ) : (
           <p className="empty">
             Nothing read yet. This fills itself in while a broadcast is live or a title is waiting

@@ -403,3 +403,35 @@ describe("PrepareBroadcast", () => {
     });
   });
 });
+
+describe("PrepareBroadcast, the record of what it made (issue 073)", () => {
+  it("stands skeleton rows in for the record while it is first being read", async () => {
+    let settle!: (rows: PreparedBroadcast[]) => void;
+    preparedList.mockReturnValue(new Promise<PreparedBroadcast[]>((r) => (settle = r)));
+    const { container } = mount();
+
+    await waitFor(() => expect(container.querySelectorAll(".skel__row").length).toBe(2));
+    expect(screen.getByText("Reading what this app has made…")).toBeTruthy();
+
+    settle([made({ title: "Friday service" })]);
+
+    expect(await screen.findByText("Friday service")).toBeTruthy();
+    expect(container.querySelector(".skel__row")).toBeNull();
+  });
+
+  it("shows nothing at all once the record comes back empty", async () => {
+    const { container } = mount();
+    await waitFor(() => expect(preparedList).toHaveBeenCalled());
+    await waitFor(() => expect(container.querySelector(".skel__row")).toBeNull());
+    expect(screen.queryByText("Made here")).toBeNull();
+  });
+
+  it("stops the skeleton when the record cannot be read", async () => {
+    preparedList.mockRejectedValue(new Error("offline"));
+    const { container } = mount();
+
+    // Not a banner over a form that still works — but not grey bars forever either.
+    expect(await screen.findByText(/Could not read what this app has made/)).toBeTruthy();
+    expect(container.querySelector(".skel__row")).toBeNull();
+  });
+});

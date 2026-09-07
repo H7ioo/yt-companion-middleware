@@ -73,6 +73,12 @@ export function PrepareBroadcast({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<PreparedBroadcast[]>([]);
+  /**
+   * Where the record stands: read once on mount, and never re-read into a skeleton. "failed" is
+   * its own answer rather than an empty list — an empty list means "this app has made nothing",
+   * which is a real fact, and a read that did not happen is not evidence of it (issue 073).
+   */
+  const [record, setRecord] = useState<"loading" | "ready" | "failed">("loading");
   /** The one just created — the panel's whole output, kept apart so it can lead. */
   const [fresh, setFresh] = useState<PreparedBroadcast | null>(null);
   /** What the broadcast is missing when only part of the preparation landed. */
@@ -112,9 +118,14 @@ export function PrepareBroadcast({
     // Free: an ownership record from our own store, not a YouTube read.
     api.broadcasts
       .prepared()
-      .then(setPrepared)
+      .then((rows) => {
+        setPrepared(rows);
+        setRecord("ready");
+      })
       .catch(() => {
-        // A list that will not load is not worth a banner over the form that still works.
+        // A list that will not load is not worth a banner over the form that still works — but
+        // it must stop the skeleton, or the panel animates a read that ended minutes ago.
+        setRecord("failed");
       });
   }, []);
 
@@ -213,6 +224,7 @@ export function PrepareBroadcast({
   async function reload() {
     try {
       setPrepared(await api.broadcasts.prepared());
+      setRecord("ready");
     } catch {
       // A list that will not reload does not change what is on the channel.
     }
@@ -427,6 +439,7 @@ export function PrepareBroadcast({
 
         <PreparedList
           items={prepared}
+          record={record}
           copiedUrl={copiedUrl}
           onCopy={copy}
           onDelete={remove}

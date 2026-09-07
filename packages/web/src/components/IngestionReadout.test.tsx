@@ -152,3 +152,41 @@ describe("IngestionReadout freshness", () => {
     expect(screen.getByText("Receiving video")).toBeTruthy();
   });
 });
+
+describe("IngestionReadout, first paint (issue 073)", () => {
+  it("stands a skeleton reading in while the dashboard state has not arrived", () => {
+    const { container } = render(<IngestionReadout apiEnabled={null} ingestion={null} />);
+    expect(container.querySelector(".skel__row")).toBeTruthy();
+    expect(screen.getByText("Reading the ingestion key…")).toBeTruthy();
+  });
+
+  it("shows the invitation, not a skeleton, when it is simply not reading", () => {
+    const { container } = render(<IngestionReadout apiEnabled ingestion={null} />);
+    expect(container.querySelector(".skel__row")).toBeNull();
+    expect(screen.getByText(/Nothing read yet/)).toBeTruthy();
+  });
+
+  it("shows the paused explanation, not a fake load", () => {
+    const { container } = render(<IngestionReadout apiEnabled={false} ingestion={null} />);
+    expect(container.querySelector(".skel__row")).toBeNull();
+    expect(screen.getByText(/The YouTube API is switched off/)).toBeTruthy();
+  });
+
+  it("keeps the reading it has while a check is in flight", async () => {
+    read.mockReturnValue(new Promise(() => {}));
+    const { container } = render(<IngestionReadout apiEnabled ingestion={readout()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Check now" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Checking…" })).toBeTruthy());
+    expect(container.querySelector(".skel__row")).toBeNull();
+    expect(screen.getByText("Receiving video")).toBeTruthy();
+  });
+
+  it("stands a skeleton in for the very first check, which has nothing to keep", async () => {
+    read.mockReturnValue(new Promise(() => {}));
+    const { container } = render(<IngestionReadout apiEnabled ingestion={null} />);
+    fireEvent.click(screen.getByRole("button", { name: "Check now" }));
+
+    await waitFor(() => expect(container.querySelector(".skel__row")).toBeTruthy());
+  });
+});

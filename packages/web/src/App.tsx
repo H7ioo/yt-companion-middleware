@@ -36,6 +36,7 @@ type Toast = { message: string; kind: "ok" | "err" } | null;
 export function App() {
   const [state, setState] = useState<DashboardState | null>(null);
   const [presets, setPresets] = useState<Preset[]>([]);
+  const [presetsRead, setPresetsRead] = useState<"loading" | "ready" | "failed">("loading");
   const [settings, setSettings] = useState<DefaultSettings>({
     defaultCategory: null,
     defaultStreamBoundId: null,
@@ -111,7 +112,11 @@ export function App() {
   }, [flash]);
 
   const loadPresets = useCallback(
-    () => api.presets.list().then(setPresets),
+    () =>
+      api.presets.list().then((rows) => {
+        setPresets(rows);
+        setPresetsRead("ready");
+      }),
     [],
   );
 
@@ -142,7 +147,9 @@ export function App() {
 
   useEffect(() => {
     void loadSignIn();
-    void loadPresets();
+    // Only the first read decides the page's shape; a failed reload keeps the presets on screen
+    // and is reported by the action that asked for it.
+    void loadPresets().catch(() => setPresetsRead("failed"));
     void api.settings.get().then(setSettings);
     void api.webhook.get().then((w) => setWebhookUrl(w.url ?? ""));
     void api.notify
@@ -503,6 +510,7 @@ export function App() {
   const context: DashboardContext = {
     state,
     presets,
+    presetsRead,
     categories,
     streams,
     settings,

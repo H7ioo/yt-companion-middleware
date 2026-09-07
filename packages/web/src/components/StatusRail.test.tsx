@@ -3,7 +3,7 @@
 // so the environment is declared per-file rather than globally.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { BROADCAST_STATE, HEALTH_GLOSSARY, PREPARED_GLOSSARY } from "@app/shared";
+import { BROADCAST_STATE, describeTargetState, HEALTH_GLOSSARY, PREPARED_GLOSSARY } from "@app/shared";
 import type { DashboardState } from "../api.js";
 import { StatusRail } from "./StatusRail.js";
 
@@ -29,6 +29,12 @@ const state = (over: Partial<DashboardState> = {}): DashboardState => ({
   fillRequest: null,
   targetConflict: null,
   targetPin: null,
+  // Where a press would land (issue 076), classified by the server's own rule rather than by a
+  // hand-written literal that could describe a state the classifier never produces.
+  target: describeTargetState(
+    { title: "Friday service", broadcastId: "bc1", isLive: false, noTarget: false },
+    null,
+  ),
   prepared: { state: "none", ...PREPARED_GLOSSARY.none, id: null, title: null, watchUrl: null, scheduledStartTime: null, streamId: null },
   ...over,
 });
