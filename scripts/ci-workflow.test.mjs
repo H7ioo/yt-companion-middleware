@@ -102,3 +102,28 @@ describe("RELEASING.md", () => {
     expect(releasing).toMatch(/npm run preflight/);
   });
 });
+
+/**
+ * GitHub runs every `run:` step with `bash -e -o pipefail`, which means a command whose reader
+ * closes the pipe early takes the whole step down: `git log ... | head -50` returns 141 the
+ * moment there are more than 50 commits to list. Nightly's release-notes step did exactly that,
+ * and the bug was invisible until 75 commits had piled up behind v2.4.1 — a failure that arrives
+ * precisely when a release is overdue, i.e. when the pipeline is needed most.
+ *
+ * `head`'s job here is always a limit some tool can apply itself (`git log -n`, `tail -n`), so
+ * the rule is simply that these steps never pipe into it.
+ */
+describe("workflow steps and pipefail", () => {
+  const dir = path.join(root, ".github", "workflows");
+
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".yml"))) {
+    it(`${file} never pipes a long listing into head, which pipefail turns into a failure`, () => {
+      /** @type {any} */
+      const wf = yaml.load(fs.readFileSync(path.join(dir, file), "utf8"));
+      const lines = Object.values(wf.jobs ?? {}).flatMap((/** @type {any} */ j) => runs(j));
+      // Comments are allowed to mention it — this is about what actually runs.
+      const code = lines.flatMap((l) => l.split("\n").filter((s) => !s.trim().startsWith("#")));
+      expect(code.filter((l) => /\|\s*head\b/.test(l))).toEqual([]);
+    });
+  }
+});
