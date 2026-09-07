@@ -196,6 +196,21 @@ describe("BroadcastList", () => {
     expect(container.querySelector(".skel__row")).toBeNull();
   });
 
+  it("does not fall back to a skeleton when a later press clears the failure", async () => {
+    // The escape hatch issue 072 kept independent of the API answering. Clearing the error —
+    // choosing automatically, opening a dialog — used to take the panel back to first paint,
+    // hiding the radio group behind a skeleton that animated forever with no read in flight.
+    list.mockRejectedValue(new Error("YouTube said no."));
+    const { container } = render(<BroadcastList apiEnabled pin={null} onPinned={() => {}} />);
+    expect(await screen.findByText("YouTube said no.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("radio", { name: /choose automatically/i }));
+
+    await waitFor(() => expect(pin).toHaveBeenCalledWith(null, null));
+    expect(container.querySelector(".skel__row")).toBeNull();
+    expect(screen.getAllByRole("radio").length).toBeGreaterThan(0);
+  });
+
   it("pins the broadcast the operator picks, so actions land on it", async () => {
     list.mockResolvedValue(
       listing({

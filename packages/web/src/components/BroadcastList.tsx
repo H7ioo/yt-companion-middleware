@@ -108,6 +108,13 @@ export function BroadcastList({
   const known = apiEnabled !== null;
   const [listing, setListing] = useState<BroadcastListing | null>(cached);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Whether a read has ever finished here, however it finished. The skeleton's condition, and
+   * deliberately not derived from `error`: a failed first read leaves the panel with no listing,
+   * and clearing that error later — picking a target, closing a dialog — would otherwise take the
+   * whole panel back to a skeleton that animates forever with no read in flight.
+   */
+  const [settled, setSettled] = useState(cached !== null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   // The link last copied, so exactly one row says "Copied" — two rows claiming it is a lie about
@@ -141,6 +148,7 @@ export function BroadcastList({
       );
     } finally {
       setLoading(false);
+      setSettled(true);
     }
   }
 
@@ -225,10 +233,10 @@ export function BroadcastList({
 
   const warning = listing ? disagreement(listing, pin) : null;
   /**
-   * Nothing has ever arrived in this panel, and nothing has gone wrong yet — the one state a
+   * Nothing has ever arrived in this panel and no read has come back yet — the one state a
    * skeleton belongs in. Not `loading`: a Refresh is also loading, and it keeps its rows.
    */
-  const firstPaint = !listing && !error;
+  const firstPaint = !listing && !settled;
 
   return (
     <section className="panel">

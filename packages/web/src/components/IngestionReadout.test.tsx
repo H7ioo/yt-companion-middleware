@@ -154,10 +154,25 @@ describe("IngestionReadout freshness", () => {
 });
 
 describe("IngestionReadout, first paint (issue 073)", () => {
-  it("stands a skeleton reading in while the dashboard state has not arrived", () => {
+  it("says the connection is missing, rather than breathing at a read nobody made", () => {
+    // A down stream leaves `apiEnabled` null for as long as it stays down, and Check now is
+    // disabled in exactly that state — so a skeleton here animates forever with nothing in
+    // flight. The broadcast list beside it says this in these words.
     const { container } = render(<IngestionReadout apiEnabled={null} ingestion={null} />);
-    expect(container.querySelector(".skel__row")).toBeTruthy();
+    expect(container.querySelector(".skel__row")).toBeNull();
+    expect(screen.getByText(/Waiting for the connection/)).toBeTruthy();
+  });
+
+  it("stands a skeleton reading in while the first check is actually in flight", async () => {
+    let settle: (report: IngestionReport) => void = () => {};
+    read.mockReturnValue(new Promise<IngestionReport>((resolve) => (settle = resolve)));
+    const { container } = render(<IngestionReadout apiEnabled ingestion={null} />);
+    fireEvent.click(screen.getByRole("button", { name: /check now/i }));
+    await waitFor(() => expect(container.querySelector(".skel__row")).toBeTruthy());
     expect(screen.getByText("Reading the ingestion key…")).toBeTruthy();
+    settle({ readout: readout(), unavailable: null, quotaUnits: 1 });
+    await waitFor(() => expect(screen.getByText("Receiving video")).toBeTruthy());
+    expect(container.querySelector(".skel__row")).toBeNull();
   });
 
   it("shows the invitation, not a skeleton, when it is simply not reading", () => {

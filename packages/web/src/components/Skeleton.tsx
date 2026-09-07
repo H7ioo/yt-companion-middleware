@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
 
 /**
@@ -29,6 +30,13 @@ interface Props {
 }
 
 export function Skeleton({ variant, label, rows = 3 }: Props) {
+  // A live region only announces what changes *inside* it after it exists — a region inserted
+  // with its text already in place is, to most screen readers, just more page, and the single
+  // announcement this whole design rests on never happens. So the region mounts empty and the
+  // words are written into it from an effect, as a mutation of a region already in the document.
+  const [announced, setAnnounced] = useState("");
+  useEffect(() => setAnnounced(label), [label]);
+
   return (
     <>
       {/* The whole of what a screen reader gets: the bars below say nothing it could use.
@@ -36,7 +44,7 @@ export function Skeleton({ variant, label, rows = 3 }: Props) {
           it says what happened (the pin disagrees, the delete cleared the target), and a
           "reading…" that competes for that role is read out instead of the thing that matters. */}
       <p className="sr-only" aria-live="polite">
-        {label}
+        {announced}
       </p>
       {SHAPES[variant](rows)}
     </>

@@ -34,6 +34,9 @@ interface Props {
  */
 export function IngestionReadout({ apiEnabled, ingestion }: Props) {
   const paused = apiEnabled === false;
+  // Whether the dashboard state has arrived at all. A stream that is down leaves this null for
+  // as long as it stays down, which is a connection to say out loud — not a read to animate.
+  const known = apiEnabled !== null;
   const [fresh, setFresh] = useState<Readout | null>(null);
   // The server's "nothing to read, and here is why", stamped with when it was learned — so a
   // push that later carries a genuinely newer reading takes the panel back, while a push of the
@@ -49,12 +52,13 @@ export function IngestionReadout({ apiEnabled, ingestion }: Props) {
   const current = newerOf(fresh, ingestion);
 
   /**
-   * Nothing has ever been read here and something is on its way: the dashboard state that
-   * carries the poll loop's reading, or the operator's first Check now (issue 073). Deliberately
-   * not "no reading yet" on its own — an idle panel is *not* loading, and the sentence below
-   * says so and offers the press that would change it.
+   * Nothing has ever been read here and a read is genuinely in flight: the operator's first
+   * Check now (issue 073). Deliberately not "no reading yet" on its own — an idle panel is *not*
+   * loading, and the sentence below says so and offers the press that would change it. And
+   * deliberately not "state has not loaded" either: with the stream down that is not a pending
+   * read but an absent connection, which the panel says in words instead of breathing at forever.
    */
-  const firstPaint = !current && !error && !note && (apiEnabled === null || checking);
+  const firstPaint = !current && !error && !note && checking;
 
   async function check() {
     setChecking(true);
@@ -91,7 +95,11 @@ export function IngestionReadout({ apiEnabled, ingestion }: Props) {
         </div>
       </div>
       <div className="panel__body">
-        {paused ? (
+        {!known ? (
+          // Said in the same words the broadcast list uses beside it: one missing connection,
+          // one sentence, rather than two panels describing it differently.
+          <p className="empty">Waiting for the connection…</p>
+        ) : paused ? (
           <p className="empty">
             The YouTube API is switched off, so nothing is being read. Turn it back on in the rail
             to check the signal.
