@@ -1,0 +1,18 @@
+# The beta channel's build (RELEASING.md §Beta channel). Everything about the app is the stable
+# config's business; the only thing that differs is which channel file the build emits.
+#
+# `extends` is a path relative to the project dir (the workspace root, which is where
+# electron-builder is invoked from). The parent is deep-merged and this file wins, so `publish`
+# below adds `channel` to the parent's provider/owner/repo rather than replacing them — there is
+# deliberately no second copy of the publish block to keep in step.
+#
+# Why a file and not `-c.publish.channel=beta` on the command line: that override and the `-c`
+# that selects this config are the same yargs alias, and passing both made electron-builder read
+# a config file literally named `.publish.channel=beta` on Windows (`ENOENT`, nightly red for six
+# days). electron-builder's own test for the dot-notation syntax is marked `ifNotWindows`.
+extends: packages/desktop/electron-builder.yml
+
+# electron-updater asks a beta install for `beta.yml`; without this the build emits `latest.yml`
+# and every beta update check 404s.
+publish:
+  channel: beta
