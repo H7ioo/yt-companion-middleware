@@ -101,11 +101,15 @@ jobs:
         shell: bash
         run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version
 
-      # `-c.publish.channel=beta` makes electron-builder emit `beta.yml` instead of `latest.yml`.
-      # That is the file a beta install asks for: the provider derives the channel filename from
-      # the tag's pre-release identifier, so a beta release carrying only `latest.yml` costs every
-      # check a 404 before it falls back. The stable Release workflow keeps emitting `latest.yml`.
-      - run: npm run desktop:build -- -c.publish.channel=beta
+      # The beta build differs from the stable one in a single value — `publish.channel: beta`,
+      # which is what makes electron-builder emit `beta.yml` instead of `latest.yml`. That is the
+      # file a beta install asks for: the provider derives the channel filename from the tag's
+      # pre-release identifier, so a beta release carrying only `latest.yml` costs every check a
+      # 404 before it falls back. The value lives in electron-builder.beta.yml rather than a
+      # `-c.publish.channel=beta` flag, which collided with the `-c` selecting the config file and
+      # made this job fail on Windows for six days. The Release workflow keeps emitting
+      # `latest.yml` from the stable config.
+      - run: npm run desktop:build:beta
         env:
           YT_BUNDLED_CLIENT_ID: ${{ secrets.YT_BUNDLED_CLIENT_ID }}
           YT_BUNDLED_CLIENT_SECRET: ${{ secrets.YT_BUNDLED_CLIENT_SECRET }}

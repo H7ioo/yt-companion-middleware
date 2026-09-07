@@ -129,3 +129,50 @@ describe("instrumentQuota", () => {
     expect(t.snapshot().used).toBe(QUOTA_COST.write * 2);
   });
 });
+
+/**
+ * The counter is written through on a 250ms debounce, long after the call that moved it has
+ * returned — so nobody is left holding the promise. A rejected write there is an *unhandled*
+ * rejection, which Node turns into a process exit: the server dies mid-show because a usage
+ * counter could not be saved. Seen for real as a CI failure, where the store's directory was
+ * removed while a flush was still pending (`ENOENT ... store.json.tmp`).
+ *
+ * The counter is disposable — it re-seeds from the store on the next boot and over-counts at
+ * worst. Losing it must cost a log line, never the process.
+ */
+describe("QuotaTracker persistence failures", () => {
+  /** A store whose write always fails, the way a full disk or a vanished directory does. */
+  function failingStore(): JsonStore {
+    const state = { quota: { date: pacificDate(), used: 0 } } as Store;
+    return {
+      get: () => state,
+      update: async () => {
+        throw Object.assign(new Error("ENOENT: no such file or directory"), { code: "ENOENT" });
+      },
+    } as unknown as JsonStore;
+  }
+
+  it("survives a failed write-through instead of taking the process down with it", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (err: unknown) => unhandled.push(err);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const logger = new Logger();
+      const t = new QuotaTracker(failingStore(), 10000, undefined, logger);
+      t.init();
+      t.record(QUOTA_COST.write);
+
+      // Past the debounce, then far enough into the microtask queue for the rejection to land.
+      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setImmediate(r));
+
+      expect(unhandled).toEqual([]);
+      const [entry] = logger.list();
+      expect(entry?.code).toBe("QUOTA_PERSIST_FAILED");
+      expect(entry?.level).toBe("warn");
+      expect(entry?.message).toContain("ENOENT");
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+});
