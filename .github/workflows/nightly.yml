@@ -175,7 +175,12 @@ jobs:
             echo "Nightly build from \`${GITHUB_SHA::7}\`. Unstable — for testing ahead of the next release."
             echo
             echo "Commits since ${last_tag:-the beginning}:"
-            git log "${last_tag:+$last_tag..}HEAD" --pretty="- %s" | head -50
+            # -n rather than `| head -50`: GitHub runs these steps with `-o pipefail`, so
+            # once head has its 50 lines and closes the pipe, git dies of SIGPIPE and the
+            # step fails with 141 — but only when the list is longer than 50, i.e. only
+            # once a release is overdue. It sat unnoticed until 75 commits had piled up
+            # behind v2.4.1 and then failed every night.
+            git log "${last_tag:+$last_tag..}HEAD" --pretty="- %s" -n 50
           } > release-notes.md
 
       # The tag is created by the release API (GITHUB_TOKEN), which deliberately does NOT trigger
