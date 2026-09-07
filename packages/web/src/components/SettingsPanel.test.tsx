@@ -34,6 +34,7 @@ const createMachine =
   vi.fn<(name: string) => Promise<{ token: string; device: DeviceTokenSummary }>>();
 const revokeMachine = vi.fn<(id: string) => Promise<{ device: DeviceTokenSummary }>>();
 const graceOf = vi.fn<() => Promise<GraceReadout>>();
+const setEnforcing = vi.fn<(enforcing: boolean) => Promise<GraceReadout>>();
 const listAudit =
   vi.fn<(opts?: { limit?: number; notable?: boolean }) => Promise<{ entries: AuditEntry[] }>>();
 const saveCreds =
@@ -69,6 +70,7 @@ vi.mock("../api.js", () => ({
       create: (name: string) => createMachine(name),
       revoke: (id: string) => revokeMachine(id),
       grace: () => graceOf(),
+      setEnforcing: (enforcing: boolean) => setEnforcing(enforcing),
     },
     audit: { list: (opts?: { limit?: number; notable?: boolean }) => listAudit(opts) },
   },
@@ -521,6 +523,38 @@ describe("the machines section", () => {
     expect(await screen.findByText(/revoked/i)).toBeTruthy();
     // No button on a key that is already dead: one that always fails is worse than none.
     expect(screen.queryByRole("button", { name: /^revoke$/i })).toBeNull();
+  });
+
+  it("asks before requiring a key, and names what is still connecting the old way", async () => {
+    graceOf.mockResolvedValue(grace());
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    panel(true);
+
+    fireEvent.click(await screen.findByRole("button", { name: /require a key/i }));
+    // The abstract version of this warning ("anything still connecting") is not a decision an
+    // operator can make. The machine and the date are.
+    expect(confirm.mock.calls[0][0]).toMatch(/Companion\/3\.4\.0/);
+    expect(setEnforcing).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: /require a key/i }));
+    await waitFor(() => expect(setEnforcing).toHaveBeenCalledWith(true));
+    confirm.mockRestore();
+  });
+
+  it("rolls back in one click, without a dialog between the operator and a dark Stream Deck", async () => {
+    graceOf.mockResolvedValue(grace({ enforcing: true }));
+    setEnforcing.mockResolvedValue(grace({ enforcing: false }));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    panel(true);
+
+    fireEvent.click(await screen.findByRole("button", { name: /stop requiring a key/i }));
+    // Deliberately asymmetric with the flip above: the recovery is never gated on a dialog.
+    expect(confirm).not.toHaveBeenCalled();
+    await waitFor(() => expect(setEnforcing).toHaveBeenCalledWith(false));
+    // And the panel now offers the way back in, from the answer rather than a re-fetch.
+    expect(await screen.findByRole("button", { name: /^require a key$/i })).toBeTruthy();
+    confirm.mockRestore();
   });
 
   it("confirms before cutting a machine off mid-show", async () => {

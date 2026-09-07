@@ -420,6 +420,15 @@ describe("device tokens at the handshake", () => {
     expect(h.auth.grace.readout().tokenlessCount).toBe(1);
   });
 
+  it("still answers the liveness probe once enforcement is on", async () => {
+    await h.auth.grace.setEnforcing(true);
+    // Companion reads /health *before* it has a key to read it with, and on a machine whose key
+    // is wrong it is the only thing that can say the server is up rather than unreachable.
+    // Enforcement must not reach it — it is exempt from the guard entirely, not merely allowed.
+    expect(await probe(h, "/api/feedback/health")).toBe(200);
+    expect(await probe(h, "/api/feedback")).toBe(401);
+  });
+
   it("refuses a tokenless handshake once enforcement is on, and admits a token", async () => {
     const { token } = await mint();
     await h.auth.grace.setEnforcing(true);

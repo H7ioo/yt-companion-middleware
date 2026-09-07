@@ -257,6 +257,16 @@ export const api = {
       req<{ device: DeviceTokenSummary }>(`/api/dashboard/devices/${id}`, { method: "DELETE" }),
     /** Both halves of the exit condition, and the verdict that needs both of them. */
     grace: () => req<GraceReadout>("/api/dashboard/devices/grace"),
+    /**
+     * Turns the key requirement on, or back off (issue 049). The rollback is this same call with
+     * `false` — deliberately, so recovering from a flip that took the show off air is one control
+     * on this page rather than an environment variable and a restart.
+     */
+    setEnforcing: (enforcing: boolean) =>
+      req<GraceReadout>("/api/dashboard/devices/grace", {
+        method: "PUT",
+        body: JSON.stringify({ enforcing }),
+      }),
   },
   /**
    * Who did what, and when (issue 050). Admin-only on the server: the log names every account and
