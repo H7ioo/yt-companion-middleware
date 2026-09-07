@@ -2101,6 +2101,26 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+/* The switch itself (issue 049), directly under the evidence. The button carries no colour of
+   its own: the panel's left edge already says whether this is a migration in progress or a
+   finished one, and a red button here would read as "danger" on the rollback — the one press
+   that is always the safe direction. */
+.grace__switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: var(--seam-line);
+}
+.grace__switch-note {
+  flex: 1 1 200px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-faint);
+}
+
 /* ---- The audit log (issue 050) ------------------------------------------------------------ */
 
 /* Read as a tape: a fixed monospace time gutter down the left, and one row per thing a person

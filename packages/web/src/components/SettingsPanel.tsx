@@ -84,6 +84,7 @@ export function SettingsPanel({
   const [machineName, setMachineName] = useState("");
   const [freshKey, setFreshKey] = useState<{ id: string; name: string; token: string } | null>(null);
   const [grace, setGrace] = useState<GraceReadout | null>(null);
+  const [flippingGrace, setFlippingGrace] = useState(false);
   // The audit log (issue 050). Opens on the account and role changes, because those are what
   // someone comes looking for — "X changed the title" is routine, "X made Y an admin" is not.
   const [auditEntries, setAuditEntries] = useState<AuditEntry[] | null>(null);
@@ -198,6 +199,56 @@ export function SettingsPanel({
       flash((e as Error).message, "err");
     } finally {
       await loadMachines();
+    }
+  };
+
+  /**
+   * Turns the key requirement on, or rolls it back (issue 049).
+   *
+   * Confirmed in one direction only, and that asymmetry is the design. Turning it *on* is the
+   * move that can take the Stream Deck off air mid-show, so it names what is still connecting
+   * before it happens. Turning it *off* is the recovery from exactly that, and a confirm step
+   * between an operator and a dark Stream Deck at 8pm is a dialog nobody reads — it is one click,
+   * deliberately.
+   */
+  const setEnforcing = async (enforcing: boolean) => {
+    if (enforcing) {
+      // Names the last machine seen connecting without a key, because "anything still connecting
+      // the old way" is abstract and "the Companion machine, on Tuesday" is a decision.
+      const stillOut =
+        grace?.lastTokenlessAt && grace.lastTokenlessClient
+          ? `${grace.lastTokenlessClient} last connected without one on ${formatDay(grace.lastTokenlessAt)}. It`
+          : "Anything still connecting without one";
+      if (
+        !window.confirm(
+          `Require a key on every Companion connection? ${stillOut} stops working at once.`,
+        )
+      ) {
+        return;
+      }
+    }
+    setFlippingGrace(true);
+    try {
+      setGrace(await api.machines.setEnforcing(enforcing));
+      flash(
+        enforcing
+          ? "A key is now required on every Companion connection"
+          : "Key requirement off — connections without a key are accepted again",
+      );
+    } catch (e) {
+      flash((e as Error).message, "err");
+      // The switch is the one control whose displayed state must match the server's. On a failed
+      // flip, re-read rather than leave the button showing what was asked for — but keep the
+      // readout that is already on screen if that re-read also fails. `loadMachines()` clears the
+      // card on failure, which is right on first load (nothing to show) and wrong here: it would
+      // take the rollback button off the screen at the exact moment an operator needs it, leaving
+      // a page reload as the only way back.
+      await api.machines
+        .grace()
+        .then(setGrace)
+        .catch(() => {});
+    } finally {
+      setFlippingGrace(false);
     }
   };
 
@@ -865,6 +916,23 @@ export function SettingsPanel({
                   {grace.tokenlessCount} in total
                 </p>
               ) : null}
+              {/* The switch sits under the evidence it is read from, not in a settings list
+                  somewhere else: the decision and the two gauges are the same glance. */}
+              <div className="grace__switch">
+                <button
+                  className={`btn btn--sm${grace.enforcing ? " btn--ghost" : ""}`}
+                  type="button"
+                  disabled={flippingGrace}
+                  onClick={() => void setEnforcing(!grace.enforcing)}
+                >
+                  {grace.enforcing ? "Stop requiring a key" : "Require a key"}
+                </button>
+                <span className="grace__switch-note">
+                  {grace.enforcing
+                    ? "Turning this off accepts keyless connections again, at once."
+                    : "Takes effect on the next connection. No restart."}
+                </span>
+              </div>
             </div>
           ) : null}
 

@@ -7,8 +7,10 @@ import { readBearer } from "../auth/actor.js";
 const HEARTBEAT_MS = 25000;
 
 /** A live socket, tagged with the device token that opened it (null for a session or a
- * tokenless grace-mode caller) so revocation can find it. */
-type SocketWithToken = WebSocket & { deviceTokenId?: string | null };
+ * tokenless grace-mode caller) so revocation can find it. `tokenless` is the other half: true only
+ * for a socket admitted with no credential under grace mode, so turning the key requirement on can
+ * tell it from a session's socket and cut it. */
+type SocketWithToken = WebSocket & { deviceTokenId?: string | null; tokenless?: boolean };
 
 /**
  * The upgrade table, and who may reach each entry (issue 044).
@@ -37,7 +39,9 @@ export const WS_ROUTES: ReadonlyArray<{
       "Companion-facing, exactly as /api/feedback is. Guarding the *handshake* is the point of " +
       "issue 047 — the module uses both HTTP and this socket, so checking one is checking " +
       "nothing — but the module carries no token until issue 048, so a tokenless handshake is " +
-      "still accepted and recorded while grace mode is on. Issue 049 flips it to refused.",
+      "still accepted and recorded while grace mode is on. Issue 049 put that on a switch: with " +
+      "the key requirement turned on, a tokenless handshake is refused and the sockets already " +
+      "admitted without one are dropped.",
   },
   {
     path: "/api/dashboard/ws",
@@ -78,6 +82,7 @@ export function attachStateSocket(server: Server, ctx: AppContext): WebSocketSer
       // both HTTP and this socket, so a token checked on one and not the other guards nothing.
       // Pass-through on a deployment with no accounts, exactly as `requireSession()` is.
       let deviceTokenId: string | null = null;
+      let tokenless = false;
       if (ctx.auth.required) {
         const caller = await ctx.auth.callerOfHeaders({
           cookie: req.headers.cookie,
@@ -97,6 +102,7 @@ export function attachStateSocket(server: Server, ctx: AppContext): WebSocketSer
             refuse();
             return;
           }
+          tokenless = true;
           await ctx.auth.grace.recordTokenless({
             client: req.headers["user-agent"] ?? null,
             from: req.socket.remoteAddress ?? null,
@@ -109,6 +115,7 @@ export function attachStateSocket(server: Server, ctx: AppContext): WebSocketSer
         // only takes effect on the next *request* never takes effect at all on a Companion box,
         // which opens one socket and holds it for weeks.
         (ws as SocketWithToken).deviceTokenId = deviceTokenId;
+        (ws as SocketWithToken).tokenless = tokenless;
         wss.emit("connection", ws, req);
       });
     })().catch(() => socket.destroy());
@@ -122,7 +129,20 @@ export function attachStateSocket(server: Server, ctx: AppContext): WebSocketSer
       if ((client as SocketWithToken).deviceTokenId === tokenId) client.close(4401, "revoked");
     }
   });
-  wss.on("close", stopWatching);
+  // Cut every socket admitted *without* a key the moment the key requirement is turned on
+  // (issue 049). Same reasoning as the revocation watcher above, and the same necessity: the
+  // handshake guard runs once, so a Companion box that connected keyless in July would otherwise
+  // keep streaming state for weeks after the switch, while the dashboard said it had stopped.
+  // Sockets held by a session or a device token are unaffected — they have a credential.
+  const stopWatchingGrace = ctx.auth.grace.onEnforced(() => {
+    for (const client of wss.clients) {
+      if ((client as SocketWithToken).tokenless) client.close(4401, "key required");
+    }
+  });
+  wss.on("close", () => {
+    stopWatching();
+    stopWatchingGrace();
+  });
 
   wss.on("connection", (ws: WebSocket) => {
     let lastSignature: string | null = null;

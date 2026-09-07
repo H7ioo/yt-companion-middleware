@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { JsonStore } from "../storage/jsonStore.js";
 import type { Auth } from "../auth/actor.js";
 import { AppError, toErrorBody } from "../core/errors.js";
+import { noteAudit } from "../audit/middleware.js";
 import type { Account, DeviceToken } from "../storage/schema.js";
 import type { DeviceTokenSummary } from "@app/shared";
 
@@ -19,6 +20,7 @@ import type { DeviceTokenSummary } from "@app/shared";
  */
 
 const createBody = z.object({ name: z.string().min(1).max(120) });
+const graceBody = z.object({ enforcing: z.boolean() });
 
 export interface DeviceDeps {
   store: JsonStore;
@@ -59,6 +61,40 @@ export function devicesRouter({ store, auth }: DeviceDeps): Router {
   });
 
   /**
+   * The switch itself (issue 049). A `PUT` rather than two verbs, because the operator is setting
+   * a state they can read back, not firing two different events — and the rollback has to be the
+   * same motion as the flip, reachable at 8pm on a show night without a redeploy.
+   *
+   * Deliberately *not* gated on `readout().met`. The evidence is judged by the person reading the
+   * two gauges, not by the server: a deployment can have a good reason to turn the key requirement
+   * on early, and one that has to refuse it can never roll back either. The response carries the
+   * readout so the caller sees what it just changed.
+   */
+  router.put("/grace", handler(async (req, res) => {
+    const { enforcing } = graceBody.parse(req.body);
+    // Same reasoning as minting a token below: on a deployment with no accounts the admin guard
+    // is a pass-through, so this route would be open to anyone who can reach the port — and an
+    // anonymous LAN caller could persist `enforcing: true`, which lies dormant and then locks out
+    // every Companion the moment someone claims an account. The switch answers to an admin only.
+    if (!auth.required || !auth.actorOf(req)) {
+      throw new AppError(
+        "FORBIDDEN",
+        "This deployment has no accounts yet, so there is nothing for a key requirement to check.",
+      );
+    }
+    await auth.grace.setEnforcing(enforcing);
+    // The path alone cannot say which way it went, and "changed the key requirement" in the log
+    // is the one detail an admin would come looking for. Same reason the OAuth callback notes.
+    noteAudit(req, {
+      action: enforcing
+        ? "turned the key requirement on"
+        : "turned the key requirement off",
+      notable: true,
+    });
+    res.json(auth.grace.readout());
+  }, "Say whether the key requirement is on or off."));
+
+  /**
    * Mints a token. It comes back **once**, here, and never again — the admin copies it into the
    * module's config and that is the only copy. There is no "show token" route to add later: the
    * server keeps a hash, so there is nothing to show.
@@ -80,7 +116,7 @@ export function devicesRouter({ store, auth }: DeviceDeps): Router {
       token: created.token,
       device: publicToken(created.record, store.get().accounts),
     });
-  }));
+  }, "Give the machine a name."));
 
   /**
    * Cuts one machine off. The next request it makes is refused, and its live socket is dropped —
@@ -101,7 +137,15 @@ export function devicesRouter({ store, auth }: DeviceDeps): Router {
  * nothing), any other {@link AppError} is the caller asking wrongly, and anything else is this
  * server failing — reported as a 500 rather than handing the caller the store's filesystem path.
  */
-function handler(fn: (req: Request, res: Response) => Promise<void>): RequestHandler {
+function handler(
+  fn: (req: Request, res: Response) => Promise<void>,
+  /**
+   * What to say when the body does not parse. Per-route rather than shared: this router has two
+   * write routes that fail validation for entirely different reasons, and one message for both
+   * answered a bad enforcement value with advice about naming a machine.
+   */
+  whenInvalid = "This route could not read that request.",
+): RequestHandler {
   return (req, res, next) => {
     void fn(req, res).catch((err: unknown) => {
       if (res.headersSent) {
@@ -109,9 +153,7 @@ function handler(fn: (req: Request, res: Response) => Promise<void>): RequestHan
         return;
       }
       if (err instanceof z.ZodError) {
-        res
-          .status(400)
-          .json(toErrorBody(new AppError("INVALID_REQUEST", "Give the machine a name.")));
+        res.status(400).json(toErrorBody(new AppError("INVALID_REQUEST", whenInvalid)));
         return;
       }
       if (!(err instanceof AppError)) {

@@ -225,6 +225,25 @@ describe("what gets recorded", () => {
     expect(entry.notable).toBe(false);
   });
 
+  it("says which way the key requirement was switched, not just that it was", async () => {
+    await asAdmin("/api/dashboard/devices/grace", {
+      method: "PUT",
+      body: JSON.stringify({ enforcing: true }),
+    });
+    await asAdmin("/api/dashboard/devices/grace", {
+      method: "PUT",
+      body: JSON.stringify({ enforcing: false }),
+    });
+
+    // Newest first. The path is the same both times, so a table keyed on it alone would record
+    // the rollback and the flip as the same event — and "who turned it off" is the question.
+    const [off, on] = await entries();
+    expect(off.action).toBe("turned the key requirement off");
+    expect(on.action).toBe("turned the key requirement on");
+    expect(off.notable).toBe(true);
+    expect(on.actor.name).toBe("operator");
+  });
+
   it("records a refusal, which is the entry an admin came looking for", async () => {
     const res = await call("/api/dashboard/people", {
       method: "DELETE",

@@ -56,8 +56,10 @@ export const GUARD_EXEMPTIONS: ReadonlyArray<{ mount: string; why: string }> = [
     why:
       "Companion-facing, and behind requireCompanion() rather than open: a device token is " +
       "accepted, and a tokenless caller is accepted *and recorded* only while grace mode is on " +
-      "(issue 047). The module in the field has no token field at all until issue 048, so a hard " +
-      "refusal here today is the go-dark outage PRD-15 §4 describes. Issue 049 flips the switch.",
+      "(issue 047). The module in the field had no token field until issue 048, so a hard refusal " +
+      "before that was the go-dark outage PRD-15 §4 describes. Issue 049 put the refusal on a " +
+      "switch an admin turns: this mount is exempt only while that switch is off, and the " +
+      "dashboard's two gauges say when it is safe to turn.",
   },
   {
     mount: "/api/feedback",
@@ -240,10 +242,10 @@ export function mountApiRoutes(app: Express, ctx: AppContext): void {
   });
 
   // Companion-facing endpoints, behind the grace-mode guard (issue 047). It admits a device
-  // token, admits a signed-in browser, and — while grace mode is on — admits a tokenless caller
-  // *and records it*, because the module in the field has no token field until issue 048. It is
-  // still listed in GUARD_EXEMPTIONS: a tokenless request does get through today, and that stays
-  // a stated, reviewable fact until issue 049 flips enforcement.
+  // token, admits a signed-in browser, and — while the key requirement is off — admits a tokenless
+  // caller *and records it*, because a module older than issue 048 has no token field to send. It
+  // is still listed in GUARD_EXEMPTIONS: a tokenless request gets through on a deployment that has
+  // not turned the switch on (issue 049), and that stays a stated, reviewable fact.
   const companion = ctx.auth.requireCompanion();
   app.use("/api/action", companion, actionRouter(ctx));
   app.use("/api/feedback", companion, feedbackRouter(ctx));

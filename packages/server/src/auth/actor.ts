@@ -64,6 +64,17 @@ interface WithActor extends Request {
 }
 
 /**
+ * Whether this request was admitted with no credential at all, under grace mode.
+ *
+ * Read by the long-lived responses — the SSE stream — so that turning the key requirement on can
+ * cut them. A stream admitted tokenless and then held open for weeks would otherwise outlive the
+ * switch that was supposed to end it.
+ */
+export function admittedTokenless(req: Request): boolean {
+  return (req as WithActor)[RECORDED] === true;
+}
+
+/**
  * The device token on a request, from `Authorization: Bearer …`.
  *
  * A header, not a query parameter: a token in a URL lands in every access log and proxy log

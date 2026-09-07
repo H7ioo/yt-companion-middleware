@@ -237,6 +237,90 @@ describe("grace mode", () => {
     expect(g.met).toBe(false);
   });
 
+  it("flips enforcement on from the dashboard, with no rebuild and no redeploy", async () => {
+    const token = await mint();
+    const res = await call("/devices/grace", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        cookie: await cookieFor(ADMIN.name, ADMIN.password),
+      },
+      body: JSON.stringify({ enforcing: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.enforcing).toBe(true);
+
+    // The switch is the point: the running server changes behaviour on the next request.
+    expect((await call("/action/refresh")).status).toBe(401);
+    expect(
+      (await call("/action/refresh", { headers: { authorization: `Bearer ${token}` } })).status,
+    ).toBe(200);
+  });
+
+  it("rolls back through the same control, so a dark Stream Deck is one click from working", async () => {
+    const flip = async (enforcing: boolean) =>
+      call("/devices/grace", {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          cookie: await cookieFor(ADMIN.name, ADMIN.password),
+        },
+        body: JSON.stringify({ enforcing }),
+      });
+
+    await flip(true);
+    expect((await call("/action/refresh")).status).toBe(401);
+
+    // The rollback is the same motion as the flip, which is the point: an operator who has just
+    // taken the show off air is not reading a runbook about environment variables.
+    const back = await flip(false);
+    expect(back.status).toBe(200);
+    expect(back.body.enforcing).toBe(false);
+    expect((await call("/action/refresh")).status).toBe(200);
+  });
+
+  it("refuses the flip to a user, and to a machine holding a token of its own", async () => {
+    const token = await mint();
+    const body = JSON.stringify({ enforcing: false });
+    await auth.grace.setEnforcing(true);
+
+    const asUser = await call("/devices/grace", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        cookie: await cookieFor(USER.name, USER.password),
+      },
+      body,
+    });
+    expect(asUser.status).toBe(403);
+
+    // The one that matters: a machine that could turn its own key requirement off is not a
+    // requirement at all, it is a suggestion.
+    const asMachine = await call("/devices/grace", {
+      method: "PUT",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body,
+    });
+    expect(asMachine.status).toBe(403);
+    expect(auth.grace.enforcing).toBe(true);
+  });
+
+  it("refuses a flip that does not say which way, without talking about naming a machine", async () => {
+    const res = await call("/devices/grace", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        cookie: await cookieFor(ADMIN.name, ADMIN.password),
+      },
+      body: JSON.stringify({ enforcing: "yes please" }),
+    });
+    expect(res.status).toBe(400);
+    // The router's shared validation message was written for the create route. On this one it
+    // would answer a bad switch value with advice about naming a machine.
+    expect(res.body.error.message).not.toMatch(/name/i);
+    expect(auth.grace.enforcing).toBe(false);
+  });
+
   it("refuses a tokenless caller once enforcement is on, and still admits a token", async () => {
     const token = await mint();
     await auth.grace.setEnforcing(true);

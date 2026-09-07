@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import type { AppContext } from "./context.js";
 import { buildDashboardState, changeSignature } from "../core/snapshot.js";
+import { admittedTokenless } from "../auth/actor.js";
 
 const HEARTBEAT_MS = 25000;
 
@@ -34,9 +35,18 @@ export function streamHandler(ctx: AppContext) {
     const unsubscribe = ctx.events.onChange(send);
     const heartbeat = setInterval(() => res.write(": ping\n\n"), HEARTBEAT_MS);
 
+    // A stream admitted with no key, under grace mode, is ended the moment the key requirement is
+    // turned on (issue 049). The guard runs once, at connect; without this a keyless integration
+    // that connected in July would still be reading state in September, and the switch that
+    // promised "stops working at once" would have stopped nothing that was already running.
+    const stopWatchingGrace = admittedTokenless(req)
+      ? ctx.auth.grace.onEnforced(() => res.end())
+      : null;
+
     req.on("close", () => {
       clearInterval(heartbeat);
       unsubscribe();
+      stopWatchingGrace?.();
       res.end();
     });
   };

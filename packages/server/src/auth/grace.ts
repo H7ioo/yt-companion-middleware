@@ -70,13 +70,43 @@ export class Grace {
   }
 
   /**
+   * Watchers notified when enforcement is turned **on**, so a connection admitted under grace mode
+   * can be dropped. Same shape, and the same reason, as device-token revocation: a guard that only
+   * runs at handshake time never takes effect on a Companion box, which opens one socket or one
+   * SSE stream and holds it for weeks. Without this the switch would promise "stops working at
+   * once" and mean "stops working at the next reconnect".
+   */
+  private readonly enforceWatchers = new Set<() => void>();
+
+  /** Subscribe to enforcement being turned on; returns an unsubscribe function. */
+  onEnforced(watcher: () => void): () => void {
+    this.enforceWatchers.add(watcher);
+    return () => this.enforceWatchers.delete(watcher);
+  }
+
+  /**
    * Turns enforcement on or off at runtime (issue 049). Persisted rather than read from the
    * environment, so the rollback is a click at 8pm on a show night, not a redeploy.
+   *
+   * Turning it on also announces, which is what cuts the connections already admitted without a
+   * key. Announced from here rather than from the route so no future caller of this method can
+   * flip the switch and leave the old connections running.
    */
   async setEnforcing(enforcing: boolean): Promise<void> {
+    const was = this.enforcing;
     await this.store.update((s) => {
       s.grace.enforcing = enforcing;
     });
+    if (enforcing && !was) {
+      for (const watcher of this.enforceWatchers) {
+        // One bad watcher must not stop the others from cutting their connections.
+        try {
+          watcher();
+        } catch (err) {
+          console.error("[grace] enforcement watcher failed:", err);
+        }
+      }
+    }
   }
 
   /**
