@@ -2,10 +2,17 @@ import { useState } from "react";
 import { subjectOf, type PreparedBroadcast } from "@app/shared";
 import { DeleteBroadcastDialog } from "./DeleteBroadcastDialog.js";
 import { isoToLocalInput } from "../lib/prepareForm.js";
+import { Skeleton } from "./Skeleton.js";
 
 interface Props {
   /** Everything this app has made, newest first — including what has been removed. */
   items: PreparedBroadcast[];
+  /**
+   * Whether the record has ever been read (issue 073). The panel is invisible when there is
+   * nothing to show, and "nothing to show" and "not read yet" look identical from `items` alone
+   * — which is how this list used to pop into existence with the page already settled around it.
+   */
+  record: "loading" | "ready" | "failed";
   /** The link last copied, so only that row's button says "Copied". */
   copiedUrl: string | null;
   onCopy: (url: string) => void;
@@ -27,11 +34,26 @@ interface Props {
  * stream-binding confirmation in issue 051, and a confirmation for the same reason: everyone here
  * is trusted, and what is being defended against is a mis-click.
  */
-export function PreparedList({ items, copiedUrl, onCopy, onDelete }: Props) {
+export function PreparedList({ items, record, copiedUrl, onCopy, onDelete }: Props) {
   const [asking, setAsking] = useState<PreparedBroadcast | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    if (record === "loading")
+      return (
+        <div className="prep__earlier">
+          <span className="eyebrow">Made here</span>
+          <Skeleton variant="prepared" label="Reading what this app has made…" rows={2} />
+        </div>
+      );
+    if (record === "failed")
+      return (
+        <p className="prep__cost">
+          Could not read what this app has made. The form still works; reload to try again.
+        </p>
+      );
+    return null;
+  }
 
   const confirm = async (record: PreparedBroadcast) => {
     setAsking(null);

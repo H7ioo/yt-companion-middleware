@@ -21,6 +21,12 @@ export interface DashboardContext {
   /** Live state from the SSE stream, or null until the first frame lands. */
   state: DashboardState | null;
   presets: Preset[];
+  /**
+   * Where the preset library stands (issue 073). An empty array is both "no presets yet" and
+   * "not read yet", and the page says opposite things about them: one is an invitation to make
+   * the first one, the other is a panel that has not been filled in.
+   */
+  presetsRead: "loading" | "ready" | "failed";
   categories: Category[];
   streams: StreamInfo[];
   settings: DefaultSettings;

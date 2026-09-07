@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { buildFillUrl } from "../lib/fillRoute.js";
+import { Skeleton } from "../components/Skeleton.js";
 import { useDashboard } from "./context.js";
 
 const PRIVACY_PILL: Record<string, string> = {
@@ -18,6 +19,7 @@ const PRIVACY_PILL: Record<string, string> = {
 export function PresetsPage() {
   const {
     presets,
+    presetsRead,
     state,
     apiEnabled,
     defaultCategoryLabel,
@@ -70,7 +72,13 @@ export function PresetsPage() {
         </div>
       </div>
       <div className="panel__body">
-        {presets.length === 0 ? (
+        {presets.length === 0 && presetsRead === "loading" ? (
+          <Skeleton variant="cards" label="Reading the presets…" rows={3} />
+        ) : presets.length === 0 && presetsRead === "failed" ? (
+          <p className="empty">
+            Could not read the presets. Reload the page to try again — nothing has been lost.
+          </p>
+        ) : presets.length === 0 ? (
           <p className="empty">
             No presets yet. Create one to map it to a Stream Deck button.
           </p>

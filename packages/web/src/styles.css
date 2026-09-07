@@ -3179,3 +3179,80 @@ textarea {
   gap: 10px;
   margin-left: auto;
 }
+
+/* ---- Skeletons on first paint (issue 073) -------------------------------- */
+/* A panel that has never held data reserves the space its rows will take, in their shape. The
+   bars borrow the real row's own classes for geometry, so this section only has to say what a
+   line of text-not-yet-here looks like.
+
+   No shimmer sweeping left to right: that is a gloss from a lighter, glossier idiom, and this
+   rack has no gradients in it anywhere else. The rack's own idiom is the lamp — a slow breath on
+   opacity, exactly the `pulse` the tally lamp uses — so the stack of bars breathes instead,
+   staggered down the rows so it reads as instruments warming up rather than one flat blink. */
+.skel__bar {
+  display: block;
+  max-width: 100%;
+  border-radius: 3px;
+  background: var(--seam-bright);
+  animation: skel-breathe 1.9s ease-in-out infinite;
+}
+/* The height is one line box of whatever it stands in — a hidden space, not a number — so a bar
+   in the 14px title line and one in the 12.5px facts line each match the line they replace, and
+   go on matching it when the type scale moves. */
+.skel__bar::before {
+  content: "\00a0";
+  visibility: hidden;
+}
+.skel__bar--title {
+  background: var(--seam-bright);
+}
+.skel__bar--quiet {
+  background: var(--seam);
+}
+/* Down the stack, not all at once. */
+.skel__row:nth-child(2) .skel__bar {
+  animation-delay: 0.09s;
+}
+.skel__row:nth-child(3) .skel__bar {
+  animation-delay: 0.18s;
+}
+.skel__row:nth-child(4) .skel__bar {
+  animation-delay: 0.27s;
+}
+/* The facts line's drawn interpunct has nothing to separate here. */
+.skel .rundown__facts > span + span::before {
+  content: none;
+}
+.skel .prep__item-when {
+  display: block;
+}
+.skel .card__meta,
+.skel .card__actions {
+  display: flex;
+  gap: 8px;
+}
+@keyframes skel-breathe {
+  50% {
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skel__bar {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+/* Said to a screen reader, shown to nobody: the loading announcement each skeleton carries once,
+   in place of bars that have nothing to read out. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

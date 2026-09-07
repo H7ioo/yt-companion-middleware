@@ -38,7 +38,16 @@ afterEach(() => {
 });
 
 const renderList = (items: PreparedBroadcast[]) =>
-  render(<PreparedList items={items} copiedUrl={null} onCopy={onCopy} onDelete={onDelete} />);
+  render(
+    <PreparedList
+      items={items}
+      // Read: these tests are about the record, not about waiting for it (issue 073).
+      record="ready"
+      copiedUrl={null}
+      onCopy={onCopy}
+      onDelete={onDelete}
+    />,
+  );
 
 describe("PreparedList (issue 064)", () => {
   it("shows nothing at all when this app has made nothing", () => {

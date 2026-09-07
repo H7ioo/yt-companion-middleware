@@ -13,6 +13,7 @@ import { watchUrl } from "../lib/watch.js";
 import { useCopied } from "../lib/useCopied.js";
 import { DeleteBroadcastDialog } from "./DeleteBroadcastDialog.js";
 import { EditBroadcastModal } from "./EditBroadcastModal.js";
+import { Skeleton } from "./Skeleton.js";
 
 interface Props {
   /**
@@ -107,6 +108,13 @@ export function BroadcastList({
   const known = apiEnabled !== null;
   const [listing, setListing] = useState<BroadcastListing | null>(cached);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Whether a read has ever finished here, however it finished. The skeleton's condition, and
+   * deliberately not derived from `error`: a failed first read leaves the panel with no listing,
+   * and clearing that error later — picking a target, closing a dialog — would otherwise take the
+   * whole panel back to a skeleton that animates forever with no read in flight.
+   */
+  const [settled, setSettled] = useState(cached !== null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   // The link last copied, so exactly one row says "Copied" — two rows claiming it is a lie about
@@ -140,6 +148,7 @@ export function BroadcastList({
       );
     } finally {
       setLoading(false);
+      setSettled(true);
     }
   }
 
@@ -223,6 +232,11 @@ export function BroadcastList({
   }, [apiEnabled, listing]);
 
   const warning = listing ? disagreement(listing, pin) : null;
+  /**
+   * Nothing has ever arrived in this panel and no read has come back yet — the one state a
+   * skeleton belongs in. Not `loading`: a Refresh is also loading, and it keeps its rows.
+   */
+  const firstPaint = !listing && !settled;
 
   return (
     <section className="panel">
@@ -283,9 +297,7 @@ export function BroadcastList({
               <p className={`rundown__verdict rundown__verdict--${verdictTone(listing)}`}>
                 {listing.verdict}
               </p>
-            ) : error ? null : (
-              <p className="patch__empty">Reading the channel…</p>
-            )}
+            ) : null}
 
             {/* Exactly one sentence about where actions land: the specific warning when the
                 pin and the airing marker disagree, the general on-air lede otherwise. Two at
@@ -316,6 +328,14 @@ export function BroadcastList({
               </p>
             ) : null}
 
+            {/* The list has never been read: grey bars in the shape of the rows, and the
+                verdict line above them, rather than a sentence where the answer will be. The
+                radio group waits with them — a "choose automatically" row on its own, above
+                nothing, reads as the whole answer (issue 073). */}
+            {firstPaint ? (
+              <Skeleton variant="rundown" label="Reading the channel…" rows={3} />
+            ) : (
+            <>
             {/* Rendered whether or not the listing could be read: when the read fails, the pin
                 is still in force and clearing it is the only way out, so the group must not
                 depend on the API answering (issue 072). */}
@@ -375,6 +395,8 @@ export function BroadcastList({
                 {manage ? "Prepare one on the Schedule page, or go live." : "Schedule one in YouTube Studio, or go live."}
               </p>
             ) : null}
+            </>
+            )}
           </>
         )}
       </div>

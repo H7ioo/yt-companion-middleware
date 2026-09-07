@@ -151,6 +151,66 @@ describe("BroadcastList", () => {
     await waitFor(() => expect(screen.getByText("Waiting for the connection…")).toBeTruthy());
     expect(list).not.toHaveBeenCalled();
   });
+  it("stands skeleton rows in for the list it has never read, and announces the wait once", async () => {
+    let settle!: (listing: BroadcastListing) => void;
+    list.mockReturnValue(new Promise<BroadcastListing>((resolve) => (settle = resolve)));
+    const { container } = render(<BroadcastList apiEnabled pin={null} onPinned={() => {}} />);
+
+    await waitFor(() => expect(container.querySelectorAll(".skel__row").length).toBe(3));
+    // Said once, for the panel — not once per grey bar, and not in the status region the
+    // panel keeps for what actually happened.
+    const said = screen.getAllByText("Reading the channel…");
+    expect(said).toHaveLength(1);
+    expect(said[0].getAttribute("aria-live")).toBe("polite");
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(container.querySelector(".skel")?.getAttribute("aria-hidden")).toBe("true");
+
+    settle(listing({ verdict: "Nothing will air on its own." }));
+
+    expect(await screen.findByText("Nothing will air on its own.")).toBeTruthy();
+    expect(container.querySelector(".skel__row")).toBeNull();
+  });
+
+  it("keeps the rows it already has when the operator refreshes", async () => {
+    list.mockResolvedValue(listing({ entries: [entry({ title: "Tonight" })] }));
+    const { container } = render(<BroadcastList apiEnabled pin={null} onPinned={() => {}} />);
+    await screen.findByText("Tonight");
+
+    // Replacing good rows with grey bars on every press is worse than the flash it prevents,
+    // and this list costs quota to read.
+    let settle!: (listing: BroadcastListing) => void;
+    list.mockReturnValue(new Promise<BroadcastListing>((resolve) => (settle = resolve)));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh list" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reading…" })).toBeTruthy());
+    expect(container.querySelector(".skel__row")).toBeNull();
+    expect(screen.getByText("Tonight")).toBeTruthy();
+    settle(listing({ entries: [entry({ title: "Tonight" })] }));
+  });
+
+  it("replaces the skeleton with the failure, rather than leaving it animating", async () => {
+    list.mockRejectedValue(new Error("YouTube said no."));
+    const { container } = render(<BroadcastList apiEnabled pin={null} onPinned={() => {}} />);
+
+    expect(await screen.findByText("YouTube said no.")).toBeTruthy();
+    expect(container.querySelector(".skel__row")).toBeNull();
+  });
+
+  it("does not fall back to a skeleton when a later press clears the failure", async () => {
+    // The escape hatch issue 072 kept independent of the API answering. Clearing the error —
+    // choosing automatically, opening a dialog — used to take the panel back to first paint,
+    // hiding the radio group behind a skeleton that animated forever with no read in flight.
+    list.mockRejectedValue(new Error("YouTube said no."));
+    const { container } = render(<BroadcastList apiEnabled pin={null} onPinned={() => {}} />);
+    expect(await screen.findByText("YouTube said no.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("radio", { name: /choose automatically/i }));
+
+    await waitFor(() => expect(pin).toHaveBeenCalledWith(null, null));
+    expect(container.querySelector(".skel__row")).toBeNull();
+    expect(screen.getAllByRole("radio").length).toBeGreaterThan(0);
+  });
+
   it("pins the broadcast the operator picks, so actions land on it", async () => {
     list.mockResolvedValue(
       listing({

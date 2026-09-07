@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type LogEntry, type LogCategory } from "../api.js";
 import { reconcileEntries } from "../lib/logFeed.js";
+import { Skeleton } from "./Skeleton.js";
 
 /** Poll cadence for the activity feed — brisk enough to feel live, cheap on a LAN box. */
 const POLL_MS = 4000;
@@ -27,6 +28,12 @@ export function ActivityPanel() {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [failed, setFailed] = useState(false);
+  /**
+   * Whether the feed has ever answered (issue 073). An empty ring buffer and an unread one look
+   * the same from `entries`, and the panel says quite different things about them: one is
+   * "nothing has happened yet", the other is "we have not asked yet".
+   */
+  const [read, setRead] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -40,6 +47,7 @@ export function ActivityPanel() {
           // comparison reads current state without adding `entries` to the effect deps.
           setEntries((prev) => reconcileEntries(prev, rows));
           setFailed(false);
+          setRead(true);
         })
         .catch(() => active && setFailed(true));
     void tick();
@@ -86,7 +94,11 @@ export function ActivityPanel() {
         </div>
       </div>
       <div className="panel__body">
-        {failed && entries.length === 0 ? (
+        {!read && !failed ? (
+          // Four rows: enough that the panel reserves the height it will actually take, few
+          // enough that the page does not lurch when a quiet feed comes back with two.
+          <Skeleton variant="log" label="Reading the activity feed…" rows={4} />
+        ) : failed && entries.length === 0 ? (
           <p className="empty" style={{ marginTop: 0 }}>
             Couldn’t reach the activity feed. It’ll reappear once the connection is back.
           </p>
