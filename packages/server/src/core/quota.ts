@@ -120,9 +120,22 @@ export class QuotaTracker {
     this.persistTimer = setTimeout(() => {
       this.persistTimer = null;
       const { date, used } = this;
-      void this.store.update((s) => {
-        s.quota = { date, used };
-      });
+      // Nobody awaits this — the call that moved the counter returned 250ms ago — so an
+      // unhandled rejection here is a process exit, i.e. the server dying mid-show because a
+      // usage counter could not be saved. The counter is disposable: it re-seeds from the store
+      // on the next boot and over-counts at worst. Log it and keep serving.
+      this.store
+        .update((s) => {
+          s.quota = { date, used };
+        })
+        .catch((err: unknown) => {
+          this.logger?.push({
+            level: "warn",
+            category: "quota",
+            code: "QUOTA_PERSIST_FAILED",
+            message: `Could not save the quota counter: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        });
     }, 250);
     // Don't keep the process alive just to flush the counter.
     this.persistTimer.unref?.();
